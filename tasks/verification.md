@@ -1,5 +1,18 @@
 # Candidate verification
 
+## Current repository-distribution candidate
+
+This follow-up adds repository tar packaging and distribution documentation only. Runtime PHP and the plugin manifest remain byte-for-byte unchanged from the reviewed source at `a3b54f9`.
+
+- Lead independently ran the four Python packaging tests: all passed, exit 0.
+- Lead independently ran `tests/repository_tar_check.py` in WSL against the actual `dist/mind_poisoning.tar.gz`: GNU tar 1.34, the installed installer's `xvfz` and `--strip-components=1` flags, seven source-identical files, project-local scratch cleaned, exit 0. This proves extraction layout, not remote download, the full PHP installer or plugin runtime execution.
+- Lead verified both archives against current source. The tarball is 15,193 bytes, SHA-256 `0fd8eaf99fbb6aa40fae0a3f803dbbef41359b9ed55a8ea8debf7ee24d2ee569`. The rebuilt `.dwpkg` is 67,519 bytes, SHA-256 `e4412e96748ed52f5c9c80e1f38657b029b2d6cde3a78737ef34a349794c8c5f`.
+- The revised installed README changes the `.dwpkg` bytes; the earlier hash below is historical, superseded by this local candidate. Prior real schema-4 manager evidence remains scoped to that earlier archive. The schema-4 builder and runtime implementation were not changed.
+- The catalog JSON uses a dedicated development-candidate channel and explicit per-plugin tag URLs, with `archive_strip_components=1`. Repository name is still required: `REPOSITORY_NAME` is an intentional, visible placeholder. No GitHub publication, catalog submission, installation or pin advancement occurred.
+- Shared-repository limit found during final call-path review: installed `ui/server_plugins.php:368-379` returns the first catalog entry whose `git_repo` OR package name matches. With two entries from the same repository, an earlier repository match can select the wrong plugin. First-entry Mind Poisoning is unaffected; before listing a second plugin from this repository, upstream matching must prefer exact plugin identity. Explicit release URLs do not fix this separate lookup problem. No core patch was made.
+
+Detailed deterministic build/extraction evidence: `tasks/repository-package-report.md`. Catalog/docs evidence: `tasks/repository-docs-report.md`. The remaining live-runtime limitations below still apply.
+
 ## Scope
 
 Source and candidate artifacts live only in `K:\ActorwrightExchange\projects\CHIM-MindPoisoning`. Inspected server reference: `cf5030f15781637498be86debe26fcf102f5690d`. The installed WSL server and `F:\EldergleamNext\mods\CHIM Beta` were not modified. No deployment pin is advanced.

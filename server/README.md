@@ -1,6 +1,6 @@
 # CHIM Mind Poisoning
 
-Version 0.1.0 development candidate. Lead review accepted the runtime source, fixture checks, and read-only SQL planning. Live PostgreSQL writes/concurrency, provider behavior, and in-game behavior remain unverified. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; it is not a deployment pin.
+Version 0.1.0 development candidate. Live PostgreSQL writes/concurrency, provider behavior, and in-game behavior remain unverified. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; it is not a deployment pin.
 
 ## Behavior and gates
 
@@ -18,6 +18,6 @@ The exact-event ledger keeps up to 128 IDs and advances a numeric floor as old e
 
 Some upstream relationship writers do not take the shared advisory lock and can overwrite an update later. Removing the plugin prevents future evaluations; it does not remove or reverse stored affinity values.
 
-## Package
+## Package status
 
-For an isolated test instance, the server needs the schema-4 plugin package manager and PHP `ZipArchive`. Build with `python scripts/package.py` and upload `dist/mind_poisoning-0.1.0.dwpkg` through that manager. No installation or production deployment was performed. The extension adds no dependencies, migrations, or daemon. Runtime fixture evidence is in `tasks/runtime-report.md`; fixture checks do not prove live PostgreSQL writes/concurrency, provider, or in-game behavior.
+This remains a `development_candidate`; live PostgreSQL writes/concurrency, provider behavior, and in-game behavior are not verified. CHIM's catalog/Plugin Manager installs its repository `.tar.gz` with GNU `tar`. The plugin adds no runtime dependencies, migrations, or daemon.

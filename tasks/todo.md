@@ -1,5 +1,27 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Repository distribution follow-up
+
+User approved preparing CHIM Plugin Manager distribution. The user's GitHub repository will be a home for multiple CHIM plugins; Mind Poisoning is the first. Account verified as `Francisco-boop-001`; repository name awaits clarification. No remote is configured. Source starts clean at `a3b54f9`; the accepted schema-4 archive and its evidence already exist and require no reimplementation. Installed distro and F: remain read-only.
+
+- [x] Inspect working tree, package builder, installer/catalog source, prior checks and repository destination.
+- [x] Packaging owner: add the repository tarball using the existing seven-file payload allowlist; preserve the existing schema-4 path. Verify deterministic output, source-byte identity, and the installed legacy installer's strip-one layout in scratch storage.
+- [x] Documentation owner: prepare the shared repository introduction, per-plugin catalog entry and prerelease instructions. Use explicit per-plugin manifest/asset URLs so another plugin's release cannot become this plugin's update.
+- [x] Lead: review changed call paths, tests and actual archives; resolve defects with original owners and complete evidence for the local commit.
+- [x] Record exact external handoff status. Publication/catalog submission and live runtime acceptance are separate from local package acceptance.
+
+Ownership: packaging owns `scripts/package.py`, `tests/test_package.py`, an optional focused tar extraction check, and `tasks/repository-package-report.md`. Influence owns root `README.md`, `server/README.md`, catalog/distribution documentation and `tasks/repository-docs-report.md`. Runtime PHP and payload manifest remain unchanged. Lead owns this ledger and lessons. Workers share the workspace and must preserve others' edits. Final archive build waits for documentation freeze.
+
+### Follow-up review
+
+Lead reviewed builder, test and extraction-harness changes, catalog schema against the installed loader, and both READMEs. Returned incorrect tar schema metadata, leftover schema-4 prerequisites and installed README source-only links to their original owners; corrected. Actual GNU tar extraction found epoch-zero timestamps incompatible with project DrvFs; fixed member timestamps at 1980-01-01 preserve reproducibility and pass the same extraction check.
+
+Fresh lead checks: all four packaging tests passed; actual candidate extraction with GNU tar 1.34 and `--strip-components=1` passed with seven byte-identical files and scratch cleanup; both artifact validators matched current source. Runtime PHP and `server/manifest.json` have no diff, so no unchanged runtime suite was repeated. Evidence and hashes: `tasks/repository-package-report.md` and `tasks/verification.md`.
+
+External handoff remains pending the exact repository name/URL. The connected account is `Francisco-boop-001`; no matching CHIM repository was found among accessible repositories. Catalog URLs intentionally contain `REPOSITORY_NAME` and must not be submitted as-is. No repository was created, source pushed, release/tag published, catalog submitted, or deployment pin advanced. The repository introduction explicitly identifies this as the user's future home for CHIM plugins, with Mind Poisoning first.
+
+Future second-plugin constraint: the installed Plugin Manager matches the first catalog entry with the same repository OR package name. It needs an upstream exact-identity-first lookup before a second entry shares this repository. This does not block the first plugin or shared source hosting. Documented in the README and verification evidence; no speculative core fix or protected-tree modification was made.
+
 ## Scope and starting evidence
 
 - User authorized plugin development and independent gpt-6-luna / max agents; lead reviews and coordinates without writing product code.

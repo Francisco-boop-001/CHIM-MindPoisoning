@@ -1,5 +1,6 @@
 import json
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,15 @@ from zipfile import ZIP_STORED, ZipFile
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT))
 
-from scripts.package import SERVER_FILES, PackageError, build_package, verify_archive
+from scripts.package import (
+    SERVER_FILES,
+    REPOSITORY_TAR_MTIME,
+    PackageError,
+    build_package,
+    build_repository_archive,
+    verify_archive,
+    verify_repository_archive,
+)
 
 FIXTURE_NAME = "mind_poisoning"
 
@@ -88,6 +97,39 @@ class PackageTests(unittest.TestCase):
 
         with self.assertRaisesRegex(PackageError, "checksum"):
             verify_archive(tampered_path, self.source)
+
+    def test_repository_tar_is_deterministic_and_contains_only_regular_payload_files(self) -> None:
+        write_fixture_project(self.source, extra_files=True)
+        first = self.root / "first.tar.gz"
+        second = self.root / "second.tar.gz"
+
+        build_repository_archive(self.source, first)
+        build_repository_archive(self.source, second)
+
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        self.assertEqual(int.from_bytes(first.read_bytes()[4:8], "little"), 0)
+        self.assertEqual(
+            verify_repository_archive(first, self.source),
+            {
+                "name": FIXTURE_NAME,
+                "version": "0.1.0",
+                "description": "Package fixture",
+            },
+        )
+        expected_names = [FIXTURE_NAME] + [
+            f"{FIXTURE_NAME}/{name}" for name in SERVER_FILES
+        ]
+        with tarfile.open(first, "r:gz") as archive:
+            members = archive.getmembers()
+            self.assertEqual([member.name for member in members], expected_names)
+            self.assertTrue(members[0].isdir())
+            self.assertEqual(members[0].type, tarfile.DIRTYPE)
+            self.assertEqual(members[0].mtime, REPOSITORY_TAR_MTIME)
+            for name, member in zip(SERVER_FILES, members[1:], strict=True):
+                self.assertEqual(member.type, tarfile.REGTYPE)
+                self.assertEqual(member.mtime, REPOSITORY_TAR_MTIME)
+                with archive.extractfile(member) as contents:
+                    self.assertEqual(contents.read(), (self.source / "server" / name).read_bytes())
 
 
 def emit_manager_fixture() -> Path:

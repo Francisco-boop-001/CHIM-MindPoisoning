@@ -1,12 +1,16 @@
-"""Build and verify the project-local schema-4 CHIM plugin package."""
+"""Build and verify deterministic CHIM plugin distribution packages."""
 
 from __future__ import annotations
 
+import argparse
+import gzip
 import hashlib
+import io
 import json
 import os
 import re
 import stat
+import tarfile
 import tempfile
 from pathlib import Path
 from zipfile import ZIP_STORED, BadZipFile, ZipFile, ZipInfo
@@ -25,6 +29,8 @@ SERVER_FILES = (
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 _VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")
 _CHECKSUM = re.compile(r"^([a-f0-9]{64})  (.+)$")
+# DrvFs rejects extraction when tar members carry the Unix epoch timestamp.
+REPOSITORY_TAR_MTIME = 315532800  # 1980-01-01 UTC
 
 
 class PackageError(ValueError):
@@ -153,11 +159,119 @@ def build_package(project_root: Path, archive_path: Path) -> dict:
     return manifest
 
 
+def verify_repository_archive(archive_path: Path, project_root: Path) -> dict:
+    _, entries = _read_entries(Path(project_root))
+    inner_manifest = json.loads(entries["server/manifest.json"])
+    package_name = inner_manifest["name"]
+    expected = {
+        f"{package_name}/{name}": entries[f"server/{name}"] for name in SERVER_FILES
+    }
+    expected_names = [package_name, *expected]
+
+    try:
+        with tarfile.open(archive_path, "r:gz") as archive:
+            members = archive.getmembers()
+            if [member.name for member in members] != expected_names:
+                raise PackageError("Repository archive member list does not match the explicit allowlist")
+            root_member = members[0]
+            if root_member.type != tarfile.DIRTYPE or root_member.size != 0:
+                raise PackageError("Repository archive root must be a directory")
+            if (
+                root_member.mode != 0o755
+                or root_member.mtime != REPOSITORY_TAR_MTIME
+                or root_member.uid != 0
+                or root_member.gid != 0
+            ):
+                raise PackageError("Repository archive root metadata is not deterministic")
+            for member, (name, contents) in zip(members[1:], expected.items(), strict=True):
+                if member.type != tarfile.REGTYPE:
+                    raise PackageError(f"Repository payload is not a regular file: {member.name}")
+                if (
+                    member.mode != 0o644
+                    or member.mtime != REPOSITORY_TAR_MTIME
+                    or member.uid != 0
+                    or member.gid != 0
+                ):
+                    raise PackageError(f"Repository payload metadata is not deterministic: {member.name}")
+                if member.size != len(contents):
+                    raise PackageError(f"Repository source size mismatch: {member.name}")
+                source = archive.extractfile(member)
+                if source is None:
+                    raise PackageError(f"Could not read repository payload: {member.name}")
+                with source:
+                    if source.read() != contents:
+                        raise PackageError(f"Repository source mismatch: {member.name}")
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise PackageError(f"Could not verify repository archive: {error}") from error
+    return inner_manifest
+
+
+def build_repository_archive(project_root: Path, archive_path: Path) -> dict:
+    root = Path(project_root).resolve()
+    output = Path(archive_path).resolve()
+    try:
+        output.relative_to(root)
+    except ValueError as error:
+        raise PackageError("Package output must stay inside the project") from error
+    if output in {(root / "server" / name).resolve() for name in SERVER_FILES}:
+        raise PackageError("Package output cannot replace a server source file")
+
+    manifest, entries = _read_entries(root)
+    package_name = manifest["name"]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        with temporary.open("wb") as raw:
+            with gzip.GzipFile(
+                filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0
+            ) as compressed:
+                with tarfile.open(
+                    fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT
+                ) as archive:
+                    directory = tarfile.TarInfo(package_name)
+                    directory.type = tarfile.DIRTYPE
+                    directory.mode = 0o755
+                    directory.mtime = REPOSITORY_TAR_MTIME
+                    directory.uid = directory.gid = 0
+                    directory.uname = directory.gname = ""
+                    archive.addfile(directory)
+                    for name in SERVER_FILES:
+                        contents = entries[f"server/{name}"]
+                        member = tarfile.TarInfo(f"{package_name}/{name}")
+                        member.size = len(contents)
+                        member.mode = 0o644
+                        member.mtime = REPOSITORY_TAR_MTIME
+                        member.uid = member.gid = 0
+                        member.uname = member.gname = ""
+                        archive.addfile(member, io.BytesIO(contents))
+        verify_repository_archive(temporary, root)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return json.loads(entries["server/manifest.json"])
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--format",
+        choices=("dwpkg", "repository-tar-gz"),
+        default="dwpkg",
+        help="package format (default: dwpkg)",
+    )
+    options = parser.parse_args()
     project_root = Path(__file__).resolve().parents[1]
     inner, _ = _read_entries(project_root)
-    output = project_root / "dist" / f"{inner['name']}-{inner['version']}.dwpkg"
-    manifest = build_package(project_root, output)
+    if options.format == "repository-tar-gz":
+        output = project_root / "dist" / f"{inner['name']}.tar.gz"
+        manifest = build_repository_archive(project_root, output)
+    else:
+        output = project_root / "dist" / f"{inner['name']}-{inner['version']}.dwpkg"
+        manifest = build_package(project_root, output)
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     print(f"Built and verified {output.relative_to(project_root)} ({manifest['name']} {manifest['version']}, sha256 {digest})")
 
