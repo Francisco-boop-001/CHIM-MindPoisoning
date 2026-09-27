@@ -20,6 +20,11 @@ SCHEMA_VERSION = 4
 SERVER_FILES = (
     "AGENTS.md",
     "README.md",
+    "dashboard-art.png",
+    "dashboard.css",
+    "dashboard.php",
+    "dashboard_data.php",
+    "dashboard_view.php",
     "influence.php",
     "logging.php",
     "manifest.json",

@@ -1,5 +1,7 @@
 # Lessons
 
+- When a user rejects a UI as generic/AI-like and supplies a visual reference, treat the rejection as a design correction even if prior functionality and accessibility checks passed. Inspect the reference, rebuild the visual hierarchy around its materials and composition, use real integrated artwork when requested, and review desktop/mobile plus every explicit theme before handoff.
+
 - In cross-shell byte checks, count carriage returns with `bytes([13])`; do not infer newline corruption from a shell-escaped `\r` search. Confirm actual byte values before asking owners to normalize files.
 
 - When documenting stored model context, name every isolation boundary enforced by the code: listener, playthrough, and relevant subjects. Check the player guide against the implementation and technical guide.

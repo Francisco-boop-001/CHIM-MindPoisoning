@@ -177,6 +177,9 @@ final class RequestLog
         if (($safeFields['cleanup_failed'] ?? null) === true) {
             return 'error';
         }
+        if (($safeFields['model_outcome'] ?? null) === 'invalid') {
+            return 'warning';
+        }
         $warnings = [
             'malformed', 'invalid-payload', 'oversized', 'model-invalid', 'connector-invalid', 'rejected',
             'model_response_invalid', 'judgment_validation_failed',

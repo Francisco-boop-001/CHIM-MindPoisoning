@@ -1,7 +1,8 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.2",
-  "description": "Conservative, evidence-bound NPC listener affinity updates from acknowledged speech.",
+  "version": "0.1.3",
+  "description": "Conservative NPC listener-affinity updates from identity-checked client-reported speech, with a read-only history dashboard.",
   "status": "development_candidate",
+  "config_url": "../ext/mind_poisoning/dashboard.php",
   "server_compatibility_reference": "cf5030f15781637498be86debe26fcf102f5690d"
 }

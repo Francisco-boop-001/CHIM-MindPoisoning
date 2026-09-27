@@ -1,5 +1,42 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Plugin dashboard — 2026-09-27
+
+User approved implementation of the proposed two-tab read-only dashboard and delegated execution. Assume operator journal with player-friendly presentation. Preserve L-01 uncommitted work, critique.md, published pins and all protected installations. No core edits, database migrations, provider calls or deployment.
+
+- [x] Inspect native plugin UI/auth/data conventions read-only and freeze a minimal contract.
+- [x] Record implementation design, ownership and checks before product edits.
+- [x] Implement authenticated bounded read-only data and plugin-only exports.
+- [x] Implement accessible distinctive Interactions/Diagnostics interface with honest missing-data states.
+- [x] Integrate package allowlist and user documentation; verify both archive formats.
+- [x] Review all diffs, security/failure paths and focused checks; visually inspect browser desktop/mobile states and repair defects.
+- [x] Record evidence, known live limits and unchanged release pins.
+
+Initial independent discovery: runtime owns platform/auth report; influence owns data/provenance report; packaging owns visual design report. Implementation ownership/contracts follow evidence. All gpt-6-luna/max, Ponytail full; lead writes planning/evidence only. No dependent product tasks run concurrently before contract freeze.
+
+### Dashboard review
+
+Lead reviewed controller, data, view, CSS, manifest/allowlist and fixtures. Returned and resolved native log-prefix mismatch, overly broad event/request attribution, fabricated zero for unavailable data, bounded-read/performance gaps, Unicode/numeric display issues and preview-data contradictions. Guarded local/server-authenticated access precedes reads; forwarding headers remove loopback exemption. Actual database connection path was inspected only; isolated fixtures never connect to CHIM. Lead viewed desktop interaction/diagnostic and mobile screenshots; fresh viewport geometry shows no horizontal overflow. Native navigation/details and source-unavailable states are implemented without external assets or scripts.
+
+Lead dashboard_data_test.php and dashboard_http_test.php passed; final dashboard_data_test.php and real-module dashboard_integration_test.php passed. Packaging suite:4 passed. Both verification-only archives under dist/dashboard-check match source: tar SHA-256 e4bdfc5b896d587c87999dbc31b263ed3b927e65afbfccbd3df44ac7c0aea015 (41008 bytes), DWPkg SHA-256 b2c435138be85f4862f571c11a6539c612a78721b1dd94f205b566ee0f70d2c9 (193743 bytes). Preview/tests/review artifacts are excluded. Existing L-01 changes and user critique remain preserved. No commit/publication/install or version/compatibility/catalog pin advancement. Native database queries, deployed remote authentication and in-game behavior remain unverified.
+
+## L-01 safe failure diagnostics — 2026-09-27
+
+Scope: distinguish plugin-owned connector and judgment validation failures without exposing arbitrary exception text. Preserve gameplay, return statuses, global restoration and severity. Also soften evidence-bound description to reflect client-reported excerpt validation. No live execution, release or pin changes; critique.md preserved.
+
+- [x] Inspect published baseline, tree, previous verification and affected catches.
+- [x] Runtime owner reproduces classification loss, implements minimal trusted codes, and verifies actual emitted records plus unknown-error fallback.
+- [x] Independent owner reviews trust boundaries and reachable preflight/severity cases.
+- [x] Documentation owner corrects description and marks unreleased source changes.
+- [x] Lead reviews every diff/call path/test output, returns defects and runs focused final check.
+- [x] Record final evidence, limitations and unchanged pins.
+
+Ownership: runtime owns model/influence/hook/logger and focused fixtures; packaging owns manifest/catalog description and developer note; influence owns read-only boundary report. All use Ponytail full, gpt-6-luna/max. No dependent or overlapping implementation is parallelized. Lead writes no product code.
+
+### Review
+
+Lead reviewed all product, fixture and documentation diffs plus the independent boundary report. Returned and resolved over-specific provider attribution, unnecessary parser catch state, missing connector-unavailable coverage and missing terminal error assertion. Known plugin failures now carry allowlisted typed reason codes; unknown exceptions remain generic. Nine parser rejection classes retain warning severity and unchanged hook statuses. Lead model_test.php and runtime_test.php both exited 0 after final edits; expected injected persistence messages were observed. Manifest/catalog wording now reflects client-reported speech. No product logic outside failure diagnostics changed. No live CHIM/mod/database/provider execution, package replacement, commit, publication or pin advancement.
+
 ## Publish logging v0.1.2 — 2026-09-27
 
 User authorized commit, push and publication. Preserve critique.md and protected installation. Publish a development prerelease; compatibility reference unchanged.
@@ -215,3 +252,31 @@ No plugin pin or installation exists. The inspected server revision is a compati
 - Reopened gate resolved: owner reproduced the failure with the strengthened namespace roundtrip fixture, normalized non-list PHP arrays as JSON objects, and passed the same check. Lead reviewed the exact fix and independently reran runtime checks (exit 0). Seven payload files are LF-only. Final packaging resumed; no remaining identified source defect.
 - Final package gate passed: deterministic actual archive, source-byte verification, and installed real manager in project-local scratch roots accepted all seven payload files. Tampered archive rejected while preserving scratch state; no migration invoked. Lead independently verified the final archive against source and reviewed the final report. SHA-256: `4ab1c38bc30bd2c09876f9df47fd66853615eee33b154aade6ced3243d44b94f` (67,799 bytes).
 - Handoff: version 0.1.0 is a development candidate. Native database transaction/concurrency execution, live provider quality/latency, and in-game/save-load acceptance remain unverified. Protected installations and deployment pins are unchanged. Evidence: `tasks/verification.md` and owner reports.
+
+## Dashboard poster redesign — 2026-09-27
+
+User rejected the prior dashboard visual treatment and supplied an approved distressed Nordic print reference. Keep safe data handling and navigation, replace the generic admin styling with original whispering-adventurers poster art, a compact ledger, and explicit persistent day/night URL mode. No version or publication changes.
+
+- [x] Inspect current view, controller/theme contract, fixture preview, package allowlist, and prior visual evidence.
+- [x] Coordinate `theme=day|night` normalization and same-origin art serving with the runtime owner.
+- [x] Generate original text-free poster artwork; rebuild the selectable-title masthead and compact Interactions/Logs ledger without weakening escaping or source labels.
+- [x] Preserve tab, filters, theme, and download behavior with GET navigation; extend synthetic preview checks.
+- [x] Add artwork to package allowlist and update dashboard guide, correction lesson, and task report.
+- [x] Verify focused PHP preview/integration checks; inspect desktop/mobile day/night and tablet Logs screenshots; record exact evidence and limits. Archive consumer verification is delegated to influence.
+
+### Review
+
+Implementation and visual review complete. Preview and real-module integration checks passed. Day foreground colors were adjusted after contrast review; ratios against the data ground are recorded in `tasks/dashboard-poster-review.md`. Browser captures show the local synthetic fixture only. Archive builds/source identity remain with influence and are not claimed here; this task did not change the version, deployment pins, or installed CHIM files.
+
+## Prepare v0.1.3 release metadata and docs — 2026-09-27
+
+Prepare a development-candidate release description for the L-01 safe reason-code fixes and packaged poster dashboard. Keep compatibility reference and development-candidate status; do not state that v0.1.3 is published before the lead's release action.
+
+- [x] Check current manifest/catalog tags, compatibility reference, release-note convention, and implementation evidence.
+- [x] Update manifest/catalog version pins to v0.1.3 without changing compatibility or release status.
+- [x] Update player/operator/developer guidance and release notes; distinguish published v0.1.2 assets from the v0.1.3 candidate.
+- [x] Parse/check release metadata and review only the assigned documentation diff; leave build, tag, commit, and publication to the lead.
+
+### Review
+
+Reviewed `README.md`, player/developer/dashboard guides, contributor notes, manifest/catalog metadata, and the new `distribution/mind_poisoning-v0.1.3.md`. The compatibility reference and `development_candidate` status are preserved; historical v0.1.2 package facts remain labeled historical. Scoped JSON/diff validation passed. This task changed no source code or archive and performed no commit, tag, or publication action; the compatibility reference and deployment pin were not advanced.

@@ -861,12 +861,87 @@ same('model_request_failed', $failedModelSummary['reason'] ?? null, 'Provider fa
 same('failed', $failedModelSummary['model_outcome'] ?? null, 'Provider failures should be distinguishable from invalid output.');
 check(is_numeric($failedModelSummary['model_ms'] ?? null), 'Failed model calls should retain their elapsed duration.');
 check(!str_contains(json_encode($failedModelRecords, JSON_THROW_ON_ERROR), 'PRIVATE_EXCEPTION_SECRET'), 'Raw provider exception messages must not be logged.');
+same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'Provider failure must not mutate affinity.');
+same([], $db->history, 'Provider failure must not create a history snapshot.');
 
+foreach (['connector_api_key_missing', 'model_response_empty'] as $typedReason) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $typedModelFailureRecords = [];
+    $typedModelFailure = static function (array $messages) use ($typedReason): string {
+        throw new ChimMindPoisoning\ModelRequestFailure($typedReason);
+    };
+    same('failed', handleSpeechAck($ack, $db, $typedModelFailure, captureRequestLog($typedModelFailureRecords)), "$typedReason must preserve the failed hook status.");
+    $typedModelFailureSummary = lastRequestSummary($typedModelFailureRecords);
+    same($typedReason, $typedModelFailureSummary['reason'] ?? null, "$typedReason should survive in request_finished.");
+    same('error', $typedModelFailureSummary['level'] ?? null, "$typedReason should remain error level in request_finished.");
+    $typedModelFinished = array_values(array_filter($typedModelFailureRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
+    same(1, count($typedModelFinished), "$typedReason should emit one model_finished record.");
+    same($typedReason, $typedModelFinished[0]['reason'] ?? null, "$typedReason should survive in model_finished.");
+    same('error', $typedModelFinished[0]['level'] ?? null, "$typedReason should remain error level.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "$typedReason must not mutate affinity.");
+    same([], $db->history, "$typedReason must not create a history snapshot.");
+}
+
+resetAckLoggingInteraction();
 [$event, $subjects, $judgments, $db] = baseFixture();
-$invalidModelRecords = [];
-same('failed', handleSpeechAck($ack, $db, static fn(array $messages): string => '{', captureRequestLog($invalidModelRecords)), 'Invalid judgment output must preserve the existing failed status.');
-same('judgment_validation_failed', lastRequestSummary($invalidModelRecords)['reason'] ?? null, 'Invalid output must be distinguished from provider exceptions.');
-same('invalid', lastRequestSummary($invalidModelRecords)['model_outcome'] ?? null, 'Invalid output must not be described as validated.');
+$spoofedModelRecords = [];
+$spoofedKnownMessage = static function (array $messages): string {
+    throw new RuntimeException('Configured OpenRouter connector has no API key.', 151);
+};
+same('failed', handleSpeechAck($ack, $db, $spoofedKnownMessage, captureRequestLog($spoofedModelRecords)), 'An upstream RuntimeException must preserve the failed hook status.');
+$spoofedModelSummary = lastRequestSummary($spoofedModelRecords);
+same('model_request_failed', $spoofedModelSummary['reason'] ?? null, 'Untrusted exception text/code must not impersonate a typed connector failure.');
+$spoofedModelFinished = array_values(array_filter($spoofedModelRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
+same('model_request_failed', $spoofedModelFinished[0]['reason'] ?? null, 'Unknown model exceptions should retain only the generic safe reason.');
+check(!str_contains(json_encode($spoofedModelRecords, JSON_THROW_ON_ERROR), 'Configured OpenRouter connector has no API key.'), 'Unknown exception messages must not enter logs.');
+same([], $db->history, 'Unknown model failures must not create a history snapshot.');
+
+$parserRows = [];
+foreach ($judgments as $subject => $judgment) {
+    $parserRows[] = ['subject' => $subject] + $judgment;
+}
+$wrongSubjectRows = $parserRows;
+$wrongSubjectRows[0]['subject'] = 'npc:999';
+$wrongDeltaRows = $parserRows;
+$wrongDeltaRows[0]['delta'] = 6;
+$wrongReasonRows = $parserRows;
+$wrongReasonRows[0]['reason'] = ' ';
+$wrongEvidenceRows = $parserRows;
+$wrongEvidenceRows[0]['evidence'] = 'not in the utterance';
+$incompleteRows = array_slice($parserRows, 0, 1);
+$parserFailures = [
+    'response_too_large' => str_repeat('x', 16385),
+    'response_json_invalid' => '{',
+    'response_schema_invalid' => json_encode(['other' => []], JSON_THROW_ON_ERROR),
+    'judgment_schema_invalid' => json_encode(['judgments' => ['not-an-object']], JSON_THROW_ON_ERROR),
+    'judgment_subject_invalid' => json_encode(['judgments' => $wrongSubjectRows], JSON_THROW_ON_ERROR),
+    'judgment_delta_invalid' => json_encode(['judgments' => $wrongDeltaRows], JSON_THROW_ON_ERROR),
+    'judgment_reason_invalid' => json_encode(['judgments' => $wrongReasonRows], JSON_THROW_ON_ERROR),
+    'judgment_evidence_invalid' => json_encode(['judgments' => $wrongEvidenceRows], JSON_THROW_ON_ERROR),
+    'judgment_candidates_incomplete' => json_encode(['judgments' => $incompleteRows], JSON_THROW_ON_ERROR),
+];
+foreach ($parserFailures as $expectedReason => $invalidResponse) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $invalidModelRecords = [];
+    $modelCalls = 0;
+    same('failed', handleSpeechAck($ack, $db, static function (array $messages) use (&$modelCalls, $invalidResponse): string {
+        $modelCalls++;
+        return $invalidResponse;
+    }, captureRequestLog($invalidModelRecords)), "$expectedReason must preserve the existing failed hook status.");
+    same(1, $modelCalls, "$expectedReason must stop after one model request.");
+    $invalidModelSummary = lastRequestSummary($invalidModelRecords);
+    same($expectedReason, $invalidModelSummary['reason'] ?? null, "$expectedReason must survive in request_finished.");
+    same('invalid', $invalidModelSummary['model_outcome'] ?? null, "$expectedReason must be classified as invalid model output.");
+    same('warning', $invalidModelSummary['level'] ?? null, "$expectedReason must keep warning severity.");
+    $invalidModelFinished = array_values(array_filter($invalidModelRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
+    same(1, count($invalidModelFinished), "$expectedReason must emit one model_finished record.");
+    same($expectedReason, $invalidModelFinished[0]['reason'] ?? null, "$expectedReason must survive in model_finished.");
+    same('warning', $invalidModelFinished[0]['level'] ?? null, "$expectedReason model_finished must be warning level.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "$expectedReason must not mutate affinity.");
+    same([], $db->history, "$expectedReason must not create a history snapshot.");
+}
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $db->failSnapshot = true;

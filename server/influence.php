@@ -6,6 +6,33 @@ namespace ChimMindPoisoning;
 use InvalidArgumentException;
 use JsonException;
 use UnexpectedValueException;
+use Throwable;
+
+final class JudgmentValidationFailure extends UnexpectedValueException
+{
+    private const REASONS = [
+        'response_too_large',
+        'response_json_invalid',
+        'response_schema_invalid',
+        'judgment_schema_invalid',
+        'judgment_subject_invalid',
+        'judgment_delta_invalid',
+        'judgment_reason_invalid',
+        'judgment_evidence_invalid',
+        'judgment_candidates_incomplete',
+    ];
+
+    public readonly string $reasonCode;
+
+    public function __construct(string $reasonCode, ?Throwable $previous = null)
+    {
+        if (!in_array($reasonCode, self::REASONS, true)) {
+            throw new InvalidArgumentException('Unknown judgment validation reason.');
+        }
+        $this->reasonCode = $reasonCode;
+        parent::__construct('Judgment response validation failed.', 0, $previous);
+    }
+}
 
 function sameName(string $left, string $right): bool
 {
@@ -349,7 +376,7 @@ PROMPT;
 function parseJudgments(string $response, array $subjects, string $utterance): array
 {
     if (strlen($response) > 16384) {
-        throw new UnexpectedValueException('Response exceeds 16 KiB.');
+        throw new JudgmentValidationFailure('response_too_large');
     }
     $subjects = validatedSubjects($subjects);
     if ($subjects === []) {
@@ -365,7 +392,7 @@ function parseJudgments(string $response, array $subjects, string $utterance): a
     try {
         $decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
     } catch (JsonException $error) {
-        throw new UnexpectedValueException('Response is not valid JSON.', 0, $error);
+        throw new JudgmentValidationFailure('response_json_invalid', $error);
     }
     if (
         !is_array($decoded)
@@ -375,7 +402,7 @@ function parseJudgments(string $response, array $subjects, string $utterance): a
         || !is_array($decoded['judgments'])
         || !array_is_list($decoded['judgments'])
     ) {
-        throw new UnexpectedValueException('Response does not match the judgment schema.');
+        throw new JudgmentValidationFailure('response_schema_invalid');
     }
 
     $parsed = [];
@@ -389,7 +416,7 @@ function parseJudgments(string $response, array $subjects, string $utterance): a
             || !array_key_exists('reason', $judgment)
             || !array_key_exists('evidence', $judgment)
         ) {
-            throw new UnexpectedValueException('Judgment does not match the required schema.');
+            throw new JudgmentValidationFailure('judgment_schema_invalid');
         }
 
         $token = $judgment['subject'];
@@ -397,13 +424,13 @@ function parseJudgments(string $response, array $subjects, string $utterance): a
         $reason = $judgment['reason'];
         $evidence = $judgment['evidence'];
         if (!is_string($token) || !array_key_exists($token, $subjects) || array_key_exists($token, $parsed)) {
-            throw new UnexpectedValueException('Unknown or duplicate subject.');
+            throw new JudgmentValidationFailure('judgment_subject_invalid');
         }
         if (!is_int($delta) || $delta < -5 || $delta > 5) {
-            throw new UnexpectedValueException('Delta must be an integer from -5 through 5.');
+            throw new JudgmentValidationFailure('judgment_delta_invalid');
         }
         if (!is_string($reason) || trim($reason) === '' || strlen($reason) > 600) {
-            throw new UnexpectedValueException('Reason must be nonempty and at most 600 UTF-8 bytes.');
+            throw new JudgmentValidationFailure('judgment_reason_invalid');
         }
         if (
             !is_string($evidence)
@@ -411,12 +438,12 @@ function parseJudgments(string $response, array $subjects, string $utterance): a
             || strlen($evidence) > 600
             || !str_contains($utterance, $evidence)
         ) {
-            throw new UnexpectedValueException('Evidence must be a nonempty exact utterance excerpt of at most 600 UTF-8 bytes.');
+            throw new JudgmentValidationFailure('judgment_evidence_invalid');
         }
         $parsed[$token] = ['delta' => $delta, 'reason' => $reason, 'evidence' => $evidence];
     }
     if (count($parsed) !== count($subjects)) {
-        throw new UnexpectedValueException('Every candidate must receive exactly one judgment.');
+        throw new JudgmentValidationFailure('judgment_candidates_incomplete');
     }
 
     return $parsed;

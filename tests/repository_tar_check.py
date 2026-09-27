@@ -88,7 +88,7 @@ def main() -> None:
         print(f"PASS: {version}")
         scope = "candidate" if options.archive else "fixture"
         print(f"PASS: GNU tar xvfz with --strip-components=1 extracted the {scope} into scratch.")
-        print("PASS: extracted bytes match the seven allowlisted source files; other files are excluded.")
+        print(f"PASS: extracted bytes match the {len(SERVER_FILES)} allowlisted source files; other files are excluded.")
 
     if Path(scratch_name).exists():
         raise RuntimeError("Repository tar scratch root was not removed.")

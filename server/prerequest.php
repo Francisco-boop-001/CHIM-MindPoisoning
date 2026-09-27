@@ -350,14 +350,15 @@ function evaluateSpeechAck(
         $modelStarted = hrtime(true);
         try {
             $response = $requestModel($messages);
-        } catch (Throwable) {
+        } catch (Throwable $error) {
             $logFields['model_ms'] = RequestLog::elapsedMs($modelStarted);
             $logFields['model_outcome'] = 'failed';
-            $logFields['reason'] = 'model_request_failed';
+            $failureReason = $error instanceof ModelRequestFailure ? $error->reasonCode : 'model_request_failed';
+            $logFields['reason'] = $failureReason;
             $requestLog?->event('model_finished', 'error', [
                 'stage' => 'model',
                 'model_outcome' => 'failed',
-                'reason' => 'model_request_failed',
+                'reason' => $failureReason,
                 'model_ms' => $logFields['model_ms'],
             ]);
             return 'failed';
@@ -376,13 +377,16 @@ function evaluateSpeechAck(
         }
         try {
             $judgments = parseJudgments($response, $subjects, $event['text']);
-        } catch (Throwable) {
+        } catch (Throwable $error) {
+            $validationReason = $error instanceof JudgmentValidationFailure
+                ? $error->reasonCode
+                : 'judgment_validation_failed';
             $logFields['model_outcome'] = 'invalid';
-            $logFields['reason'] = 'judgment_validation_failed';
+            $logFields['reason'] = $validationReason;
             $requestLog?->event('model_finished', 'warning', [
                 'stage' => 'model_validation',
                 'model_outcome' => 'invalid',
-                'reason' => 'judgment_validation_failed',
+                'reason' => $validationReason,
                 'model_ms' => $logFields['model_ms'],
             ]);
             return 'failed';

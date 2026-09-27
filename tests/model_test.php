@@ -17,6 +17,7 @@ final class FixtureFastRequestDriver
     public static array $calls = [];
     public static mixed $response = '{"judgments":[]}';
     public static bool $throws = false;
+    public static ?Throwable $failure = null;
 
     public function __construct(private string $driver)
     {
@@ -37,7 +38,7 @@ final class FixtureFastRequestDriver
             $GLOBALS[$name] = 'fixture mutation: ' . $name;
         }
         if (self::$throws) {
-            throw new RuntimeException('fixture provider failure');
+            throw self::$failure ?? new RuntimeException('fixture provider failure');
         }
         return self::$response;
     }
@@ -86,14 +87,16 @@ function modelCheck(bool $condition, string $message): void
     }
 }
 
-function modelThrows(callable $call, string $message): void
+function modelReason(callable $call, string $expected, string $message): void
 {
     try {
         $call();
-    } catch (RuntimeException) {
+    } catch (RuntimeException $error) {
+        modelCheck(($error->reasonCode ?? null) === $expected, $message . ' (reason was ' . ($error->reasonCode ?? 'missing') . ')');
+        modelCheck($error->getMessage() === 'Mind Poisoning model request failed.', 'Model failure messages must not expose provider/configuration details.');
         return;
     }
-    throw new RuntimeException($message);
+    throw new RuntimeException($message . ' (no failure thrown)');
 }
 
 function seedScopedGlobals(): array
@@ -162,43 +165,43 @@ foreach ([0, -2, '0', '017', '17x', null, true, 17.0] as $invalidId) {
     $GLOBALS['RELLLM_CONNECTOR'] = $invalidId;
     setFixtureRow();
     $before = seedScopedGlobals();
-    modelThrows(fn() => requestJudgments($messages), 'Invalid configured connector id should fail.');
+    modelReason(fn() => requestJudgments($messages), 'connector_id_invalid', 'Invalid configured connector id should have a stable reason.');
     checkScopedGlobals($before);
 }
 
 $GLOBALS['RELLLM_CONNECTOR'] = 17;
 LLMConnector::$row = false;
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Missing connector row should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_not_found', 'Missing connector rows should have a stable reason.');
 checkScopedGlobals($before);
 
 setFixtureRow('unsupported');
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Unsupported driver should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_driver_unsupported', 'Unsupported drivers should have a stable reason.');
 checkScopedGlobals($before);
 
 setFixtureRow();
 LLMConnector::$row['model'] = '';
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Missing model configuration should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_config_incomplete', 'Missing model configuration should have a stable reason.');
 checkScopedGlobals($before);
 
 setFixtureRow();
 LLMConnector::$row['url'] = '';
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Missing URL configuration should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_config_incomplete', 'Missing URL configuration should have a stable reason.');
 checkScopedGlobals($before);
 
 setFixtureRow();
 LLMConnector::$row['id'] = '18';
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'A mismatched string row id should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_not_found', 'A mismatched row id should have a stable reason.');
 checkScopedGlobals($before);
 
 setFixtureRow();
 LLMConnector::$apiKey = '';
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Missing API key should fail.');
+modelReason(fn() => requestJudgments($messages), 'connector_api_key_missing', 'A missing API key should have a stable reason.');
 checkScopedGlobals($before);
 LLMConnector::$apiKey = 'fixture-key';
 
@@ -206,19 +209,35 @@ foreach (['openrouterjson', 'openrouterjsoncached'] as $driver) {
     setFixtureRow($driver);
     $before = seedScopedGlobals();
     FixtureFastRequestDriver::$throws = true;
-    modelThrows(fn() => requestJudgments($messages), "$driver provider exceptions should become RuntimeException.");
+    FixtureFastRequestDriver::$failure = new RuntimeException('Configured OpenRouter connector has no API key.', 151);
+    modelReason(fn() => requestJudgments($messages), 'model_request_failed', "$driver exceptions should remain generic even when their text mimics a known setup failure.");
     checkScopedGlobals($before);
     FixtureFastRequestDriver::$throws = false;
+    FixtureFastRequestDriver::$failure = null;
 }
 
 setFixtureRow('openrouterjsoncached');
 $before = seedScopedGlobals();
 FixtureFastRequestDriver::$response = '';
-modelThrows(fn() => requestJudgments($messages), 'Empty provider responses should fail.');
+modelReason(fn() => requestJudgments($messages), 'model_response_empty', 'Empty provider responses should have a stable reason.');
 checkScopedGlobals($before);
 FixtureFastRequestDriver::$response = false;
 $before = seedScopedGlobals();
-modelThrows(fn() => requestJudgments($messages), 'Non-string provider responses should fail.');
+modelReason(fn() => requestJudgments($messages), 'model_response_invalid_type', 'Non-string provider responses should have a stable reason.');
 checkScopedGlobals($before);
+
+$unavailableSource = '$GLOBALS["RELLLM_CONNECTOR"] = 17; $GLOBALS["ENGINE_PATH"] = ""; require '
+    . var_export(__DIR__ . '/../server/model.php', true)
+    . '; try { ChimMindPoisoning\\requestJudgments([]); } catch (RuntimeException $error) { echo $error->reasonCode ?? "missing"; exit(0); } exit(2);';
+$unavailableProcess = proc_open([PHP_BINARY, '-r', $unavailableSource], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $unavailablePipes);
+modelCheck(is_resource($unavailableProcess), 'The unavailable-connector subprocess should start.');
+fclose($unavailablePipes[0]);
+$unavailableOutput = stream_get_contents($unavailablePipes[1]);
+fclose($unavailablePipes[1]);
+$unavailableError = stream_get_contents($unavailablePipes[2]);
+fclose($unavailablePipes[2]);
+$unavailableExit = proc_close($unavailableProcess);
+modelCheck($unavailableExit === 0, 'An unavailable connector should fail safely: ' . $unavailableError);
+modelCheck($unavailableOutput === 'connector_unavailable', 'Missing connector runtime setup should have its stable reason.');
 
 echo "model adapter checks passed\n";

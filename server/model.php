@@ -6,6 +6,32 @@ namespace ChimMindPoisoning;
 use RuntimeException;
 use Throwable;
 
+final class ModelRequestFailure extends RuntimeException
+{
+    private const REASONS = [
+        'connector_id_invalid',
+        'connector_unavailable',
+        'connector_not_found',
+        'connector_driver_unsupported',
+        'connector_config_incomplete',
+        'connector_api_key_missing',
+        'model_response_empty',
+        'model_response_invalid_type',
+        'model_request_failed',
+    ];
+
+    public readonly string $reasonCode;
+
+    public function __construct(string $reasonCode, ?Throwable $previous = null)
+    {
+        if (!in_array($reasonCode, self::REASONS, true)) {
+            throw new \InvalidArgumentException('Unknown Mind Poisoning model failure reason.');
+        }
+        $this->reasonCode = $reasonCode;
+        parent::__construct('Mind Poisoning model request failed.', 0, $previous);
+    }
+}
+
 function positiveConnectorId(mixed $value): ?int
 {
     if (is_int($value)) {
@@ -36,35 +62,35 @@ function requestJudgments(array $messages): string
     try {
         $connectorId = positiveConnectorId($GLOBALS['RELLLM_CONNECTOR'] ?? null);
         if ($connectorId === null) {
-            throw new RuntimeException('RELLLM_CONNECTOR must be a positive connector id.');
+            throw new ModelRequestFailure('connector_id_invalid');
         }
 
         if (!class_exists('\\LLMConnector', false)) {
             $enginePath = $GLOBALS['ENGINE_PATH'] ?? null;
             if (!is_string($enginePath) || trim($enginePath) === '') {
-                throw new RuntimeException('LLMConnector is unavailable.');
+                throw new ModelRequestFailure('connector_unavailable');
             }
             $classFile = rtrim($enginePath, '/\\') . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'core' . DIRECTORY_SEPARATOR . 'llm_connector.class.php';
             if (!is_file($classFile)) {
-                throw new RuntimeException('LLMConnector is unavailable.');
+                throw new ModelRequestFailure('connector_unavailable');
             }
             require_once $classFile;
         }
         if (!class_exists('\\LLMConnector', false)) {
-            throw new RuntimeException('LLMConnector is unavailable.');
+            throw new ModelRequestFailure('connector_unavailable');
         }
 
         $llmConnector = new \LLMConnector();
         $row = $llmConnector->readOne($connectorId);
         if (!is_array($row) || positiveConnectorId($row['id'] ?? null) !== $connectorId) {
-            throw new RuntimeException('Configured LLM connector could not be loaded.');
+            throw new ModelRequestFailure('connector_not_found');
         }
         $driver = $row['driver'] ?? null;
         if (!is_string($driver) || !in_array($driver, ['openrouterjson', 'openrouterjsoncached'], true)) {
-            throw new RuntimeException('Configured LLM connector driver is unsupported.');
+            throw new ModelRequestFailure('connector_driver_unsupported');
         }
         if (!is_string($row['model'] ?? null) || trim($row['model']) === '' || !is_string($row['url'] ?? null) || trim($row['url']) === '') {
-            throw new RuntimeException('Configured OpenRouter connector is missing its model or URL.');
+            throw new ModelRequestFailure('connector_config_incomplete');
         }
 
         // setOldGlobals has no cached branch; seed the base config, then copy it for the cached driver.
@@ -73,7 +99,7 @@ function requestJudgments(array $messages): string
         $llmConnector->setOldGlobals($baseRow);
         $baseConfig = $GLOBALS['CONNECTOR']['openrouterjson'] ?? null;
         if (!is_array($baseConfig) || !is_string($baseConfig['API_KEY'] ?? null) || trim($baseConfig['API_KEY']) === '') {
-            throw new RuntimeException('Configured OpenRouter connector has no API key.');
+            throw new ModelRequestFailure('connector_api_key_missing');
         }
         if ($driver === 'openrouterjsoncached') {
             $GLOBALS['CONNECTOR']['openrouterjsoncached'] = $baseConfig;
@@ -83,14 +109,17 @@ function requestJudgments(array $messages): string
         $GLOBALS['HTTP_TIMEOUT'] = 12;
         $GLOBALS['FORCE_MAX_TOKENS'] = 1024;
         $response = $connector->fast_request($messages, ['MAX_TOKENS' => 1024], 'mind_poisoning');
-        if (!is_string($response) || trim($response) === '') {
-            throw new RuntimeException('Configured LLM connector returned no response.');
+        if (!is_string($response)) {
+            throw new ModelRequestFailure('model_response_invalid_type');
+        }
+        if (trim($response) === '') {
+            throw new ModelRequestFailure('model_response_empty');
         }
         return $response;
-    } catch (RuntimeException $error) {
+    } catch (ModelRequestFailure $error) {
         throw $error;
     } catch (Throwable $error) {
-        throw new RuntimeException('Judgment request failed.', 0, $error);
+        throw new ModelRequestFailure('model_request_failed', $error);
     } finally {
         foreach ($saved as $name => [$existed, $value]) {
             if ($existed) {
