@@ -1,5 +1,26 @@
 # Candidate verification
 
+## v0.1.1 publication gate — 2026-09-27
+
+User authorized commit, push and publication. Remote main verified at `0a207700dbee57d9dff49ac05c7a3c3b42b42d43`; v0.1.1 tag absent before publication. GitHub account verified as Francisco-boop-001. Fresh isolated influence/runtime fixtures both exited 0; runtime emitted the three expected injected failure logs. Product diff remains the reviewed critique fixes. Release-facing docs were reviewed and frozen, then both archives rebuilt and verified against exact source bytes. Final tar: 16,919 bytes, SHA-256 `0d996e6e4502e80a193dd222f6c9adc040f97c15bb57f3b6ddc0be9769101f40`. Final DWPkg: 75,138 bytes, SHA-256 `76a1503765e776203379ad8a7dad16f4b3241c1600f41afe783b34c263e3ea30`. These supersede the local pre-publication artifact hashes below because release documentation changed. Diff whitespace and doc link/version checks passed. Older records below describe their historical handoff state; publication evidence will be appended here after remote verification. Live DB/provider/game checks and deployment pins remain unchanged.
+
+## Historical local candidate 0.1.1 — critique fixes
+
+Source base `0a20770` plus the reviewed local changes. Fixed ACK interaction eligibility while preserving Off and generation guards before/after model evaluation; use exact-ID/actor-bound client-reported speech for subjects/evidence; reject ambiguous Player aliases before paid work for Player subjects; provide bounded relevant same-playthrough prior judgments. Earlier ledger-corruption and Player-name guards remain included. Zero-decision snapshots and synchronous execution remain unchanged.
+
+Lead reviewed all product/test/docs diffs and affected callers. Independent WSL runs of `tests/influence_test.php` and `tests/runtime_test.php` exited 0; the runtime run emitted the three existing injected failure logs. Runtime lint passed; focused failing-before/passing-after evidence is in `tasks/critique-runtime-fixes.md` and `tasks/critique-influence-fixes.md`. Separate hook review found no blocking issue. Markdown local links/fences and manifest/catalog version agreement passed. The catalog v0.1.1 URLs are planned, not published.
+
+After source/doc freeze, the existing builders produced these local candidates. Lead independently verified exact archive contents and source-byte equality with `verify_repository_archive` and `verify_archive`; all seven payload files are LF-only:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `dist/0.1.1/mind_poisoning.tar.gz` | 16,764 | `7801d8aa888494b00748de679fb062459cd96f9866a9319a03f28cbfb9029d1c` |
+| `dist/0.1.1/mind_poisoning-0.1.1.dwpkg` | 74,563 | `ff095717aa03403f4366e19312074606061c063e3c9bec741fb31f638f1273da` |
+
+No unchanged model/packaging suite or real installer/extraction run was repeated: formats/builders/consumer layout are unchanged. The earlier v0.1.0 local archives retain their published hashes. A worker's initial CR check matched a literal backslash-r instead of a carriage-return byte; the corrected check and final archive/source verification passed. No semantic source change or rebuild resulted from that false alarm.
+
+Version 0.1.1 is not committed, pushed, released, installed or catalog-listed. No deployment pin advanced. Actual client passive-header usage and ACK text origin remain unobserved; the implemented trust boundary deliberately uses CHIM's client-reported speech contract, not independent proof of hearing. Live PostgreSQL writes/concurrency, provider quality/latency and in-game/save-load acceptance remain unverified. See `tasks/critique-client-evidence.md` and `tasks/critique-package-report.md`. Historical evidence below applies to its stated earlier revisions/artifacts.
+
 ## Latest local debug fixes — 2026-09-27
 
 Starting source: `2a54ac3`. Two persistence defects were reproduced with the in-memory adapter and fixed locally: malformed present dedupe namespaces now fail closed at preflight/commit, and Player judgments reject a changed nonempty Player name between evaluation and transactional revalidation. First-use initialization, valid other-playthrough reset, and NPC-only judgments remain eligible. Lead reviewed the complete diff/callers and independently ran `tests/runtime_test.php` via WSL PHP: exit 0, `runtime store checks passed`, with the three expected injected failure logs. Worker syntax checks passed for both changed PHP files; diff whitespace check passed. Details: `tasks/debug-runtime.md`.

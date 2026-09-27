@@ -1,5 +1,38 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Publish v0.1.1 — 2026-09-27
+
+User explicitly authorized commit, push and publication. Publish a development prerelease; retain runtime limitations and compatibility/deployment pins. Keep user-owned critique.md untracked.
+
+- [x] Confirm remote main matches the reviewed baseline and the new tag does not exist.
+- [x] Update release-facing docs and review their diff.
+- [x] Run focused PHP checks; rebuild and verify final source-matching archives.
+- [ ] Commit reviewed files, push main and version tag, publish both assets.
+- [ ] Verify remote commit/tag and downloaded artifact hashes; record final review.
+
+## Critique fixes — 2026-09-27
+
+User authorized fixes following the independent critique assessment. Baseline `0a20770`; only user-owned `critique.md` is untracked and must stay untouched. Reuse this isolated plugin repository/branch. Protected WSL server and F: mod remain read-only. Prior debug fixes are complete and published; do not redo them.
+
+- [x] Inspect current source state, critique assessment and prior verification; assign independent owners.
+- [x] Runtime: reproduce/correct passive ACK eligibility while preserving Off/generation guards; move ambiguous Player-alias rejection before paid calls, retaining transactional checks.
+- [x] Client evidence: resolve ACK text/identity contract through bounded read-only source tracing; document missing client evidence without guessing.
+- [x] Runtime after policy review: correct transformed speech handling without treating undelivered logged text as heard; regression checks for valid and mismatched ACKs.
+- [x] Influence: provide bounded recent same-playthrough, relevant prior judgments to the model for repetition-aware decisions; no hard cooldown or new persisted schema.
+- [x] Lead: review all diffs and relevant output, return defects to owners; independent focused verification.
+- [x] Packaging after source freeze: prepare a new local development candidate/version and source-matching artifacts/docs using existing packaging, without changing published tags/assets or deployment pins.
+- [x] Record final evidence, remaining live-test limits and publication status.
+
+Ownership: runtime owns prerequest/store and runtime tests; influence owns pure influence module/tests; packaging initially owns `tasks/critique-client-evidence.md`, then release metadata/docs/artifact validation after freeze. Lead owns this ledger and aggregate verification, not product code. All use Ponytail full and gpt-6-luna/max; preserve others' edits.
+
+Decisions: retain history snapshots including zero changes; retain synchronous execution pending measurements; no capitalization/generic-name blacklist, weak quote-length heuristic, queue or daemon. Repetition is addressed with existing history context, not an invented anti-gossip policy. Local candidate preparation is authorized; external publication and live testing are separate steps.
+
+### Critique source review
+
+Lead reviewed both changed PHP modules, complete focused fixture diffs and their callers. MP-02 retains On plus captured/current-generation equality before and after model evaluation while allowing passive ACKs. MP-03 deliberately follows CHIM core's client-reported speech contract: exact source identity remains required, but only validated ACK text drives subjects and evidence. Client-supplied text is not independent audio proof; actual client header/echo behavior remains unobserved. MP-07 reuses the alias resolver before paid work for Player subjects and retains its transactional recheck. MP-05 sends bounded relevant prior event judgments from the same listener/playthrough; it is model guidance, not deterministic claim dedupe.
+
+Lead returned an incorrect enabled-state proposal before implementation, brittle prompt-prose assertions, and an unbounded nested-history case to their owners; all corrected. Lead independently ran the final influence and runtime PHP fixtures: exit 0. Runtime output contained the three existing injected failure logs. A separate read-only review of the hook by the influence agent found no blocking issue. Runtime/influence source and documentation are frozen. Lead verified documentation links/fences and planned v0.1.1 catalog-version agreement, returned lost contributor limits and ambiguous history-count wording, and accepted the corrected docs. Both archives under `dist/0.1.1/` independently pass their existing source-byte verifiers. Old v0.1.0 local artifacts retain their published hashes. Package report: `tasks/critique-package-report.md`. No package-builder changes or repeat installer/extraction suite were necessary. New source/artifacts are local and uncommitted; no push, release, catalog submission or deployment-pin advancement occurred. Live client, PostgreSQL/concurrency, provider and in-game checks remain pending.
+
 ## Proactive debug run — 2026-09-27
 
 Starting at clean `2a54ac3`. No failing user scenario supplied. Prior fixture, SQL planning, packaging, and publication gates are complete; do not repeat them without a concrete unresolved risk. This run targets fixture blind spots at identity/model, transaction/hook, and installed-loader boundaries. Installed distro/mod remain read-only; no provider calls, live DB mutations, publication, or pin advancement.

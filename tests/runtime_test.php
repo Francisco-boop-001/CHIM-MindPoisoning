@@ -16,7 +16,44 @@ use function ChimMindPoisoning\persistJudgments;
 
 function chimInteractionAllowed(): bool
 {
-    return $GLOBALS['runtime_test_interaction_allowed'] ?? true;
+    chimInteractionBegin();
+    $state = chimInteractionState();
+    return ($_SERVER['HTTP_X_CHIM_PASSIVE'] ?? '') !== '1'
+        && $state['enabled']
+        && $state['generation'] === $GLOBALS['chim_interaction_generation'];
+}
+
+function chimInteractionState(): array
+{
+    return [
+        'enabled' => $GLOBALS['runtime_test_interaction_allowed'] ?? true,
+        'generation' => $GLOBALS['runtime_test_interaction_generation'] ?? 1,
+    ];
+}
+
+function chimInteractionBegin(): void
+{
+    if (isset($GLOBALS['chim_interaction_generation'])) {
+        return;
+    }
+    $state = chimInteractionState();
+    $GLOBALS['chim_interaction_generation'] = isset($_SERVER['HTTP_X_CHIM_GENERATION'])
+        ? (int)$_SERVER['HTTP_X_CHIM_GENERATION']
+        : $state['generation'];
+}
+
+function resetInteractionTestRequest(int $requestGeneration, int $currentGeneration, bool $enabled, bool $passive): void
+{
+    $GLOBALS['runtime_test_interaction_generation'] = $currentGeneration;
+    $GLOBALS['runtime_test_interaction_allowed'] = $enabled;
+    $_SERVER['HTTP_X_CHIM_GENERATION'] = (string)$requestGeneration;
+    if ($passive) {
+        $_SERVER['HTTP_X_CHIM_PASSIVE'] = '1';
+    } else {
+        unset($_SERVER['HTTP_X_CHIM_PASSIVE']);
+    }
+    unset($GLOBALS['chim_interaction_generation']);
+    chimInteractionBegin();
 }
 
 function chimIsGlobalLlmConnectorEnabled(string $connectorField): bool
@@ -434,6 +471,119 @@ same(1, count($db->history), 'Composed hook should snapshot the changed listener
 same('duplicate', handleSpeechAck($ack, $db, $model), 'An acknowledged utterance should be deduped before another model call.');
 same(1, $modelCalls, 'Preflight dedupe must avoid a second model call.');
 same(1, count($db->history), 'Preflight duplicate must not create a second snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$event['text'] = 'I trust Jarl Balgruuf. The Dragonborn is brave.';
+$event['source_data'] = 'Aela: I trust Jarl Balgruuf. The Dragonborn is brave. (Talking to Lydia)';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$truncatedAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => 'I trust Jarl Balgruuf.',
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$capturedAckMessages = null;
+$ackTextModel = static function (array $messages) use (&$capturedAckMessages): string {
+    $capturedAckMessages = $messages;
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('committed', handleSpeechAck($truncatedAck, $db, $ackTextModel), 'A transformed ACK matching the exact utterance ID should not be rejected for text inequality.');
+$ackPrompt = json_decode($capturedAckMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+same('I trust Jarl Balgruuf.', $ackPrompt['utterance']['text'], 'Only the client ACK speech may be used as the judged utterance.');
+check(!array_key_exists('player', $ackPrompt['candidates']), 'Logged-only truncated tail must not add a Player candidate.');
+
+foreach ([
+    ['utterance_id', 'utt_ffffffffffffffff', 'event-unmatched'],
+    ['speaker', 'Jarl Balgruuf', 'event-mismatch'],
+    ['listener', 'Jarl Balgruuf', 'event-mismatch'],
+] as [$field, $wrongValue, $expectedStatus]) {
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $payload = json_decode($truncatedAck[3], true, 32, JSON_THROW_ON_ERROR);
+    $payload[$field] = $wrongValue;
+    $wrongBindingAck = ['_speech', 0, 10, json_encode($payload, JSON_THROW_ON_ERROR)];
+    $modelCalls = 0;
+    $mustNotRunModel = static function (array $messages) use (&$modelCalls): string {
+        $modelCalls++;
+        return '{}';
+    };
+    same($expectedStatus, handleSpeechAck($wrongBindingAck, $db, $mustNotRunModel), 'Transformed ACKs must retain exact utterance and actor binding.');
+    same(0, $modelCalls, 'A wrong utterance ID, speaker, or listener must not reach the model.');
+    same([], $db->history, 'A wrong utterance ID, speaker, or listener must not create history.');
+}
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+resetInteractionTestRequest(1, 1, true, true);
+$modelCalls = 0;
+same('committed', handleSpeechAck($ack, $db, $model), 'Passive speech ACKs must remain eligible while the interaction switch is On.');
+same(1, $modelCalls, 'A current passive ACK should reach the model once.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+resetInteractionTestRequest(1, 1, false, true);
+$modelCalls = 0;
+same('interaction-off', handleSpeechAck($ack, $db, $model), 'Passive speech ACKs must still honor CHIM Off.');
+same(0, $modelCalls, 'CHIM Off must reject a passive ACK before the model request.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+resetInteractionTestRequest(1, 2, true, true);
+$modelCalls = 0;
+same('interaction-stale', handleSpeechAck($ack, $db, $model), 'A passive ACK from an older interaction generation must be rejected.');
+same(0, $modelCalls, 'A stale interaction generation must not reach the model.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+resetInteractionTestRequest(1, 1, true, true);
+$modelCalls = 0;
+$beforeInteractionChange = unserialize(serialize($db->npcs[22]));
+$toggleOffModel = static function (array $messages) use (&$modelCalls): string {
+    $modelCalls++;
+    $GLOBALS['runtime_test_interaction_allowed'] = false;
+    $GLOBALS['runtime_test_interaction_generation'] = 2;
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('interaction-stale', handleSpeechAck($ack, $db, $toggleOffModel), 'An Off/generation change during model evaluation must reject persistence.');
+same(1, $modelCalls, 'A request interrupted during evaluation should make only its original model call.');
+check(ChimMindPoisoning\sameJsonValue($beforeInteractionChange, $db->npcs[22]), 'An Off/generation change during evaluation must not mutate listener state.');
+same([], $db->history, 'An Off/generation change during evaluation must not snapshot the listener.');
+resetInteractionTestRequest(2, 2, true, false);
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 0, 'type' => 'friend'];
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 0, 'type' => 'neutral'];
+$beforeAmbiguousPlayer = unserialize(serialize($db->npcs[22]));
+$modelCalls = 0;
+$ambiguousStatus = handleSpeechAck($ack, $db, $model);
+same(0, $modelCalls, 'Ambiguous Player aliases must not spend a model request.');
+same('listener-invalid', $ambiguousStatus, 'Ambiguous Player aliases must be rejected before model evaluation.');
+check(ChimMindPoisoning\sameJsonValue($beforeAmbiguousPlayer, $db->npcs[22]), 'The pre-model alias gate must preserve the listener relationship map.');
+same([], $db->history, 'Ambiguous Player aliases must not create a snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$event['text'] = 'I trust Jarl Balgruuf.';
+$event['source_data'] = 'Aela: I trust Jarl Balgruuf. (Talking to Lydia)';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 7, 'type' => 'friend'];
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => -3, 'type' => 'neutral'];
+$npcOnlyWithAliasesAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$modelCalls = 0;
+$npcOnlyWithAliasesModel = static function (array $messages) use (&$modelCalls): string {
+    $modelCalls++;
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('committed', handleSpeechAck($npcOnlyWithAliasesAck, $db, $npcOnlyWithAliasesModel), 'NPC-only judgments must remain eligible with ambiguous Player aliases.');
+same(1, $modelCalls, 'NPC-only judgments should still reach the model.');
+same(7, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'NPC-only updates must leave the legacy Player alias unchanged.');
+same(-3, $db->npcs[22]['extended_data']->relationships->Player->aff, 'NPC-only updates must leave the canonical Player alias unchanged.');
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $event['player_name'] = 'Dovah';

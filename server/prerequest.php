@@ -45,6 +45,32 @@ function isPlayerName(string $name, string $playerName): bool
     return false;
 }
 
+function speechAckInteractionStatus(): string
+{
+    if (!function_exists('chimInteractionBegin') || !function_exists('chimInteractionState')) {
+        return 'interaction-off';
+    }
+    try {
+        \chimInteractionBegin();
+        $requestGeneration = $GLOBALS['chim_interaction_generation'] ?? null;
+        $state = \chimInteractionState();
+        if (
+            !is_int($requestGeneration)
+            || !is_array($state)
+            || !is_bool($state['enabled'] ?? null)
+            || !is_int($state['generation'] ?? null)
+        ) {
+            return 'interaction-off';
+        }
+        if ($state['generation'] !== $requestGeneration) {
+            return 'interaction-stale';
+        }
+        return $state['enabled'] ? 'ok' : 'interaction-off';
+    } catch (Throwable) {
+        return 'interaction-off';
+    }
+}
+
 /**
  * Evaluate one exact _speech acknowledgement. The optional callable is a test seam;
  * production uses the configured requestJudgments adapter.
@@ -56,8 +82,9 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
     }
 
     try {
-        if (!function_exists('chimInteractionAllowed') || !\chimInteractionAllowed()) {
-            return 'interaction-off';
+        $interactionStatus = speechAckInteractionStatus();
+        if ($interactionStatus !== 'ok') {
+            return $interactionStatus;
         }
         if (!function_exists('chimIsGlobalLlmConnectorEnabled') || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
             return 'disabled';
@@ -68,7 +95,6 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         }
         if (
             !function_exists('extractSpeakerNameFromChatEvent')
-            || !function_exists('extractCoreUtteranceFromChatEvent')
             || !function_exists('extractTalkTargetMetadata')
             || !function_exists('talkTargetsIncludeName')
         ) {
@@ -106,6 +132,7 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         }
         $speakerInput = trim($speakerInput);
         $listenerInput = trim($listenerInput);
+        $speech = trim($speech);
 
         $profile = $store->activePlaythrough();
         if (!is_array($profile) || !is_string($profile['id'] ?? null) || $profile['id'] === '') {
@@ -122,11 +149,9 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
             return 'event-unmatched';
         }
         $sourceSpeaker = \extractSpeakerNameFromChatEvent($sourceData);
-        $sourceSpeech = \extractCoreUtteranceFromChatEvent($sourceData);
         $target = \extractTalkTargetMetadata($sourceData);
         if (
             !is_string($sourceSpeaker) || !sameActorName($sourceSpeaker, $speakerInput)
-            || !is_string($sourceSpeech) || $sourceSpeech !== trim($speech)
             || !is_array($target) || empty($target['hasExplicitTarget']) || !empty($target['isBroadcast'])
             || !\talkTargetsIncludeName($target['targets'] ?? [], $listenerInput)
         ) {
@@ -165,7 +190,7 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
             'listener_id' => $listenerIdentity['id'],
             'speaker_name' => $speaker['npc_name'],
             'listener_name' => $listener['npc_name'],
-            'text' => $sourceSpeech,
+            'text' => $speech,
             'gamets' => $source['gamets'],
             'event_id' => $source['event_id'],
             'playthrough_id' => $profile['id'],
@@ -179,6 +204,17 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         }
         if ($subjects === []) {
             return 'no-subjects';
+        }
+        if (array_key_exists('player', $subjects)) {
+            $relationships = $listenerExtended->relationships ?? new \stdClass();
+            if (!$relationships instanceof \stdClass) {
+                return 'listener-invalid';
+            }
+            try {
+                playerRelationshipKey($relationships, $playerName);
+            } catch (\RuntimeException) {
+                return 'listener-invalid';
+            }
         }
         foreach ($subjects as $subject) {
             if ($subject['id'] === null) {
@@ -197,6 +233,10 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
             return 'model-invalid';
         }
         $judgments = parseJudgments($response, $subjects, $event['text']);
+        $interactionStatus = speechAckInteractionStatus();
+        if ($interactionStatus !== 'ok') {
+            return $interactionStatus;
+        }
         return persistJudgments($event, $subjects, $judgments, $store);
     } catch (Throwable $error) {
         error_log('Mind Poisoning hook failed: ' . substr($error->getMessage(), 0, 180));

@@ -129,6 +129,74 @@ $legacyPlayerContext = $legacyPayload['untrusted_data']['candidates']['player'];
 check($legacyPlayerContext['listener_prior_relation']['aff'] === 27, 'Player context should read a legacy relationship keyed by event player_name.');
 check($legacyPlayerContext['speaker_bias']['aff'] === 14, 'Player bias should read a legacy relationship keyed by event player_name.');
 
+$priorEvents = [];
+for ($eventId = 1; $eventId <= 10; $eventId++) {
+    $priorEvents[] = (object)[
+        'event_id' => $eventId,
+        'utterance_id' => 'prior-' . $eventId,
+        'judgments' => [
+            (object)[
+                'subject' => 'npc:3',
+                'delta' => -1,
+                'reason' => str_repeat('r', 200),
+                'evidence' => str_repeat('e', 200),
+            ],
+            (object)[
+                'subject' => 'npc:999',
+                'delta' => 2,
+                'reason' => 'Unknown subject.',
+                'evidence' => 'unrelated claim',
+            ],
+        ],
+    ];
+}
+$priorEvents[] = (object)[
+    'event_id' => 11,
+    'utterance_id' => 'unrelated',
+    'judgments' => [(object)[
+        'subject' => 'npc:999',
+        'delta' => 2,
+        'reason' => 'Unknown subject.',
+        'evidence' => 'unrelated claim',
+    ]],
+];
+$oversizedJudgments = [];
+for ($index = 0; $index < 9; $index++) {
+    $oversizedJudgments[] = (object)[
+        'subject' => 'npc:3',
+        'delta' => -1,
+        'reason' => 'Repeated stored judgment.',
+        'evidence' => 'Farkas stole the key.',
+    ];
+}
+$priorEvents[] = (object)[
+    'event_id' => 12,
+    'utterance_id' => 'oversized',
+    'judgments' => $oversizedJudgments,
+];
+$historyListener = $listener;
+$historyListener['plugin_extended_data'] = (object)[
+    'mind_poisoning' => (object)[
+        'playthrough_id' => 'save-a',
+        'floor_event_id' => 0,
+        'events' => $priorEvents,
+    ],
+];
+$historyMessages = buildMessages($event, $speaker, $historyListener, $injectionSubjects);
+$historyData = json_decode($historyMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+$priorJudgments = $historyData['prior_judgments'] ?? null;
+check(is_array($priorJudgments) && count($priorJudgments) === 8, 'Prompt history should include only the last eight relevant events.');
+check(array_column($priorJudgments, 'event_id') === range(3, 10), 'Prompt history should retain the most recent relevant event IDs in order.');
+check(array_column($priorJudgments[0]['judgments'], 'subject') === ['npc:3'], 'History should include only subjects present in the current candidate map.');
+check(strlen($priorJudgments[7]['judgments'][0]['reason']) <= 120 && strlen($priorJudgments[7]['judgments'][0]['evidence']) <= 120, 'Prior judgment text should remain bounded to the stored field size.');
+check(array_keys($priorJudgments[0]) === ['event_id', 'utterance_id', 'judgments'], 'Prior history must not invent missing speaker attribution.');
+
+$otherPlaythroughListener = $historyListener;
+$otherPlaythroughListener['plugin_extended_data']->mind_poisoning->playthrough_id = 'save-b';
+$otherPlaythroughMessages = buildMessages($event, $speaker, $otherPlaythroughListener, $injectionSubjects);
+$otherPlaythroughData = json_decode($otherPlaythroughMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+check(($otherPlaythroughData['prior_judgments'] ?? null) === [], 'Prior judgments from another playthrough must not reach the prompt.');
+
 $parseUtterance = 'Farkas saved Dovah; the Player thanked him. Ann arrived.';
 $parseSubjects = [
     'npc:3' => ['name' => 'Farkas', 'id' => 3],
