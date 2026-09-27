@@ -1,6 +1,6 @@
 # Francisco's CHIM Plugins
 
-This project is intended as the shared GitHub home for Francisco's CHIM plugins, starting with **Mind Poisoning**. The GitHub account is `Francisco-boop-001`; the repository name is still pending confirmation. Until then, use the explicit `REPOSITORY_NAME` placeholder in [the Plugin Manager catalog entry](distribution/plugin_repository_entry.json). This project has not published a release or catalog listing.
+This project is the shared GitHub home for Francisco's CHIM plugins, starting with **Mind Poisoning**. The confirmed repository is [Francisco-boop-001/CHIM-Plugins](https://github.com/Francisco-boop-001/CHIM-Plugins). Mind Poisoning v0.1.0 is a development candidate. Official CHIM catalog inclusion has not yet been submitted or approved.
 
 Mind Poisoning remains in its existing source layout as the first plugin in the shared home.
 
@@ -10,7 +10,7 @@ Version 0.1.0 development candidate for HerikaServer. Compatibility reference: `
 
 ## Status
 
-This remains a development candidate: live PostgreSQL writes/concurrency, provider behavior, and in-game behavior are not verified. Use it only in an isolated test environment; do not deploy or promote a server pin.
+This remains a development candidate: live PostgreSQL writes/concurrency, provider behavior, and in-game behavior are not verified. Use it only in an isolated test environment; do not treat it as an official CHIM catalog listing or promote a server pin.
 
 ## Behavior
 
@@ -30,7 +30,7 @@ For CHIM's catalog and Plugin Manager, the primary distribution is a tag-pinned 
 
 ### Publish the first candidate
 
-1. Replace `REPOSITORY_NAME` in [the catalog entry](distribution/plugin_repository_entry.json) with the confirmed repository slug under `Francisco-boop-001`, then publish this source tree to that public repository. Use the selected repository if it already exists; do not create a replacement. Preserve `server/manifest.json` at that source path. Both catalog URLs must be publicly fetchable without authentication.
+1. Publish this source tree to [Francisco-boop-001/CHIM-Plugins](https://github.com/Francisco-boop-001/CHIM-Plugins), preserving `server/manifest.json` at that source path. Both catalog URLs must be publicly fetchable without authentication.
 2. From this project root, build the repository archive:
 
    ```powershell
@@ -38,10 +38,10 @@ For CHIM's catalog and Plugin Manager, the primary distribution is a tag-pinned 
    ```
 
    This produces `dist/mind_poisoning.tar.gz`, with one top-level `mind_poisoning/` directory containing the seven payload files, with `manifest.json` at the package root. CHIM's Plugin Manager strips that one directory during extraction.
-3. Create tag `mind_poisoning-v0.1.0` from the exact source snapshot used for the archive, then create a GitHub release for that tag. Mark it as a **prerelease** and attach the asset as `mind_poisoning.tar.gz`.
-4. Submit the catalog entry to CHIM's authoritative `ui/data/plugin_repository.json`. It points `manifest_url` at the tagged source `server/manifest.json` and `package_urls` at the same tag's release asset. The entry's default channel is `Development candidate`, and `status` remains `development_candidate`; no stable channel is configured.
+3. Create tag `mind_poisoning-v0.1.0` from the exact source snapshot used for the archive, then create a GitHub release for that tag. Mark it as a **prerelease** and attach the asset as `mind_poisoning.tar.gz`. See the [v0.1.0 release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) and download [`mind_poisoning.tar.gz`](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.0/mind_poisoning.tar.gz).
+4. The [catalog entry](distribution/plugin_repository_entry.json) points `manifest_url` at the tagged source `server/manifest.json` and `package_urls` at the same tag's release asset. Its default channel is `Development candidate`, and `status` remains `development_candidate`; no stable channel is configured. Official CHIM catalog submission and approval are still pending.
 
-For each new version, create a new plugin-specific tag/release asset and update both catalog URLs to that same tag. The catalog does not advance them automatically. Keep the explicit tag URLs; `releases/latest` could select a release published for another plugin in the shared repository. The example catalog file is documentation only; release and catalog publication await repository confirmation.
+For each new version, create a new plugin-specific tag/release asset and update both catalog URLs to that same tag. The catalog does not advance them automatically. Keep the explicit tag URLs; `releases/latest` could select a release published for another plugin in the shared repository. The catalog snippet is prepared but has not been submitted to CHIM's authoritative catalog.
 
 ### Multi-plugin catalog limitation
 

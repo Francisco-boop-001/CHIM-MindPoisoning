@@ -5,8 +5,8 @@
       "display_name": "Mind Poisoning",
       "description": "Development candidate: conservative, evidence-bound NPC listener affinity updates from acknowledged speech.",
       "status": "development_candidate",
-      "git_repo": "Francisco-boop-001/REPOSITORY_NAME",
-      "github_url": "https://github.com/Francisco-boop-001/REPOSITORY_NAME",
+      "git_repo": "Francisco-boop-001/CHIM-Plugins",
+      "github_url": "https://github.com/Francisco-boop-001/CHIM-Plugins",
       "mod_download_url": "",
       "default_channel": "candidate",
       "channels": {
@@ -14,9 +14,9 @@
           "label": "Development candidate",
           "branch": "mind_poisoning-v0.1.0",
           "package_source": "release",
-          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/REPOSITORY_NAME/mind_poisoning-v0.1.0/server/manifest.json",
+          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-Plugins/mind_poisoning-v0.1.0/server/manifest.json",
           "package_urls": [
-            "https://github.com/Francisco-boop-001/REPOSITORY_NAME/releases/download/mind_poisoning-v0.1.0/mind_poisoning.tar.gz"
+            "https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.0/mind_poisoning.tar.gz"
           ],
           "archive_strip_components": 1,
           "allow_force": true

@@ -1,5 +1,18 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## GitHub publication
+
+User selected and authorized `Francisco-boop-001/CHIM-Plugins` as a separate public home for CHIM plugins, with Mind Poisoning first. Existing local source is clean at `f8dcb0e`, no remote configured; accepted artifacts match the recorded hashes. GitHub CLI account verified as `Francisco-boop-001`. Protected installed roots remain read-only.
+
+- [x] Inspect current source, working tree, artifact identity, repository state and authentication.
+- [x] Finalize the confirmed repository URLs, public README and development prerelease notes; preserve payload bytes.
+- [ ] Lead review and commit the publication metadata; create repository, push source and plugin-specific tag, upload verified prerelease assets.
+- [ ] Verify the public manifest/release download paths and report actual publication/catalog status. No local game installation or deployment pin change.
+
+Ownership: influence handles README/catalog/release-note metadata using Ponytail full; lead reviews, maintains this ledger and performs authorized GitHub publication. No new runtime work or broad test rerun is needed.
+
+Lead reviewed all publication metadata and both archive verifiers passed against current payload source. `CHIM-Plugins` was created public under the verified account and connected as local `origin`; description identifies it as the user's plugin home with Mind Poisoning first. Source/release upload and anonymous download checks follow. Official CHIM catalog submission/approval remain separate and pending.
+
 ## Repository distribution follow-up
 
 User approved preparing CHIM Plugin Manager distribution. The user's GitHub repository will be a home for multiple CHIM plugins; Mind Poisoning is the first. Account verified as `Francisco-boop-001`; repository name awaits clarification. No remote is configured. Source starts clean at `a3b54f9`; the accepted schema-4 archive and its evidence already exist and require no reimplementation. Installed distro and F: remain read-only.
