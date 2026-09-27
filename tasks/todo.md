@@ -280,3 +280,13 @@ Prepare a development-candidate release description for the L-01 safe reason-cod
 ### Review
 
 Reviewed `README.md`, player/developer/dashboard guides, contributor notes, manifest/catalog metadata, and the new `distribution/mind_poisoning-v0.1.3.md`. The compatibility reference and `development_candidate` status are preserved; historical v0.1.2 package facts remain labeled historical. Scoped JSON/diff validation passed. This task changed no source code or archive and performed no commit, tag, or publication action; the compatibility reference and deployment pin were not advanced.
+
+## Publish v0.1.3 — completed 2026-09-27
+
+- [x] Review current tree and release metadata; preserve user critique and protected installations.
+- [x] Run targeted release gates and verify final packages against source.
+- [x] Commit source and tag mind_poisoning-v0.1.3; rebuild from clean tag export and confirm byte identity.
+- [x] Push main/tag and publish development prerelease with both packages and checksums.
+- [x] Download published assets and confirm matching bytes, digests, and prerelease status.
+
+Review: release source is 7212d7b24aee80d2c5d09e26b0eb14cafd519197. Release and catalog snippet advance to v0.1.3; compatibility reference and installed deployment remain unchanged. Live database/provider/game and deployed authentication remain unverified. Full release evidence is in tasks/verification.md. Only user-owned critique.md remains outside Git.
