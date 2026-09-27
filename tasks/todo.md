@@ -6,12 +6,12 @@ User selected and authorized `Francisco-boop-001/CHIM-Plugins` as a separate pub
 
 - [x] Inspect current source, working tree, artifact identity, repository state and authentication.
 - [x] Finalize the confirmed repository URLs, public README and development prerelease notes; preserve payload bytes.
-- [ ] Lead review and commit the publication metadata; create repository, push source and plugin-specific tag, upload verified prerelease assets.
-- [ ] Verify the public manifest/release download paths and report actual publication/catalog status. No local game installation or deployment pin change.
+- [x] Lead review and commit the publication metadata; create repository, push source and plugin-specific tag, upload verified prerelease assets.
+- [x] Verify the public manifest/release download paths and report actual publication/catalog status. No local game installation or deployment pin change.
 
 Ownership: influence handles README/catalog/release-note metadata using Ponytail full; lead reviews, maintains this ledger and performs authorized GitHub publication. No new runtime work or broad test rerun is needed.
 
-Lead reviewed all publication metadata and both archive verifiers passed against current payload source. `CHIM-Plugins` was created public under the verified account and connected as local `origin`; description identifies it as the user's plugin home with Mind Poisoning first. Source/release upload and anonymous download checks follow. Official CHIM catalog submission/approval remain separate and pending.
+Lead reviewed all publication metadata and both archive verifiers passed against current payload source. `CHIM-Plugins` was created public under the verified account and connected as local `origin`; description identifies it as the user's plugin home with Mind Poisoning first. Source was pushed to `main`, with tag `mind_poisoning-v0.1.0` at publication commit `0a6f3a8`. The prerelease includes both verified archives. Anonymous requests fetched the exact catalog manifest URL and both assets; every byte matched local source/artifacts. GitHub confirmed `PUBLIC`, default branch `main`, `isPrerelease=true`, `isDraft=false`, and uploaded asset digests matching the recorded hashes. Official CHIM catalog submission/approval remain separate and pending. No protected installation was modified and no deployment pin advanced.
 
 ## Repository distribution follow-up
 

@@ -1,5 +1,13 @@
 # Candidate verification
 
+## Published development prerelease
+
+User authorized the confirmed public repository `https://github.com/Francisco-boop-001/CHIM-Plugins`. Source is on `main`; release tag `mind_poisoning-v0.1.0` points to publication commit `0a6f3a8`. The README and repository description identify it as the user's home for CHIM plugins, with Mind Poisoning first.
+
+Release: `https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0`. GitHub reports `isPrerelease=true`, `isDraft=false`; both assets are uploaded. Anonymous HTTPS requests verified that the tagged catalog manifest exactly matches `server/manifest.json`, and both release downloads exactly match the local artifacts and hashes below. The catalog template now contains the confirmed repository URLs without placeholders.
+
+This closes source/release publication, not official CHIM catalog inclusion or live runtime acceptance. Catalog submission/approval remain pending. Protected installations and deployment pins were unchanged. Earlier sections retain historical preparation/verification state; their pending repository-name statements were resolved by this publication.
+
 ## Current repository-distribution candidate
 
 This follow-up adds repository tar packaging and distribution documentation only. Runtime PHP and the plugin manifest remain byte-for-byte unchanged from the reviewed source at `a3b54f9`.
