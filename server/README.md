@@ -1,6 +1,8 @@
 # CHIM Mind Poisoning
 
-Version 0.1.1 development-candidate prerelease. Get the [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.1/mind_poisoning.tar.gz) or [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.1/mind_poisoning-0.1.1.dwpkg) from the [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1). The [v0.1.0 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) contains earlier source. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; it is not a deployment pin. The official CHIM catalog entry has not been submitted or approved.
+Version 0.1.2 development-candidate prerelease. Get the [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.2/mind_poisoning.tar.gz) or [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.2/mind_poisoning-0.1.2.dwpkg) from the [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2). Earlier [v0.1.1](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1) and [v0.1.0](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) prereleases contain older source. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; it is not a deployment pin. The official CHIM catalog entry has not been submitted or approved.
+
+Version 0.1.2 includes the structured logging helper described below. The earlier v0.1.1 assets remain unchanged.
 
 ## Behavior
 
@@ -19,3 +21,13 @@ The hook also requires global relationship processing enabled and `NEVER_CLEAR_R
 Persistence uses the guarded `sql::$link` compatibility shim and retains one native connection for the transaction, advisory lock, row lock, relationship update, plugin ledger, and full NPC/history snapshot. Committed zero decisions also write the ledger and snapshot without changing affinity. Failed writes or snapshot verification roll back the transaction. The bounded ledger holds up to 128 event IDs and advances a numeric floor; ACKs at or below the floor are skipped, including unseen or out-of-order IDs.
 
 The candidate has not been verified with live PostgreSQL writes or concurrency, a live provider, or in-game playback/save-load. Some upstream relationship writers do not take the shared advisory lock and can overwrite a later update. Core restore with `NEVER_CLEAR_RELATIONSHIP_DATA=true` preserves scores but rewinds plugin ledger state, so this mode disables the hook. Removing the plugin stops future evaluations; it does not undo stored affinity or prior snapshots.
+
+## Structured request logging
+
+Request summaries go to CHIM's `log/chim.log` through the native `Logger`; if that class is not already loaded, they use PHP `error_log()`. There is no new log file or plugin-level CHIM logger setting. The native logger's configured threshold still applies, and warning/error records are duplicated to PHP/Apache error logging. CHIM's prefix surrounds each one-line JSON payload.
+
+Info summaries are the default. For diagnostics, set `MIND_POISONING_LOG_LEVEL=debug` in the PHP worker's service environment and restart/reload that worker; a shell-only export does not affect an existing web worker. Correlate the per-request `request_id` with the validated `utterance_id` when available. The helper filters to bounded identifiers, result codes, measurements, and numeric/token relationship details. It has no dedicated raw-speech, name, prompt, or credential fields, and drops arbitrary exception strings. Debug-only `model_reason` is untrusted and capped at 240 UTF-8 bytes, so it may still contain names or a limited game/model excerpt.
+
+Persistence summaries include `commit_state`: `not_attempted` means COMMIT was not sent, `confirmed` means the store reported success, and `unconfirmed` means COMMIT was attempted without reliable confirmation. `committed: true` means confirmed; `false` does not prove no database change if the COMMIT acknowledgement was lost. `cleanup_failed` is separate because cleanup may fail after a confirmed commit.
+
+Logging is best effort: an early process exit may leave no finish summary, and a sink failure drops the record instead of disrupting the ACK. In the inspected CHIM source, the UI truncates `.log` files above 25 MiB when its index runs; it does not archive them. The installed Apache rotation rule does not cover CHIM's log directory.

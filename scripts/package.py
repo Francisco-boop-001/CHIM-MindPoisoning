@@ -21,6 +21,7 @@ SERVER_FILES = (
     "AGENTS.md",
     "README.md",
     "influence.php",
+    "logging.php",
     "manifest.json",
     "model.php",
     "prerequest.php",

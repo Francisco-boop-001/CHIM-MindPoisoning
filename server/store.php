@@ -7,6 +7,8 @@ use JsonException;
 use RuntimeException;
 use Throwable;
 
+require_once __DIR__ . '/logging.php';
+
 interface StoreDb
 {
     public function activePlaythrough(): ?array;
@@ -164,14 +166,17 @@ function normalizeEventRow(array $row): ?array
     ];
 }
 
-function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, string $utteranceId): bool
+function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, string $utteranceId, ?string &$reason = null): bool
 {
+    $reason = null;
     $plugins = $npc['plugin_extended_data'] ?? null;
     if (!$plugins instanceof \stdClass) {
+        $reason = 'ledger-invalid';
         return true;
     }
     $ledger = storedLedgerNamespace($plugins);
     if ($ledger === null) {
+        $reason = 'ledger-invalid';
         return true;
     }
     if ($ledger === [] || $ledger['playthrough_id'] !== $playthroughId) {
@@ -180,10 +185,12 @@ function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, 
     $floor = $ledger['floor_event_id'];
     $entries = $ledger['events'];
     if ($eventId <= $floor) {
+        $reason = 'ledger-floor';
         return true;
     }
     foreach ($entries as $entry) {
         if ($entry['event_id'] === $eventId || $entry['utterance_id'] === $utteranceId) {
+            $reason = 'duplicate-event';
             return true;
         }
     }
@@ -302,33 +309,61 @@ function playerRelationshipKey(object $relationships, string $playerName): ?stri
     return $matches[0] ?? null;
 }
 
-function persistJudgments(array $event, array $subjects, array $judgments, StoreDb $store): string
+function persistJudgments(array $event, array $subjects, array $judgments, StoreDb $store, ?RequestLog $requestLog = null): string
 {
-    if (filter_var($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-        return 'restore-policy';
-    }
-    if (
-        !is_int($event['event_id'] ?? null) || $event['event_id'] < 1
-        || !is_string($event['utterance_id'] ?? null) || $event['utterance_id'] === ''
-        || !is_int($event['speaker_id'] ?? null) || $event['speaker_id'] < 1
-        || !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
-        || $event['speaker_id'] === $event['listener_id']
-        || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) === ''
-        || !is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''
-        || !is_string($event['text'] ?? null) || $event['text'] === ''
-        || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
-        || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
-        || !is_string($event['source_data'] ?? null)
-        || !validSubjectsAndJudgments($subjects, $judgments, $event)
-    ) {
-        return 'invalid';
-    }
-
+    $startedAt = hrtime(true);
     $committed = false;
+    $commitAttempted = false;
+    $cleanupRequired = false;
+    $cleanupFailed = false;
+    $cleanupError = null;
+    $cleanupReason = '';
+    $status = 'failed';
+    $reason = 'persistence-failed';
+    $stage = 'validation';
+    $edgeChanges = [];
+    $done = static function (string $outcome, string $code) use (&$status, &$reason): string {
+        $status = $outcome;
+        $reason = $code;
+        return $outcome;
+    };
+
+    $requestLog?->context([
+        'event_id' => $event['event_id'] ?? null,
+        'utterance_id' => $event['utterance_id'] ?? null,
+        'playthrough_id' => $event['playthrough_id'] ?? null,
+        'speaker_id' => $event['speaker_id'] ?? null,
+        'listener_id' => $event['listener_id'] ?? null,
+        'cleanup_failed' => false,
+    ]);
+
     try {
-        if (!$store->beginForListener($event['listener_id'])) {
-            return 'busy';
+        if (filter_var($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return $done('restore-policy', 'restore-policy');
         }
+        if (
+            !is_int($event['event_id'] ?? null) || $event['event_id'] < 1
+            || !is_string($event['utterance_id'] ?? null) || $event['utterance_id'] === ''
+            || !is_int($event['speaker_id'] ?? null) || $event['speaker_id'] < 1
+            || !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
+            || $event['speaker_id'] === $event['listener_id']
+            || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) === ''
+            || !is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''
+            || !is_string($event['text'] ?? null) || $event['text'] === ''
+            || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
+            || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
+            || !is_string($event['source_data'] ?? null)
+            || !validSubjectsAndJudgments($subjects, $judgments, $event)
+        ) {
+            return $done('invalid', 'invalid-event');
+        }
+
+        $cleanupRequired = true;
+        $stage = 'begin-listener';
+        if (!$store->beginForListener($event['listener_id'])) {
+            return $done('busy', 'listener-busy');
+        }
+        $stage = 'revalidate-event';
         $listener = $store->npcById($event['listener_id'], true);
         $active = $store->activePlaythrough();
         $currentEvent = $store->eventById($event['event_id'], $event['utterance_id']);
@@ -338,7 +373,7 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             || (string)($active['id'] ?? '') !== $event['playthrough_id']
             || !sameEvent($event, $currentEvent)
         ) {
-            return 'stale';
+            return $done('stale', 'event-stale');
         }
         if (
             array_key_exists('player', $subjects)
@@ -346,25 +381,26 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             && trim($event['player_name']) !== ''
             && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
         ) {
-            return 'stale';
+            return $done('stale', 'player-identity-stale');
         }
         if (!sameActorName($listener['npc_name'] ?? null, $event['listener_name'])) {
-            return 'stale';
+            return $done('stale', 'listener-identity-stale');
         }
         $extendedData = $listener['extended_data'] ?? null;
         $pluginExtendedData = $listener['plugin_extended_data'] ?? null;
         if (!$extendedData instanceof \stdClass || !$pluginExtendedData instanceof \stdClass) {
-            return 'invalid';
+            return $done('invalid', 'listener-state-invalid');
         }
         if (!empty($extendedData->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
-            return 'locked';
+            return $done('locked', 'relationship-locked');
         }
 
+        $stage = 'revalidate-actors';
         $identities = $store->npcIdentities();
         foreach ([$event['speaker_id'] => $event['speaker_name'], $event['listener_id'] => $event['listener_name']] as $id => $name) {
             $matches = array_values(array_filter($identities, static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $name)));
             if (count($matches) !== 1 || (int)($matches[0]['id'] ?? 0) !== (int)$id) {
-                return 'stale';
+                return $done('stale', 'actor-catalog-stale');
             }
         }
         foreach ($subjects as $token => $subject) {
@@ -373,21 +409,24 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             }
             $matches = array_values(array_filter($identities, static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $subject['name'])));
             if (count($matches) !== 1 || (int)($matches[0]['id'] ?? 0) !== $subject['id']) {
-                return 'stale';
+                return $done('stale', 'subject-catalog-stale');
             }
+            $stage = 'revalidate-subject';
             $target = $store->npcById($subject['id']);
             if (!is_array($target) || !sameActorName($target['npc_name'] ?? null, $subject['name'])) {
-                return 'stale';
+                return $done('stale', 'subject-stale');
             }
         }
+        $stage = 'revalidate-speaker';
         $speaker = $store->npcById($event['speaker_id']);
         if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
-            return 'stale';
+            return $done('stale', 'speaker-stale');
         }
 
+        $stage = 'resolve-relationships';
         $relationships = $extendedData->relationships ?? new \stdClass();
         if (!$relationships instanceof \stdClass) {
-            return 'invalid';
+            return $done('invalid', 'relationships-invalid');
         }
         $updatedExtendedData = clone $extendedData;
         $updatedRelationships = clone $relationships;
@@ -398,52 +437,68 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             }
             $name = $subjects[$token]['name'];
             if ($token === 'player') {
-                $name = playerRelationshipKey($updatedRelationships, (string)($event['player_name'] ?? '')) ?? 'Player';
+                try {
+                    $name = playerRelationshipKey($updatedRelationships, (string)($event['player_name'] ?? '')) ?? 'Player';
+                } catch (RuntimeException) {
+                    return $done('failed', 'player-alias-ambiguous');
+                }
             }
             $prior = $updatedRelationships->{$name} ?? (object)['aff' => 0, 'type' => 'neutral'];
             if (!$prior instanceof \stdClass) {
-                return 'invalid';
+                return $done('invalid', 'edge-invalid');
             }
             $updatedEdge = clone $prior;
             $affinity = $updatedEdge->aff ?? 0;
             if (!is_int($affinity) && !is_float($affinity) && !(is_string($affinity) && is_numeric($affinity))) {
-                return 'invalid';
+                return $done('invalid', 'affinity-invalid');
             }
+            $beforeAffinity = (float)$affinity;
             $nextAffinity = max(-100, min(100, (float)$affinity + $judgment['delta']));
             $updatedEdge->aff = floor($nextAffinity) === $nextAffinity ? (int)$nextAffinity : $nextAffinity;
             $updatedRelationships->{$name} = $updatedEdge;
             $edgeUpdates[$name] = $updatedEdge;
+            $edgeChanges[] = [
+                'subject' => $token,
+                'delta' => $judgment['delta'],
+                'before' => $beforeAffinity,
+                'after' => $updatedEdge->aff,
+            ];
         }
         if ($edgeUpdates !== []) {
             $updatedExtendedData->relationships = $updatedRelationships;
         }
 
+        $stage = 'validate-ledger';
         $pluginNamespace = storedLedgerNamespace($pluginExtendedData);
         if ($pluginNamespace === null) {
-            return 'invalid';
+            return $done('invalid', 'ledger-invalid');
         }
         if ($pluginNamespace !== [] && $pluginNamespace['playthrough_id'] === $event['playthrough_id']) {
             if ($event['event_id'] <= $pluginNamespace['floor_event_id']) {
-                return 'below-floor';
+                return $done('below-floor', 'ledger-floor');
             }
             foreach ($pluginNamespace['events'] as $entry) {
                 if ($entry['event_id'] === $event['event_id'] || $entry['utterance_id'] === $event['utterance_id']) {
-                    return 'duplicate';
+                    return $done('duplicate', 'duplicate-event');
                 }
             }
         }
+        $stage = 'update-ledger';
         $nextLedger = nextLedger($pluginNamespace, $event['playthrough_id'], $event['event_id'], $event['utterance_id'], $judgments);
         $updatedPluginExtendedData = clone $pluginExtendedData;
         $updatedPluginExtendedData->mind_poisoning = (object)$nextLedger;
+        $stage = 'validate-timeline';
         $currentGamets = $listener['gamets_last_updated'] ?? 0;
         if ($currentGamets !== null && !is_numeric($currentGamets)) {
-            return 'invalid';
+            return $done('invalid', 'timeline-invalid');
         }
         $snapshotGamets = max((float)($currentGamets ?? 0), (float)$event['gamets']);
 
+        $stage = 'write-listener';
         if (!$store->writeNpc($event['listener_id'], $edgeUpdates, (object)$nextLedger, $snapshotGamets)) {
-            throw new RuntimeException('Listener update did not return its row.');
+            return $done('failed', 'listener-write-failed');
         }
+        $stage = 'verify-listener';
         $written = $store->npcById($event['listener_id']);
         if (
             !is_array($written)
@@ -451,29 +506,89 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             || !sameJsonValue($written['plugin_extended_data'] ?? null, $updatedPluginExtendedData)
             || (float)($written['gamets_last_updated'] ?? -1) !== $snapshotGamets
         ) {
-            throw new RuntimeException('Listener update verification failed.');
+            return $done('failed', 'listener-verification-failed');
         }
         $expected = [
             'extended_data' => $updatedExtendedData,
             'plugin_extended_data' => $updatedPluginExtendedData,
             'gamets_last_updated' => $snapshotGamets,
         ];
+        $stage = 'verify-snapshot';
         if (!$store->backupAndVerify($event['listener_id'], $expected)) {
-            throw new RuntimeException('Full listener history snapshot verification failed.');
+            return $done('failed', 'snapshot-verification-failed');
         }
+        $stage = 'commit';
+        $commitAttempted = true;
         if (!$store->commit()) {
-            throw new RuntimeException('Listener transaction commit failed.');
+            return $done('failed', 'commit-failed');
         }
         $committed = true;
-        return 'committed';
+        return $done('committed', 'committed');
     } catch (Throwable $error) {
-        error_log('Mind Poisoning persistence failed: ' . substr($error->getMessage(), 0, 240));
-        return 'failed';
+        return $done('failed', $stage . '-failed');
     } finally {
-        if (!$committed) {
-            $store->rollback();
+        if ($cleanupRequired) {
+            try {
+                if (!$committed) {
+                    $cleanupStage = 'rollback';
+                    $store->rollback();
+                }
+                $cleanupStage = 'release';
+                $store->release();
+            } catch (Throwable $error) {
+                $cleanupFailed = true;
+                $cleanupError = $error;
+                $cleanupReason = $cleanupStage . '-failed';
+                $status = 'failed';
+                $reason = $cleanupReason;
+            }
         }
-        $store->release();
+        if ($store instanceof PostgresStoreDb && $store->cleanupFailed()) {
+            $cleanupFailed = true;
+        }
+
+        $changes = $committed ? $edgeChanges : [];
+        $changedCount = count(array_filter($changes, static fn(array $change): bool => (float)$change['before'] !== (float)$change['after']));
+        if ($committed && $changedCount === 0 && $reason === 'committed') {
+            $reason = 'zero-change';
+        }
+        $logFields = [
+            'persistence_outcome' => $status,
+            'persistence_reason' => $reason,
+            'persistence_ms' => RequestLog::elapsedMs($startedAt),
+            'commit_state' => $committed ? 'confirmed' : ($commitAttempted ? 'unconfirmed' : 'not_attempted'),
+            'committed' => $committed,
+            'changes' => $changes,
+            'changed_count' => $changedCount,
+        ];
+        if ($cleanupFailed) {
+            $logFields['cleanup_failed'] = true;
+            $requestLog?->context(['cleanup_failed' => true]);
+        }
+        if ($requestLog !== null) {
+            $requestLog->context($logFields);
+            $level = $cleanupFailed || $status === 'failed'
+                ? 'error'
+                : ($status === 'invalid' ? 'warning' : 'info');
+            $requestLog->event('persistence_finished', $level, $logFields);
+            if ($cleanupError !== null) {
+                $requestLog->event('persistence_cleanup_failed', 'error', [
+                    'stage' => $cleanupReason === 'rollback-failed' ? 'rollback' : 'release',
+                    'reason' => $cleanupReason,
+                    'committed' => $committed,
+                    'cleanup_failed' => true,
+                ]);
+            }
+        } elseif ($status === 'failed') {
+            try {
+                @error_log('Mind Poisoning persistence failed at ' . $reason . '.');
+            } catch (Throwable) {
+            }
+        }
+
+        if ($cleanupError !== null) {
+            throw $cleanupError;
+        }
     }
 }
 
@@ -490,18 +605,26 @@ function sameEvent(array $expected, ?array $current): bool
 final class PostgresStoreDb implements StoreDb
 {
     private object $db;
+    private ?RequestLog $requestLog;
     private mixed $connection = null;
     private bool $ownsTransaction = false;
     private bool $ownsAdvisoryLock = false;
+    private bool $cleanupFailed = false;
     private int $advisoryKey = 0;
 
-    public function __construct()
+    public function __construct(?RequestLog $requestLog = null)
     {
         $db = $GLOBALS['db'] ?? null;
         if (!is_object($db)) {
             throw new RuntimeException('CHIM database helper is unavailable.');
         }
         $this->db = $db;
+        $this->requestLog = $requestLog;
+    }
+
+    public function cleanupFailed(): bool
+    {
+        return $this->cleanupFailed;
     }
 
     public function activePlaythrough(): ?array
@@ -708,28 +831,57 @@ final class PostgresStoreDb implements StoreDb
 
     public function rollback(): void
     {
-        if (!$this->ownsTransaction || !$this->connection instanceof \PgSql\Connection) {
+        if (!$this->ownsTransaction) {
             return;
         }
-        if (pg_connection_status($this->connection) === PGSQL_CONNECTION_OK
-            && pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE) {
-            @pg_query($this->connection, 'ROLLBACK');
+        if (!$this->connection instanceof \PgSql\Connection
+            || pg_connection_status($this->connection) !== PGSQL_CONNECTION_OK) {
+            $this->reportCleanupFailure('rollback', 'rollback-connection-unavailable');
+        } elseif (pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE
+            && @pg_query($this->connection, 'ROLLBACK') === false) {
+            $this->reportCleanupFailure('rollback', 'rollback-query-failed');
         }
         $this->ownsTransaction = false;
     }
 
     public function release(): void
     {
-        if (!$this->ownsAdvisoryLock || !$this->connection instanceof \PgSql\Connection) {
+        if (!$this->ownsAdvisoryLock) {
             return;
         }
-        if (pg_connection_status($this->connection) === PGSQL_CONNECTION_OK) {
-            $result = @pg_query_params($this->connection, 'SELECT pg_advisory_unlock($1)', [$this->advisoryKey]);
+        if (!$this->connection instanceof \PgSql\Connection
+            || pg_connection_status($this->connection) !== PGSQL_CONNECTION_OK) {
+            $this->reportCleanupFailure('release', 'advisory-unlock-connection-unavailable');
+        } else {
+            $result = @pg_query_params($this->connection, 'SELECT pg_advisory_unlock($1) AS released', [$this->advisoryKey]);
             if ($result === false) {
-                error_log('Mind Poisoning advisory lock release failed; PostgreSQL releases it when the session closes.');
+                $this->reportCleanupFailure('release', 'advisory-unlock-query-failed');
+            } else {
+                $row = pg_fetch_assoc($result);
+                if (($row['released'] ?? null) !== 't') {
+                    $this->reportCleanupFailure('release', 'advisory-unlock-not-confirmed');
+                }
             }
         }
         $this->ownsAdvisoryLock = false;
+    }
+
+    private function reportCleanupFailure(string $stage, string $reason): void
+    {
+        $this->cleanupFailed = true;
+        if ($this->requestLog !== null) {
+            $this->requestLog->context(['cleanup_failed' => true]);
+            $this->requestLog->event('persistence_cleanup_failed', 'error', [
+                'stage' => $stage,
+                'reason' => $reason,
+                'cleanup_failed' => true,
+            ]);
+            return;
+        }
+        try {
+            @error_log('Mind Poisoning cleanup failed at ' . $reason . '.');
+        } catch (Throwable) {
+        }
     }
 
     private function rows(string $query, array $params = []): array

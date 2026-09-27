@@ -6,9 +6,56 @@ namespace ChimMindPoisoning;
 use JsonException;
 use Throwable;
 
-require_once __DIR__ . '/influence.php';
-require_once __DIR__ . '/model.php';
-require_once __DIR__ . '/store.php';
+$chimMindPoisoningIsSpeech = isset($gameRequest) && is_array($gameRequest) && ($gameRequest[0] ?? null) === '_speech';
+$chimMindPoisoningRequestLog = null;
+try {
+    @require_once __DIR__ . '/logging.php';
+    if (!class_exists(RequestLog::class, false)) {
+        throw new \RuntimeException('Request logger is unavailable.');
+    }
+    if ($chimMindPoisoningIsSpeech) {
+        $chimMindPoisoningRequestLog = new RequestLog();
+        $chimMindPoisoningBootstrapPayload = $gameRequest[3] ?? null;
+        $chimMindPoisoningBootstrapContext = [
+            'payload_bytes' => is_string($chimMindPoisoningBootstrapPayload) ? strlen($chimMindPoisoningBootstrapPayload) : 0,
+        ];
+        if (is_string($chimMindPoisoningBootstrapPayload) && strlen($chimMindPoisoningBootstrapPayload) <= 16384) {
+            try {
+                $chimMindPoisoningBootstrapDecoded = json_decode($chimMindPoisoningBootstrapPayload, true, 32, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                $chimMindPoisoningBootstrapDecoded = null;
+            }
+            $chimMindPoisoningBootstrapUtteranceId = is_array($chimMindPoisoningBootstrapDecoded)
+                ? ($chimMindPoisoningBootstrapDecoded['utterance_id'] ?? null)
+                : null;
+            if (
+                is_string($chimMindPoisoningBootstrapUtteranceId)
+                && preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $chimMindPoisoningBootstrapUtteranceId) === 1
+            ) {
+                $chimMindPoisoningBootstrapContext['utterance_id'] = $chimMindPoisoningBootstrapUtteranceId;
+            }
+        }
+        $chimMindPoisoningRequestLog->context($chimMindPoisoningBootstrapContext);
+    }
+} catch (Throwable) {
+    if ($chimMindPoisoningIsSpeech) {
+        @error_log('Mind Poisoning ACK failed: logging_bootstrap_failed');
+        return;
+    }
+    $chimMindPoisoningRequestLog = null;
+}
+
+try {
+    @require_once __DIR__ . '/influence.php';
+    @require_once __DIR__ . '/model.php';
+    @require_once __DIR__ . '/store.php';
+} catch (Throwable) {
+    if ($chimMindPoisoningRequestLog instanceof RequestLog) {
+        $chimMindPoisoningRequestLog->finish('failed', 'dependency_bootstrap_failed', ['stage' => 'bootstrap']);
+        return;
+    }
+    throw new \RuntimeException('Mind Poisoning dependency bootstrap failed.');
+}
 
 function uniqueNpcNamed(array $identities, string $name): ?array
 {
@@ -45,9 +92,11 @@ function isPlayerName(string $name, string $playerName): bool
     return false;
 }
 
-function speechAckInteractionStatus(): string
+function speechAckInteractionStatus(?string &$reason = null): string
 {
+    $reason = 'interaction_off';
     if (!function_exists('chimInteractionBegin') || !function_exists('chimInteractionState')) {
+        $reason = 'interaction_helpers_unavailable';
         return 'interaction-off';
     }
     try {
@@ -60,13 +109,20 @@ function speechAckInteractionStatus(): string
             || !is_bool($state['enabled'] ?? null)
             || !is_int($state['generation'] ?? null)
         ) {
+            $reason = 'interaction_state_invalid';
             return 'interaction-off';
         }
         if ($state['generation'] !== $requestGeneration) {
+            $reason = 'interaction_generation_stale';
             return 'interaction-stale';
         }
-        return $state['enabled'] ? 'ok' : 'interaction-off';
+        if (!$state['enabled']) {
+            return 'interaction-off';
+        }
+        $reason = 'ok';
+        return 'ok';
     } catch (Throwable) {
+        $reason = 'interaction_state_invalid';
         return 'interaction-off';
     }
 }
@@ -75,15 +131,51 @@ function speechAckInteractionStatus(): string
  * Evaluate one exact _speech acknowledgement. The optional callable is a test seam;
  * production uses the configured requestJudgments adapter.
  */
-function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestModel = null): string
+function handleSpeechAck(
+    array $gameRequest,
+    StoreDb $store,
+    ?callable $requestModel = null,
+    ?RequestLog $requestLog = null
+): string
 {
     if (($gameRequest[0] ?? null) !== '_speech') {
         return 'ignored';
     }
 
+    $logFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
+    $requestLog?->context(['payload_bytes' => is_string($gameRequest[3] ?? null) ? strlen($gameRequest[3]) : 0]);
+    $requestLog?->event('ack_started', 'debug', ['stage' => 'preflight']);
+
+    $status = evaluateSpeechAck($gameRequest, $store, $requestModel, $requestLog, $logFields);
+    $outcome = 'skipped';
+    $reason = $logFields['reason'] ?? $status;
+    if ($status === 'committed') {
+        $outcome = 'committed';
+        $reason = 'committed';
+    } elseif ($status === 'failed') {
+        $outcome = 'failed';
+        $reason = $logFields['reason'] ?? 'evaluation_failed';
+    } elseif ($status === 'model-invalid') {
+        $outcome = 'rejected';
+    }
+    $requestLog?->finish($outcome, $reason, $logFields);
+    return $status;
+}
+
+/** @param array<string, mixed> $logFields */
+function evaluateSpeechAck(
+    array $gameRequest,
+    StoreDb $store,
+    ?callable $requestModel,
+    ?RequestLog $requestLog,
+    array &$logFields
+): string
+{
     try {
-        $interactionStatus = speechAckInteractionStatus();
+        $interactionReason = null;
+        $interactionStatus = speechAckInteractionStatus($interactionReason);
         if ($interactionStatus !== 'ok') {
+            $logFields['reason'] = $interactionReason;
             return $interactionStatus;
         }
         if (!function_exists('chimIsGlobalLlmConnectorEnabled') || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
@@ -93,6 +185,8 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         if ($connectorId === false || $connectorId === null || $connectorId < 1) {
             return 'connector-invalid';
         }
+        $logFields['connector_id'] = $connectorId;
+        $requestLog?->context(['connector_id' => $connectorId]);
         if (
             !function_exists('extractSpeakerNameFromChatEvent')
             || !function_exists('extractTalkTargetMetadata')
@@ -106,7 +200,6 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
 
         $raw = $gameRequest[3] ?? null;
         if (!is_string($raw) || strlen($raw) > 16384) {
-            error_log('Mind Poisoning skipped: speech callback exceeds 16 KiB or is missing.');
             return 'oversized';
         }
         try {
@@ -133,11 +226,15 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         $speakerInput = trim($speakerInput);
         $listenerInput = trim($listenerInput);
         $speech = trim($speech);
+        $logFields['speech_bytes'] = strlen($speech);
+        $requestLog?->context(['utterance_id' => $utteranceId]);
+        $logFields['stage'] = 'correlation';
 
         $profile = $store->activePlaythrough();
         if (!is_array($profile) || !is_string($profile['id'] ?? null) || $profile['id'] === '') {
             return 'stale';
         }
+        $requestLog?->context(['playthrough_id' => $profile['id']]);
         $playerName = is_string($profile['player_name'] ?? null) ? trim($profile['player_name']) : '';
         if (isPlayerName($speakerInput, $playerName) || isPlayerName($listenerInput, $playerName)) {
             return 'player-actor';
@@ -157,6 +254,7 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         ) {
             return 'event-mismatch';
         }
+        $requestLog?->context(['event_id' => $source['event_id']]);
 
         $identities = $store->npcIdentities();
         $speakerIdentity = uniqueNpcNamed($identities, $speakerInput);
@@ -173,14 +271,21 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         ) {
             return 'actor-stale';
         }
+        $requestLog?->context([
+            'speaker_id' => $speakerIdentity['id'],
+            'listener_id' => $listenerIdentity['id'],
+        ]);
         $listenerExtended = $listener['extended_data'] ?? null;
         if (!$listenerExtended instanceof \stdClass) {
+            $logFields['reason'] = 'listener_extended_data_invalid';
             return 'listener-invalid';
         }
         if (!empty($listenerExtended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
             return 'locked';
         }
-        if (eventAlreadyProcessed($listener, $profile['id'], $source['event_id'], $utteranceId)) {
+        $dedupeReason = null;
+        if (eventAlreadyProcessed($listener, $profile['id'], $source['event_id'], $utteranceId, $dedupeReason)) {
+            $logFields['reason'] = $dedupeReason ?? 'duplicate';
             return 'duplicate';
         }
 
@@ -198,8 +303,8 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
             'source_data' => $sourceData,
         ];
         $subjects = findSubjects($event, $identities, $playerName);
+        $logFields['subject_count'] = count($subjects);
         if (count($subjects) > 8) {
-            error_log('Mind Poisoning skipped: more than eight named subjects.');
             return 'too-many-subjects';
         }
         if ($subjects === []) {
@@ -208,11 +313,13 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
         if (array_key_exists('player', $subjects)) {
             $relationships = $listenerExtended->relationships ?? new \stdClass();
             if (!$relationships instanceof \stdClass) {
+                $logFields['reason'] = 'listener_relationships_invalid';
                 return 'listener-invalid';
             }
             try {
                 playerRelationshipKey($relationships, $playerName);
             } catch (\RuntimeException) {
+                $logFields['reason'] = 'player_alias_ambiguous';
                 return 'listener-invalid';
             }
         }
@@ -228,26 +335,113 @@ function handleSpeechAck(array $gameRequest, StoreDb $store, ?callable $requestM
 
         $messages = buildMessages($event, promptNpcCopy($speaker), promptNpcCopy($listener), $subjects);
         $requestModel ??= __NAMESPACE__ . '\\requestJudgments';
-        $response = $requestModel($messages);
+        $requestLog?->context(['connector_id' => $connectorId, 'subject_count' => count($subjects)]);
+        $requestLog?->event('ack_eligible', 'debug', [
+            'stage' => 'model',
+            'connector_id' => $connectorId,
+            'subject_count' => count($subjects),
+        ]);
+        $logFields['stage'] = 'model';
+        $requestLog?->event('model_started', 'debug', [
+            'stage' => 'model',
+            'connector_id' => $connectorId,
+            'subject_count' => count($subjects),
+        ]);
+        $modelStarted = hrtime(true);
+        try {
+            $response = $requestModel($messages);
+        } catch (Throwable) {
+            $logFields['model_ms'] = RequestLog::elapsedMs($modelStarted);
+            $logFields['model_outcome'] = 'failed';
+            $logFields['reason'] = 'model_request_failed';
+            $requestLog?->event('model_finished', 'error', [
+                'stage' => 'model',
+                'model_outcome' => 'failed',
+                'reason' => 'model_request_failed',
+                'model_ms' => $logFields['model_ms'],
+            ]);
+            return 'failed';
+        }
+        $logFields['model_ms'] = RequestLog::elapsedMs($modelStarted);
         if (!is_string($response)) {
+            $logFields['model_outcome'] = 'invalid';
+            $logFields['reason'] = 'model_response_invalid';
+            $requestLog?->event('model_finished', 'warning', [
+                'stage' => 'model',
+                'model_outcome' => 'invalid',
+                'reason' => 'model_response_invalid',
+                'model_ms' => $logFields['model_ms'],
+            ]);
             return 'model-invalid';
         }
-        $judgments = parseJudgments($response, $subjects, $event['text']);
-        $interactionStatus = speechAckInteractionStatus();
+        try {
+            $judgments = parseJudgments($response, $subjects, $event['text']);
+        } catch (Throwable) {
+            $logFields['model_outcome'] = 'invalid';
+            $logFields['reason'] = 'judgment_validation_failed';
+            $requestLog?->event('model_finished', 'warning', [
+                'stage' => 'model_validation',
+                'model_outcome' => 'invalid',
+                'reason' => 'judgment_validation_failed',
+                'model_ms' => $logFields['model_ms'],
+            ]);
+            return 'failed';
+        }
+        $logFields['model_outcome'] = 'validated';
+        $requestLog?->event('model_finished', 'info', [
+            'stage' => 'model_validation',
+            'model_outcome' => 'validated',
+            'model_ms' => $logFields['model_ms'],
+        ]);
+        foreach ($judgments as $subject => $judgment) {
+            $requestLog?->event('judgment_proposal', 'debug', [
+                'stage' => 'model_validation',
+                'subject' => $subject,
+                'delta' => $judgment['delta'],
+                'model_reason' => $judgment['reason'],
+            ]);
+        }
+        $interactionReason = null;
+        $interactionStatus = speechAckInteractionStatus($interactionReason);
         if ($interactionStatus !== 'ok') {
+            $logFields['stage'] = 'post_model_gate';
+            $logFields['reason'] = $interactionReason;
             return $interactionStatus;
         }
-        return persistJudgments($event, $subjects, $judgments, $store);
-    } catch (Throwable $error) {
-        error_log('Mind Poisoning hook failed: ' . substr($error->getMessage(), 0, 180));
+        $logFields['stage'] = 'persistence';
+        $persistenceStarted = hrtime(true);
+        try {
+            $status = persistJudgments($event, $subjects, $judgments, $store, $requestLog);
+        } finally {
+            $logFields['persistence_ms'] = RequestLog::elapsedMs($persistenceStarted);
+        }
+        $logFields['persistence_outcome'] = $status;
+        if ($status === 'failed' && !isset($logFields['reason'])) {
+            $logFields['reason'] = 'persistence_failed';
+        }
+        return $status;
+    } catch (Throwable) {
+        if (!isset($logFields['reason'])) {
+            $logFields['reason'] = ($logFields['stage'] ?? null) === 'persistence'
+                ? 'persistence_failed'
+                : 'evaluation_failed';
+        }
+        if (($logFields['stage'] ?? null) === 'persistence') {
+            $logFields['persistence_outcome'] = 'failed';
+        }
         return 'failed';
     }
 }
 
 if (isset($gameRequest) && is_array($gameRequest) && ($gameRequest[0] ?? null) === '_speech') {
     try {
-        handleSpeechAck($gameRequest, new PostgresStoreDb());
-    } catch (Throwable $error) {
-        error_log('Mind Poisoning hook failed: ' . substr($error->getMessage(), 0, 180));
+        $chimMindPoisoningStore = new PostgresStoreDb($chimMindPoisoningRequestLog);
+        handleSpeechAck($gameRequest, $chimMindPoisoningStore, null, $chimMindPoisoningRequestLog);
+    } catch (Throwable) {
+        if ($chimMindPoisoningRequestLog instanceof RequestLog) {
+            $chimMindPoisoningRequestLog->finish('failed', 'runtime_bootstrap_failed', ['stage' => 'bootstrap']);
+        } else {
+            @error_log('Mind Poisoning ACK failed: runtime_bootstrap_failed');
+        }
     }
 }

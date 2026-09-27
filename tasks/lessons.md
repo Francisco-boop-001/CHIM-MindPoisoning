@@ -1,5 +1,9 @@
 # Lessons
 
+- In cross-shell byte checks, count carriage returns with `bytes([13])`; do not infer newline corruption from a shell-escaped `\r` search. Confirm actual byte values before asking owners to normalize files.
+
+- When documenting stored model context, name every isolation boundary enforced by the code: listener, playthrough, and relevant subjects. Check the player guide against the implementation and technical guide.
+
 - CHIM integration fixtures must represent the actual helper contract, including passive headers and interaction generations. A mocked global On/Off flag cannot establish callback eligibility.
 - Keep event correlation separate from text representation: when CHIM logs context text but acknowledges client speech, bind the source by exact event/actors and make explicit which reported text drives subjects and evidence. Never infer delivery of a logged-only tail.
 

@@ -1,5 +1,58 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Publish logging v0.1.2 — 2026-09-27
+
+User authorized commit, push and publication. Preserve critique.md and protected installation. Publish a development prerelease; compatibility reference unchanged.
+
+- [x] Check tree, prior debug evidence, remote main and release availability.
+- [x] Prepare and review v0.1.2 metadata and release notes.
+- [x] Verify focused fixtures and build source-matching packages.
+- [ ] Commit reviewed files, verify packages against clean tag, push and publish.
+- [ ] Download release assets, compare checksums and record outcome.
+
+## Logging debug run — 2026-09-27
+
+User requested a bounded debug pass after logging implementation. Prior helper/runtime/store fixtures and archive checks passed. Existing uncommitted work and user critique.md must be preserved. No live CHIM/mod/configuration/database/provider changes; no publication or pin advancement. Lead coordinates/reviews; original gpt-6-luna/max owners use Ponytail full.
+
+- [x] Inspect current tree, relevant lessons and completed logging verification.
+- [x] Helper owner: inspect untested context/lifecycle/native-sink boundaries; reproduce and fix only confirmed defects.
+- [x] Hook owner: inspect bootstrap/include-scope and terminal attribution gaps; reproduce and fix only confirmed defects.
+- [x] Store owner: inspect cleanup/reuse/numeric reporting gaps; reproduce and fix only confirmed defects.
+- [x] Lead review evidence and every incremental diff; run only checks needed for accepted changes, update artifacts only if payload changes.
+- [x] Record outcome, remaining live-test limitations, and unchanged pin status.
+
+Assumptions: this is an isolated code/fixture debug run, not permission to install or exercise protected live services. Success is evidence-backed findings/fixes or a supported no-change result, not a new feature list. Hypotheses are not findings; existing green fixtures do not prove native runtime behavior.
+
+### Debug review
+
+Three original owners reviewed helper, hook and persistence boundaries. Lead inspected their findings and the new composed cleanup fixture. No reachable product defect was reproduced; server payload remains byte-identical to the frozen logging-check archive, so no rebuild was needed. Added one runtime regression case proving a release exception after commit preserves confirmed commit, affinity/history and error-level cleanup attribution in the final request summary. Runtime fixture lint and execution passed (exit 0); expected injected failures are documented in tasks/debug-logging-hook.md. Helper isolated reproduction confirmed reserved-field protection and an unused diagnostic-context edge; no speculative fix was made. Native logging/PG/provider/game behavior remains unverified. Logging remains local and uncommitted; all release/compatibility/deployment pins unchanged. CHIM and installed mod were not modified.
+
+## Structured plugin logging — 2026-09-27
+
+Bounded extension of existing ACK/model/persistence flow, authorized by the user's request following the in-chat logging design. Preserve existing gameplay decisions and status contracts. Normal mode records attributable outcomes; diagnostic mode adds bounded stage detail. No raw prompts, credentials or uncontrolled exception messages. No CHIM core/configuration/mod edits or live database/provider calls. Existing player-guide clarification and lesson remain preserved; critique.md is user-owned. No release/deployment pin advances or publication in this task.
+
+- [x] Inspect working tree, prior evidence, lessons and existing logging gaps.
+- [x] Inspect native logging sink and freeze the smallest safe shared logging contract.
+- [x] Implement and verify bounded structured emission, correlation and diagnostic filtering.
+- [x] Instrument hook/model lifecycle and precise terminal outcomes; verify skips/failures/success.
+- [x] Instrument persistence results and cleanup with actual committed before/after values; verify rollback and zero changes.
+- [x] Document location, controls, retention ownership and troubleshooting; verify package payload inclusion.
+- [x] Lead review every diff and affected call path, examine focused checks, resolve defects and record limitations.
+
+Ownership: packaging agent first owns read-only platform evidence, then shared logger/tests and packaging/docs as assigned; runtime owns prerequest/model and runtime tests; influence owns store and dedicated store logging checks. Lead owns this plan/review and no product code. All agents use gpt-6-luna/max and Ponytail full, preserve shared edits, and await dependencies before implementation.
+
+Contract: one plugin-local RequestLog with safe context/event/finish methods, native loaded Logger or PHP error_log fallback, plugin-only MIND_POISONING_LOG_LEVEL=debug opt-in, allowlisted fields and bounded diagnostic model rationale. Native thresholds remain respected and configuration untouched. No per-request global logger, database logging table, daemon or framework. Helper verification precedes dependent hook/store edits.
+
+Acceptance: one correlated final summary per handled ACK under normal execution, specific gate reasons, UTC/severity/version, monotonic timings, model proposal distinguished from verified commit, bounded safe diagnostic detail, no log-sink failure changes data handling. Tests prove changed behavior using isolated fixtures, not live-runtime claims.
+
+Helper review: returned finish-order suppression, severity, oversized counts and exact numeric affinity issues to the original owner. Corrected helper passes independent logging_test.php (exit 0), including native stub and PHP fallback, environment opt-in, safe field filtering, newline escaping, bounded rationale, idempotent finish and throwing-sink isolation. Actual native service writes are untested. Hook/store workers now integrate the frozen API with distinct ownership.
+
+### Logging integration review
+
+Lead reviewed all helper, hook, persistence and fixture diffs and relevant callers. Returned and resolved: premature finish suppression, native warning escape, misleading stage/severity, unbounded bootstrap decode, include-scope variable collisions, duplicate start records, missing model lifecycle events, fixture evidence not quoting speech, float precision/clamped-change counting, uncertain commit acknowledgement, and corrupt-ledger/floor mislabeling as duplicate. Processing statuses and affinity rules remain preserved. Previous player-guide clarification remains included; critique.md stays untouched.
+
+Independent final focused run: logging_test.php exit 0, then store_logging_test.php exit 0 (includes runtime_test.php). Output: logging checks passed; runtime store checks passed; store logging checks passed. Two injected persistence failures emitted their expected safe stage reasons. Checks cover a throwing sink, native warning suppression, PHP fallback, diagnostic control, bounds/correlation, bootstrap failure, model/validation failure, mid-model Off, dedupe causes, snapshots, zero/clamped changes, cleanup exceptions and commit uncertainty. No unchanged influence/model suite or live provider/DB/game run was needed. Lead independently verified both frozen-source archives under dist/logging-check, including the new logger payload. Tar SHA-256 1d8155f4eb4bb70e337f7c7d2099e626ee9fdda8faa821085f8b095a9fa706cd; DWPkg SHA-256 0cdc05f5fd95c6de7a09873a83b3fdac66458610a41a2b066ca5b0345b79d1f7. Both published-era local v0.1.1 artifact hashes remain unchanged. All eight payload files are LF-only. Documentation/build instructions distinguish local verification artifacts from published packages. Work remains local/uncommitted; no version, release, compatibility or deployment pin advanced. CHIM core/configuration and installed mod were not modified.
+
 ## Publish v0.1.1 — 2026-09-27
 
 User explicitly authorized commit, push and publication. Publish a development prerelease; retain runtime limitations and compatibility/deployment pins. Keep user-owned critique.md untracked.

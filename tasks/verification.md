@@ -1,5 +1,23 @@
 # Candidate verification
 
+## v0.1.2 release gate — 2026-09-27
+
+User authorized publication of the logging update. Fresh logging_test.php and store_logging_test.php (includes runtime_test.php) exited 0. Two negative fixture diagnostics were expected. Final frozen-source builders and verifiers passed for dist/0.1.2: mind_poisoning.tar.gz: 22960 bytes; SHA-256 9821753f05eaee6e965181e5e0417329c544a72021483482ae0ff51057859b0b; mind_poisoning-0.1.2.dwpkg: 104060 bytes; SHA-256 0f2e95fa9f54e12fc9aa50ae2648e77c072bf7896519af4982f67d55a9b7a76e. Compatibility reference stays cf5030f15781637498be86debe26fcf102f5690d. Live-runtime limitations remain; release is a development prerelease. Clean-tag and remote asset verification follow publication preparation.
+
+## Logging debug follow-up — 2026-09-27
+
+No product-code defect reproduced. One composed hook regression was added in tests/runtime_test.php: post-commit release failure must retain committed affinity/history and report confirmed commit plus cleanup failure in the terminal record. Worker PHP lint and runtime fixture both exited 0; lead reviewed assertions, failure injection, call paths and recorded output. Helper isolated reproduction confirmed canonical reserved fields; inherited diagnostic rationale has no current production caller. Store review found no reachable reuse or summary inconsistency. Lead byte-compared all eight server files against dist/logging-check/mind_poisoning.tar.gz: zero differences. No package rebuild or pin change. git diff --check passed. Evidence: tasks/debug-logging-helper.md, tasks/debug-logging-hook.md, tasks/debug-logging-store.md. Native logger delivery, PostgreSQL cleanup and live provider/game behavior remain unverified; protected installation unchanged.
+
+## Local structured logging — 2026-09-27
+
+Unreleased source addition based on published main b88a89f. Three gpt-6-luna/max workers implemented shared safe logging, ACK lifecycle and persistence observability with separate ownership. Lead reviewed every diff and returned defects to the original owners; resolved details are in tasks/todo.md. Protected server/mod remained read-only. Existing player-guide clarification is preserved.
+
+Independent final commands: `php tests/logging_test.php` and `php tests/store_logging_test.php` through WSL DwemerAI4Skyrim3. Both exit 0; the latter includes runtime_test.php. Expected two injected failure log lines preceded `runtime store checks passed` and `store logging checks passed`. Logging records and failure isolation are verified in fixtures only; native PostgreSQL cleanup failures, actual CHIM logging delivery/filtering, live provider and in-game behavior remain unverified.
+
+Lead independently verified archive/source equality using both existing archive verifiers. Verification-only tar: 22,997 bytes, SHA-256 `1d8155f4eb4bb70e337f7c7d2099e626ee9fdda8faa821085f8b095a9fa706cd`. Verification-only DWPkg: 104,105 bytes, SHA-256 `0cdc05f5fd95c6de7a09873a83b3fdac66458610a41a2b066ca5b0345b79d1f7`. Both are under `dist/logging-check/`; all eight payload files are LF-only. Published v0.1.1 local artifacts retain their verified publication hashes. Manifest version, compatibility reference, tag/catalog/deployment pins unchanged. No commit, push, publication or installation performed for logging.
+
+Evidence: tasks/logging-platform.md, tasks/logging-runtime.md, tasks/logging-store.md, tasks/logging-package.md. No unchanged influence/model or broad packaging suite rerun; exact payload verifiers cover the one-file allowlist addition.
+
 ## v0.1.1 publication gate — 2026-09-27
 
 User authorized commit, push and publication. Remote main verified at `0a207700dbee57d9dff49ac05c7a3c3b42b42d43`; v0.1.1 tag absent before publication. GitHub account verified as Francisco-boop-001. Fresh isolated influence/runtime fixtures both exited 0; runtime emitted the three expected injected failure logs. Product diff remains the reviewed critique fixes. Release-facing docs were reviewed and frozen, then both archives rebuilt and verified against exact source bytes. Final tar: 16,919 bytes, SHA-256 `0d996e6e4502e80a193dd222f6c9adc040f97c15bb57f3b6ddc0be9769101f40`. Final DWPkg: 75,138 bytes, SHA-256 `76a1503765e776203379ad8a7dad16f4b3241c1600f41afe783b34c263e3ea30`. These supersede the local pre-publication artifact hashes below because release documentation changed. Diff whitespace and doc link/version checks passed. Older records below describe their historical handoff state; publication verification follows. Live DB/provider/game checks and deployment pins remain unchanged.

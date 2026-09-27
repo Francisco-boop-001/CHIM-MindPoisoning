@@ -12,11 +12,11 @@
       "channels": {
         "candidate": {
           "label": "Development candidate",
-          "branch": "mind_poisoning-v0.1.1",
+          "branch": "mind_poisoning-v0.1.2",
           "package_source": "release",
-          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-Plugins/mind_poisoning-v0.1.1/server/manifest.json",
+          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-Plugins/mind_poisoning-v0.1.2/server/manifest.json",
           "package_urls": [
-            "https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.1/mind_poisoning.tar.gz"
+            "https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.2/mind_poisoning.tar.gz"
           ],
           "archive_strip_components": 1,
           "allow_force": true

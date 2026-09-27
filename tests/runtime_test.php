@@ -6,6 +6,7 @@ require_once __DIR__ . '/../server/store.php';
 require_once __DIR__ . '/../server/prerequest.php';
 
 use ChimMindPoisoning\StoreDb;
+use ChimMindPoisoning\RequestLog;
 use function ChimMindPoisoning\assertIdleTransactionStatus;
 use function ChimMindPoisoning\assertPgSqlConnection;
 use function ChimMindPoisoning\eventAlreadyProcessed;
@@ -108,6 +109,33 @@ function check(bool $condition, string $message): void
     }
 }
 
+function captureRequestLog(array &$records, bool $diagnostic = false): RequestLog
+{
+    return new RequestLog(static function (string $json, string $level) use (&$records): void {
+        $records[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR) + ['sink_level' => $level];
+    }, $diagnostic);
+}
+
+function lastRequestSummary(array $records): array
+{
+    foreach (array_reverse($records) as $record) {
+        if (($record['event'] ?? null) === 'request_finished') {
+            return $record;
+        }
+    }
+    throw new RuntimeException('Missing request_finished record.');
+}
+
+function resetAckLoggingInteraction(mixed $generation = 1, bool $enabled = true): void
+{
+    $GLOBALS['runtime_test_interaction_allowed'] = $enabled;
+    $GLOBALS['runtime_test_interaction_generation'] = $generation;
+    $GLOBALS['runtime_test_relationship_enabled'] = true;
+    $GLOBALS['RELLLM_CONNECTOR'] = 7;
+    $_SERVER['HTTP_X_CHIM_GENERATION'] = '1';
+    unset($_SERVER['HTTP_X_CHIM_PASSIVE'], $GLOBALS['chim_interaction_generation'], $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA']);
+}
+
 function same(mixed $expected, mixed $actual, string $message): void
 {
     if ($expected !== $actual) {
@@ -124,6 +152,7 @@ final class MemoryStoreDb implements StoreDb
     public string $playerName = 'Dragonborn';
     public bool $busy = false;
     public bool $failSnapshot = false;
+    public bool $failRelease = false;
     public int $beginCalls = 0;
     private bool $transaction = false;
     private ?array $before = null;
@@ -236,7 +265,9 @@ final class MemoryStoreDb implements StoreDb
 
     public function release(): void
     {
-        // The fixture has no session-level advisory lock state beyond the transaction.
+        if ($this->failRelease) {
+            throw new RuntimeException('fixture release failure');
+        }
     }
 }
 
@@ -708,6 +739,201 @@ same('restore-policy', persistJudgments($event, $subjects, $judgments, $db), 'Un
 same(0, $db->beginCalls, 'Restore-policy rejection must happen before transaction begin.');
 unset($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA']);
 
-unset($GLOBALS['runtime_test_interaction_allowed'], $GLOBALS['runtime_test_relationship_enabled'], $GLOBALS['RELLLM_CONNECTOR']);
+resetAckLoggingInteraction();
+$loggingResponse = static fn(array $messages): string => json_encode(['judgments' => [
+    ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+    ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
+]], JSON_THROW_ON_ERROR);
+[$event, $subjects, $judgments, $db] = baseFixture();
+$requestRecords = [];
+same('committed', handleSpeechAck($ack, $db, $loggingResponse, captureRequestLog($requestRecords, true)), 'Request logging must preserve a successful ACK result.');
+$requestSummary = lastRequestSummary($requestRecords);
+same('committed', $requestSummary['outcome'] ?? null, 'Successful ACKs should finish as committed.');
+same('committed', $requestSummary['persistence_outcome'] ?? null, 'The summary should include the persistence result.');
+same('validated', $requestSummary['model_outcome'] ?? null, 'The summary should distinguish validated model output.');
+same('utt_0123456789abcdef', $requestSummary['utterance_id'] ?? null, 'The summary should correlate by the validated utterance ID.');
+same('7', $requestSummary['connector_id'] ?? null, 'The summary should identify the configured connector row.');
+check(is_numeric($requestSummary['model_ms'] ?? null) && is_numeric($requestSummary['persistence_ms'] ?? null), 'Model and persistence durations should be recorded.');
+same(1, count(array_filter($requestRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'ack_started')), 'One ACK should emit one start event.');
+same(1, count(array_filter($requestRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'request_finished')), 'One ACK should emit exactly one final summary.');
+same(2, count(array_filter($requestRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'judgment_proposal')), 'Validated judgments should emit bounded debug proposals.');
+$requestLogText = json_encode($requestRecords, JSON_THROW_ON_ERROR);
+foreach (['Aela', 'Lydia', 'Dragonborn', 'private evidence', 'I trust Jarl Balgruuf'] as $privateValue) {
+    check(!str_contains($requestLogText, $privateValue), 'Structured logs must not contain actor names, speech, or model evidence.');
+}
+
+resetAckLoggingInteraction(enabled: false);
+[$event, $subjects, $judgments, $db] = baseFixture();
+$offModelCalls = 0;
+$offRecords = [];
+$offStatus = handleSpeechAck($ack, $db, static function (array $messages) use (&$offModelCalls): string {
+    $offModelCalls++;
+    return '{}';
+}, captureRequestLog($offRecords));
+same('interaction-off', $offStatus, 'The logging wrapper must preserve the CHIM Off result.');
+same(0, $offModelCalls, 'Off ACKs must not make a model request.');
+$offSummary = lastRequestSummary($offRecords);
+same('skipped', $offSummary['outcome'] ?? null, 'Off ACKs should be recorded as skipped.');
+same('interaction_off', $offSummary['reason'] ?? null, 'The summary should distinguish an actual Off setting.');
+same('not_called', $offSummary['model_outcome'] ?? null, 'Off ACKs should record that the model was not called.');
+
+foreach ([
+    ['corrupt-ledger', 'ledger-invalid', static function (MemoryStoreDb $db): void {
+        $db->npcs[22]['plugin_extended_data']->mind_poisoning = 'corrupt';
+    }],
+    ['ledger-floor', 'ledger-floor', static function (MemoryStoreDb $db): void {
+        $db->npcs[22]['plugin_extended_data']->mind_poisoning = (object)[
+            'playthrough_id' => '1', 'floor_event_id' => 100, 'events' => [],
+        ];
+    }],
+    ['exact-duplicate', 'duplicate-event', static function (MemoryStoreDb $db): void {
+        $db->npcs[22]['plugin_extended_data']->mind_poisoning = (object)[
+            'playthrough_id' => '1', 'floor_event_id' => 0,
+            'events' => [['event_id' => 100, 'utterance_id' => 'utt_0123456789abcdef']],
+        ];
+    }],
+] as [$label, $expectedReason, $seedLedger]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $seedLedger($db);
+    $duplicateCalls = 0;
+    $duplicateRecords = [];
+    same('duplicate', handleSpeechAck($ack, $db, static function (array $messages) use (&$duplicateCalls): string {
+        $duplicateCalls++;
+        return '{}';
+    }, captureRequestLog($duplicateRecords)), $label . ' must preserve the duplicate return status.');
+    same(0, $duplicateCalls, $label . ' must stop before paid model work.');
+    same($expectedReason, lastRequestSummary($duplicateRecords)['reason'] ?? null, $label . ' must have a precise safe log reason.');
+    same([], $db->history, $label . ' must not create a history snapshot.');
+}
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$midModelOffRecords = [];
+$offDuringModel = static function (array $messages): string {
+    $GLOBALS['runtime_test_interaction_allowed'] = false;
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('interaction-off', handleSpeechAck($ack, $db, $offDuringModel, captureRequestLog($midModelOffRecords)), 'An Off transition during model evaluation must preserve the skip status.');
+$midModelOffSummary = lastRequestSummary($midModelOffRecords);
+same('post_model_gate', $midModelOffSummary['stage'] ?? null, 'An Off transition should be attributed to the post-model gate.');
+same('interaction_off', $midModelOffSummary['reason'] ?? null, 'An Off transition should use its stable reason code.');
+same('validated', $midModelOffSummary['model_outcome'] ?? null, 'The summary should retain that model output was validated before Off.');
+check(!array_key_exists('committed', $midModelOffSummary) && !array_key_exists('changes', $midModelOffSummary), 'A post-model Off skip must not claim persistence.');
+same([], $db->history, 'An Off transition during model evaluation must not snapshot the listener.');
+
+resetAckLoggingInteraction(generation: '1');
+[$event, $subjects, $judgments, $db] = baseFixture();
+$invalidStateRecords = [];
+same('interaction-off', handleSpeechAck($ack, $db, $loggingResponse, captureRequestLog($invalidStateRecords)), 'Malformed interaction state must retain the existing return status.');
+same('interaction_state_invalid', lastRequestSummary($invalidStateRecords)['reason'] ?? null, 'Malformed interaction state must not be mislabeled as Off.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$invalidPayloadCalls = 0;
+$invalidPayloadRecords = [];
+same('invalid-payload', handleSpeechAck(['_speech', 0, 10, 'not-json'], $db, static function (array $messages) use (&$invalidPayloadCalls): string {
+    $invalidPayloadCalls++;
+    return '{}';
+}, captureRequestLog($invalidPayloadRecords)), 'Malformed payload status must remain unchanged.');
+same(0, $invalidPayloadCalls, 'Malformed payloads must stop before paid model work.');
+same('invalid-payload', lastRequestSummary($invalidPayloadRecords)['reason'] ?? null, 'Malformed payloads need a precise safe reason.');
+$oversizedRecords = [];
+same('oversized', handleSpeechAck(['_speech', 0, 10, str_repeat('x', 16385)], $db, static function (array $messages) use (&$invalidPayloadCalls): string {
+    $invalidPayloadCalls++;
+    return '{}';
+}, captureRequestLog($oversizedRecords)), 'Oversized payload status must remain unchanged.');
+same(0, $invalidPayloadCalls, 'Oversized payloads must stop before paid model work.');
+same(16385, lastRequestSummary($oversizedRecords)['payload_bytes'] ?? null, 'Oversized payload logging should retain only its byte count.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$failedModelRecords = [];
+$secretThrowingModel = static function (array $messages): string {
+    throw new RuntimeException('PRIVATE_EXCEPTION_SECRET');
+};
+same('failed', handleSpeechAck($ack, $db, $secretThrowingModel, captureRequestLog($failedModelRecords)), 'Provider exceptions must preserve the existing failed result.');
+$failedModelSummary = lastRequestSummary($failedModelRecords);
+same('model_request_failed', $failedModelSummary['reason'] ?? null, 'Provider failures should use a stable safe reason code.');
+same('failed', $failedModelSummary['model_outcome'] ?? null, 'Provider failures should be distinguishable from invalid output.');
+check(is_numeric($failedModelSummary['model_ms'] ?? null), 'Failed model calls should retain their elapsed duration.');
+check(!str_contains(json_encode($failedModelRecords, JSON_THROW_ON_ERROR), 'PRIVATE_EXCEPTION_SECRET'), 'Raw provider exception messages must not be logged.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$invalidModelRecords = [];
+same('failed', handleSpeechAck($ack, $db, static fn(array $messages): string => '{', captureRequestLog($invalidModelRecords)), 'Invalid judgment output must preserve the existing failed status.');
+same('judgment_validation_failed', lastRequestSummary($invalidModelRecords)['reason'] ?? null, 'Invalid output must be distinguished from provider exceptions.');
+same('invalid', lastRequestSummary($invalidModelRecords)['model_outcome'] ?? null, 'Invalid output must not be described as validated.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->failSnapshot = true;
+$persistenceRecords = [];
+same('failed', handleSpeechAck($ack, $db, $loggingResponse, captureRequestLog($persistenceRecords)), 'Persistence failures must preserve the existing failed status.');
+$persistenceSummary = lastRequestSummary($persistenceRecords);
+same('persistence_failed', $persistenceSummary['reason'] ?? null, 'Persistence failures should finish with a stable safe reason.');
+same('failed', $persistenceSummary['persistence_outcome'] ?? null, 'The summary should identify persistence failure.');
+same('snapshot-verification-failed', $persistenceSummary['persistence_reason'] ?? null, 'The store should retain its specific failed persistence stage.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->failRelease = true;
+$cleanupRecords = [];
+same('failed', handleSpeechAck($ack, $db, $loggingResponse, captureRequestLog($cleanupRecords)), 'A cleanup failure after commit must retain the existing failed result.');
+$cleanupSummary = lastRequestSummary($cleanupRecords);
+same('failed', $cleanupSummary['persistence_outcome'] ?? null, 'The request summary should retain the persistence cleanup failure.');
+same('persistence_failed', $cleanupSummary['reason'] ?? null, 'The request summary should classify the cleanup exception.');
+same('release-failed', $cleanupSummary['persistence_reason'] ?? null, 'The store cleanup reason must survive into the request summary.');
+same('confirmed', $cleanupSummary['commit_state'] ?? null, 'The request summary must preserve the confirmed commit state.');
+same(true, $cleanupSummary['committed'] ?? null, 'A release failure after commit must not imply rollback.');
+same(true, $cleanupSummary['cleanup_failed'] ?? null, 'The request summary must flag cleanup failure.');
+same('error', $cleanupSummary['level'] ?? null, 'A cleanup-failed request summary must be emitted at error level.');
+same(100, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'The fixture should retain the committed affinity after release failure.');
+same(1, count($db->history), 'The confirmed commit should retain its history snapshot after release failure.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$throwingSink = new RequestLog(static function (string $json, string $level): void {
+    throw new RuntimeException('fixture sink failure');
+}, true);
+same('committed', handleSpeechAck($ack, $db, $loggingResponse, $throwingSink), 'A throwing logging sink must not alter a successful ACK result.');
+same(1, count($db->history), 'A throwing sink must not prevent the successful history snapshot.');
+
+$sentinelSource = '$gameRequest = ["_speech", 0, 0, "{}"]; $store = "sentinel"; $GLOBALS["db"] = new stdClass(); require '
+    . var_export(__DIR__ . '/../server/prerequest.php', true) . '; echo $store;';
+$sentinelProcess = proc_open([PHP_BINARY, '-r', $sentinelSource], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $sentinelPipes);
+check(is_resource($sentinelProcess), 'The bootstrap-scope sentinel subprocess should start.');
+fclose($sentinelPipes[0]);
+$sentinelOutput = stream_get_contents($sentinelPipes[1]);
+fclose($sentinelPipes[1]);
+$sentinelError = stream_get_contents($sentinelPipes[2]);
+fclose($sentinelPipes[2]);
+$sentinelExit = proc_close($sentinelProcess);
+same(0, $sentinelExit, 'The bootstrap sentinel subprocess should exit cleanly: ' . $sentinelError);
+same('sentinel', $sentinelOutput, 'The included hook must not overwrite a caller variable named $store.');
+
+$bootstrapPayload = json_encode(['utterance_id' => 'utt_0123456789abcdef'], JSON_THROW_ON_ERROR);
+$bootstrapFailureSource = '$gameRequest = ["_speech", 0, 0, ' . var_export($bootstrapPayload, true) . ']; unset($GLOBALS["db"]); require '
+    . var_export(__DIR__ . '/../server/prerequest.php', true) . ';';
+$bootstrapFailureProcess = proc_open([PHP_BINARY, '-r', $bootstrapFailureSource], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $bootstrapFailurePipes);
+check(is_resource($bootstrapFailureProcess), 'The bootstrap-failure subprocess should start.');
+fclose($bootstrapFailurePipes[0]);
+$bootstrapFailureOutput = stream_get_contents($bootstrapFailurePipes[1]);
+fclose($bootstrapFailurePipes[1]);
+$bootstrapFailureError = stream_get_contents($bootstrapFailurePipes[2]);
+fclose($bootstrapFailurePipes[2]);
+$bootstrapFailureExit = proc_close($bootstrapFailureProcess);
+same(0, $bootstrapFailureExit, 'A safe store-construction failure should not escape the hook: ' . $bootstrapFailureError);
+same('', $bootstrapFailureOutput, 'A store-construction failure should not write to the game response.');
+$bootstrapJsonStart = strpos($bootstrapFailureError, '{');
+check($bootstrapJsonStart !== false, 'The bootstrap failure should emit a structured summary.');
+$bootstrapSummary = json_decode(substr($bootstrapFailureError, $bootstrapJsonStart), true, 512, JSON_THROW_ON_ERROR);
+same('runtime_bootstrap_failed', $bootstrapSummary['reason'] ?? null, 'Store-construction failure should have a stable safe reason.');
+same('utt_0123456789abcdef', $bootstrapSummary['utterance_id'] ?? null, 'Bootstrap failures should retain a safely validated ACK correlation ID.');
+
+unset($GLOBALS['runtime_test_interaction_allowed'], $GLOBALS['runtime_test_interaction_generation'], $GLOBALS['runtime_test_relationship_enabled'], $GLOBALS['RELLLM_CONNECTOR']);
+unset($_SERVER['HTTP_X_CHIM_GENERATION'], $_SERVER['HTTP_X_CHIM_PASSIVE']);
 
 echo "runtime store checks passed\n";
