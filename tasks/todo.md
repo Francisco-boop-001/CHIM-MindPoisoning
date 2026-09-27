@@ -7,8 +7,12 @@ User explicitly authorized commit, push and publication. Publish a development p
 - [x] Confirm remote main matches the reviewed baseline and the new tag does not exist.
 - [x] Update release-facing docs and review their diff.
 - [x] Run focused PHP checks; rebuild and verify final source-matching archives.
-- [ ] Commit reviewed files, push main and version tag, publish both assets.
-- [ ] Verify remote commit/tag and downloaded artifact hashes; record final review.
+- [x] Commit reviewed files, push main and version tag, publish both assets.
+- [x] Verify remote commit/tag and downloaded artifact hashes; record final review.
+
+### Publication review
+
+Published release commit c9b7883e26fdb7f4ae161180a90915c299cbd3e1 and annotated tag mind_poisoning-v0.1.1. GitHub reports a public, non-draft prerelease with both assets uploaded. Downloaded both assets and verified exact local byte equality and source payload equality; hashes recorded in tasks/verification.md. User critique.md remains untracked. No official catalog submission, installation, live runtime verification or deployment-pin change.
 
 ## Critique fixes — 2026-09-27
 
