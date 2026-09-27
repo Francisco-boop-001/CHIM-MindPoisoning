@@ -2,7 +2,7 @@
 
 ## v0.1.2 release gate — 2026-09-27
 
-User authorized publication of the logging update. Fresh logging_test.php and store_logging_test.php (includes runtime_test.php) exited 0. Two negative fixture diagnostics were expected. Final frozen-source builders and verifiers passed for dist/0.1.2: mind_poisoning.tar.gz: 22960 bytes; SHA-256 9821753f05eaee6e965181e5e0417329c544a72021483482ae0ff51057859b0b; mind_poisoning-0.1.2.dwpkg: 104060 bytes; SHA-256 0f2e95fa9f54e12fc9aa50ae2648e77c072bf7896519af4982f67d55a9b7a76e. Compatibility reference stays cf5030f15781637498be86debe26fcf102f5690d. Live-runtime limitations remain; release is a development prerelease. Clean-tag and remote asset verification follow publication preparation.
+User authorized publication of the logging update. Fresh logging_test.php and store_logging_test.php (includes runtime_test.php) exited 0. Two negative fixture diagnostics were expected. Final frozen-source builders and verifiers passed for dist/0.1.2: mind_poisoning.tar.gz: 22960 bytes; SHA-256 9821753f05eaee6e965181e5e0417329c544a72021483482ae0ff51057859b0b; mind_poisoning-0.1.2.dwpkg: 104060 bytes; SHA-256 0f2e95fa9f54e12fc9aa50ae2648e77c072bf7896519af4982f67d55a9b7a76e. Compatibility reference stays cf5030f15781637498be86debe26fcf102f5690d. Live-runtime limitations remain; release is a development prerelease. Published source commit 02c7616, annotated tag mind_poisoning-v0.1.2. Both packages matched a clean tag export; downloaded GitHub assets matched local bytes and the SHA-256 digests above. GitHub reports isDraft=false and isPrerelease=true. No official catalog submission or installation performed.
 
 ## Logging debug follow-up — 2026-09-27
 

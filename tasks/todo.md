@@ -7,8 +7,12 @@ User authorized commit, push and publication. Preserve critique.md and protected
 - [x] Check tree, prior debug evidence, remote main and release availability.
 - [x] Prepare and review v0.1.2 metadata and release notes.
 - [x] Verify focused fixtures and build source-matching packages.
-- [ ] Commit reviewed files, verify packages against clean tag, push and publish.
-- [ ] Download release assets, compare checksums and record outcome.
+- [x] Commit reviewed files, verify packages against clean tag, push and publish.
+- [x] Download release assets, compare checksums and record outcome.
+
+### Publication review
+
+Published commit 02c7616 and tag mind_poisoning-v0.1.2 as a public development prerelease. Both packages matched a clean tag export before upload and downloaded GitHub assets matched local bytes/checksums. Focused logging/runtime/store fixtures passed. User critique.md remains untracked; protected CHIM/mod were unchanged. Compatibility/deployment references unchanged; catalog snippet advanced to this verified release, with no official catalog submission. Live runtime remains unverified.
 
 ## Logging debug run — 2026-09-27
 
