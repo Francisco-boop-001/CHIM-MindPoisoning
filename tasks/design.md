@@ -12,6 +12,8 @@ The previous viability proposal and the user's explicit development request supp
 - Confirmed playback is CHIM's client report, not independent proof of human-like hearing. Scope is the direct named listener, not all nearby companions.
 - Prefer a synchronous call during the acknowledgement request, whose existing shared runtime lease protects explicit playthrough switching. This avoids a second queue/daemon and schema migrations. It adds model latency to the callback. Provider-specific timeout support must be verified; never claim a universal wall-clock cap.
 - Use canonical relationship state plus owned `plugin_extended_data.mind_poisoning` state. A transaction, existing per-NPC advisory lock and row lock must preserve core writes and atomically dedupe/apply/snapshot. The exact rollback/read guard is an implementation acceptance gate.
+- The inspected `sql` wrapper hides its connection and automatically reconnects in helpers. A guarded, version-bound reflection adapter obtains the native connection and rejects an existing caller transaction. All transactional reads/writes stay on that retained connection. The full-row history transformation mirrors `backupNpcById` with dynamically validated columns; helper reuse inside the transaction was rejected because reconnect could silently autocommit writes.
+- `NEVER_CLEAR_RELATIONSHIP_DATA=true` preserves scores while restoring the plugin ledger; v0.1 skips processing under that setting. CHIM interaction Off also skips processing.
 
 ## Behavior and safety contract
 

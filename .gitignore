@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+/dist/
+/tests/.package-manager-check/
+/tests/.package-manager-check-run-*/
+/tests/.package-test-*/

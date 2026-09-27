@@ -1,6 +1,6 @@
 # Task 2 — acknowledged speech, model adapter and transactional persistence
 
-Read `tasks/design.md` and `tasks/influence-brief.md` first. You own `server/prerequest.php`, `server/store.php`, `server/model.php`, `tests/runtime_test.php`, and `tasks/runtime-report.md` only. Others share the workspace; preserve edits. No subagents, no commits. Ponytail full. Lead reviews all code. Installed WSL and F: remain read-only; code/tests write only this project. No real LLM/HTTP calls or live DB writes. Do not run server endpoints/bootstrap in tests.
+Read `tasks/design.md` and `tasks/influence-brief.md` first. After the pure-module gate passed, lead split remaining independent work: runtime owns `server/prerequest.php`, `server/store.php`, `tests/runtime_test.php`, and `tasks/runtime-report.md` only. Influence owns `server/model.php`, `tests/model_test.php`, and `tasks/model-report.md`. The adapter interface is `ChimMindPoisoning\requestJudgments(array $messages): string`, throwing on unsupported configuration/provider failure. Others share the workspace; preserve edits. No subagents, no commits. Ponytail full. Lead reviews all code. Installed WSL and F: remain read-only; code/tests write only this project. No real LLM/HTTP calls or live DB writes. Do not run server endpoints/bootstrap in tests.
 
 ## Existing evidence to verify in affected flow
 

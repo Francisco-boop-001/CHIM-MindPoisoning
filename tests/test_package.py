@@ -1,0 +1,111 @@
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from zipfile import ZIP_STORED, ZipFile
+
+PROJECT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT))
+
+from scripts.package import SERVER_FILES, PackageError, build_package, verify_archive
+
+FIXTURE_NAME = "mind_poisoning"
+
+
+def write_fixture_project(root: Path, *, extra_files: bool = False) -> None:
+    server = root / "server"
+    server.mkdir(parents=True)
+    manifest = {"name": FIXTURE_NAME, "version": "0.1.0", "description": "Package fixture"}
+    (server / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for name in SERVER_FILES:
+        path = server / name
+        if name == "manifest.json":
+            continue
+        path.write_text(f"fixture:{name}\n", encoding="utf-8")
+    if extra_files:
+        for name in (
+            "server/debug.log",
+            "server/conf/live.php",
+            "tasks/private.txt",
+            "tests/test_package.py",
+            ".git/config",
+            "credentials.json",
+        ):
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("must not be packaged\n", encoding="utf-8")
+
+
+class PackageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix=".package-test-", dir=PROJECT / "tests")
+        self.root = Path(self.temporary.name)
+        self.source = self.root
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_build_is_deterministic_and_uses_only_the_allowlist(self) -> None:
+        write_fixture_project(self.source, extra_files=True)
+        first = self.root / "first.dwpkg"
+        second = self.root / "second.dwpkg"
+
+        build_package(self.source, first)
+        build_package(self.source, second)
+
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        expected = {"manifest.json", "checksums.sha256"} | {f"server/{name}" for name in SERVER_FILES}
+        with ZipFile(first) as archive:
+            self.assertEqual(set(archive.namelist()), expected)
+            outer = json.loads(archive.read("manifest.json"))
+            self.assertEqual(outer["schema_version"], 4)
+            self.assertEqual(outer["name"], FIXTURE_NAME)
+            self.assertEqual(outer["version"], "0.1.0")
+        verify_archive(first, self.source)
+
+    def test_missing_allowlisted_payload_fails_before_writing(self) -> None:
+        write_fixture_project(self.source)
+        (self.source / "server" / "store.php").unlink()
+        output = self.root / "missing.dwpkg"
+
+        with self.assertRaisesRegex(PackageError, "store.php"):
+            build_package(self.source, output)
+
+        self.assertFalse(output.exists())
+
+    def test_verifier_rejects_checksum_tampering(self) -> None:
+        write_fixture_project(self.source)
+        archive_path = self.root / "valid.dwpkg"
+        tampered_path = self.root / "tampered.dwpkg"
+        build_package(self.source, archive_path)
+        with ZipFile(archive_path) as original, ZipFile(tampered_path, "w", compression=ZIP_STORED) as tampered:
+            for name in original.namelist():
+                data = original.read(name)
+                if name == "server/influence.php":
+                    data += b"tampered\n"
+                tampered.writestr(name, data)
+
+        with self.assertRaisesRegex(PackageError, "checksum"):
+            verify_archive(tampered_path, self.source)
+
+
+def emit_manager_fixture() -> Path:
+    fixture_root = PROJECT / "tests" / ".package-manager-check" / "source"
+    if fixture_root.exists():
+        raise PackageError(f"Remove the existing fixture first: {fixture_root}")
+    fixture_root.mkdir(parents=True)
+    write_fixture_project(fixture_root)
+    archive_path = fixture_root / "fixture.dwpkg"
+    build_package(fixture_root, archive_path)
+    return archive_path
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--manager-fixture"]:
+        try:
+            print(emit_manager_fixture())
+        except (OSError, PackageError) as error:
+            raise SystemExit(f"fixture failed: {error}") from error
+    else:
+        unittest.main()

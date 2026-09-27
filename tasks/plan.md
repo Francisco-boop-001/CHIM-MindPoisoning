@@ -22,28 +22,29 @@
 
 Owner: influence. Files and exact signatures in influence-brief.
 
-- [ ] Read source normalization/relationship conventions and write meaningful failure checks.
-- [ ] Implement subject resolution, prompt and strict judgment validation.
-- [ ] Run focused PHP checks; lead review complete affected inputs and output contract.
+- [x] Read source normalization/relationship conventions and write meaningful failure checks.
+- [x] Implement subject resolution, prompt and strict judgment validation.
+- [x] Run focused PHP checks; lead reviewed complete module and independently ran `php tests/influence_test.php` successfully. Hook integration gate released.
 
 ## Task 2 — adapters, then integration
 
 Owner: runtime. Store/model modules are independent of Task1 implementation; only their fixed input/output contracts are shared.
 
-- [ ] Trace callback, source event, connector globals and DB/history APIs.
-- [ ] Implement/test persistence and model adapters without final hook integration.
-- [ ] Lead review adapter failure modes and test evidence.
-- [ ] AFTER Task1 review, wire prerequest hook and run composed fixtures covering correct edge, invalid/stale/aborted/duplicate/zero/locked/failure cases.
-- [ ] Lead review every resulting diff and return defects to runtime owner.
+- [x] Trace callback, source event, connector globals and DB/history APIs.
+- [x] Implement/test persistence and model adapters without final hook integration.
+- [x] Model adapter separately accepted after file-ownership split: lead reviewed the complete adapter and actual connector factory, independently ran `php tests/model_test.php` successfully. Persistence remains pending.
+- [x] Lead review adapter failure modes and test evidence; independent review caught eventlog rowid mismatch, corrected. Final native SQL shapes passed read-only PostgreSQL planning via `tasks/sql-check.sql`; this is not mutation/concurrency proof.
+- [x] AFTER Task1 review, wire prerequest hook and run composed fixtures covering correct edge, invalid/stale/aborted/duplicate/zero/locked/failure cases.
+- [x] Lead review every resulting diff and return defects to runtime owner. Final local gate passed; provider and PostgreSQL mutation/concurrency execution remain unverified.
 
 ## Task 3 — package
 
 Owner: packaging. Build/test tooling can use small fixture payloads independently.
 
-- [ ] Implement deterministic schema4 archive build and verification.
-- [ ] Use real manager in explicitly isolated workspace roots; verify accept/tamper rejection without migrations/live state.
-- [ ] AFTER runtime acceptance, finalize documentation and build actual candidate.
-- [ ] Lead inspect archive contents, hashes, docs and final evidence.
+- [x] Implement deterministic schema4 archive build and verification.
+- [x] Use real manager in explicitly isolated workspace roots; verify accept/tamper rejection without migrations/live state (fixture package; actual candidate gate remains).
+- [x] AFTER runtime acceptance, finalize documentation and build actual candidate.
+- [x] Lead inspect archive contents, hashes, docs and final evidence.
 
 ## Review focus
 
@@ -51,6 +52,6 @@ Exact listener/subject direction; source-line identity versus callback identity;
 
 ## Final gate
 
-- [ ] Review all product files and resolve consequential findings with original owners.
-- [ ] Fresh focused checks on the final code and package; record evidence tier and remaining limits.
-- [ ] Complete todo review and hand off candidate/source with no deployment/pin change.
+- [x] Review all product files and resolve consequential findings with original owners.
+- [x] Fresh focused checks on the final code and package; record evidence tier and remaining limits.
+- [x] Complete todo review and hand off candidate/source with no deployment/pin change.

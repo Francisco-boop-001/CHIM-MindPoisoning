@@ -1,0 +1,7 @@
+{
+  "name": "mind_poisoning",
+  "version": "0.1.0",
+  "description": "Conservative, evidence-bound NPC listener affinity updates from acknowledged speech.",
+  "status": "development_candidate",
+  "server_compatibility_reference": "cf5030f15781637498be86debe26fcf102f5690d"
+}
