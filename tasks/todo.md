@@ -1,5 +1,16 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Public README rewrite
+
+User approved the reader-first README direction and asked to push it. Starting state: published source/release complete; the only existing local edit is the approved README lesson in `tasks/lessons.md`.
+
+- [x] Review current README, approved tone/structure and existing local changes.
+- [x] Influence owner: replace the root README with a concise plugin-home introduction in the user's dry, humorous voice; create `docs/mind-poisoning.md` for users and `docs/development.md` for technical/release material. Preserve accurate prerelease/catalog status and package payload.
+- [x] Lead: review all prose, installation claims and links; check Markdown structure and absence of machine-specific paths in public docs. No runtime tests needed for this documentation-only change.
+- [ ] Commit and push reviewed docs; verify the public README and linked guides. Keep published release tag/assets unchanged.
+
+Review: root README and both guides reviewed against the accepted behavior and install route. Local links resolve, Markdown fences are balanced, public docs contain no machine-specific paths, and GitHub-rendered README HTML has the expected headings and links. `git diff --check` passed. No server, packaging, test or distribution files changed; runtime tests are not applicable. Publication verification follows the push.
+
 ## GitHub publication
 
 User selected and authorized `Francisco-boop-001/CHIM-Plugins` as a separate public home for CHIM plugins, with Mind Poisoning first. Existing local source is clean at `f8dcb0e`, no remote configured; accepted artifacts match the recorded hashes. GitHub CLI account verified as `Francisco-boop-001`. Protected installed roots remain read-only.
