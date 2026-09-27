@@ -84,6 +84,7 @@ final class MemoryStoreDb implements StoreDb
     public array $events = [];
     public array $history = [];
     public string $profileId = '1';
+    public string $playerName = 'Dragonborn';
     public bool $busy = false;
     public bool $failSnapshot = false;
     public int $beginCalls = 0;
@@ -92,7 +93,7 @@ final class MemoryStoreDb implements StoreDb
 
     public function activePlaythrough(): ?array
     {
-        return ['id' => $this->profileId, 'player_name' => 'Dragonborn'];
+        return ['id' => $this->profileId, 'player_name' => $this->playerName];
     }
 
     public function acknowledgedEvent(string $utteranceId): ?array
@@ -433,6 +434,72 @@ same(1, count($db->history), 'Composed hook should snapshot the changed listener
 same('duplicate', handleSpeechAck($ack, $db, $model), 'An acknowledged utterance should be deduped before another model call.');
 same(1, $modelCalls, 'Preflight dedupe must avoid a second model call.');
 same(1, count($db->history), 'Preflight duplicate must not create a second snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$event['player_name'] = 'Dovah';
+$event['text'] = 'I trust Jarl Balgruuf. Dovah is brave.';
+$event['source_data'] = 'Aela: I trust Jarl Balgruuf. Dovah is brave. (Talking to Lydia)';
+$db->playerName = 'Dovah';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$playerAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$beforePlayerDrift = unserialize(serialize($db->npcs[22]));
+$renamingModel = static function (array $messages) use ($db): string {
+    $db->playerName = 'Dovah Prime';
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => -1, 'reason' => 'Named Player reaction', 'evidence' => 'Dovah is brave.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('stale', handleSpeechAck($playerAck, $db, $renamingModel), 'A same-profile Player rename during evaluation must reject stale Player identity context.');
+check(ChimMindPoisoning\sameJsonValue($beforePlayerDrift, $db->npcs[22]), 'A same-profile Player rename must not mutate listener state.');
+same([], $db->history, 'A same-profile Player rename must not create a history snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$event['player_name'] = 'Dovah';
+$event['text'] = 'I trust Jarl Balgruuf.';
+$event['source_data'] = 'Aela: I trust Jarl Balgruuf. (Talking to Lydia)';
+$db->playerName = 'Dovah';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$npcOnlyAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$npcOnlyModel = static function (array $messages) use ($db): string {
+    $db->playerName = 'Dovah Prime';
+    return json_encode(['judgments' => [
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+    ]], JSON_THROW_ON_ERROR);
+};
+same('committed', handleSpeechAck($npcOnlyAck, $db, $npcOnlyModel), 'A same-profile Player rename must not reject an NPC-only judgment.');
+same(1, count($db->history), 'NPC-only judgments remain snapshot eligible after a Player rename.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['plugin_extended_data']->mind_poisoning = 'corrupt';
+$beforeMalformedLedger = unserialize(serialize($db->npcs[22]));
+same('invalid', persistJudgments($event, $subjects, $judgments, $db), 'A present malformed ledger namespace must fail closed rather than reset dedupe state.');
+check(ChimMindPoisoning\sameJsonValue($beforeMalformedLedger, $db->npcs[22]), 'Malformed ledger state must not mutate the listener.');
+same([], $db->history, 'Malformed ledger state must not create a history snapshot.');
+check(eventAlreadyProcessed($db->npcs[22], '1', 100, $event['utterance_id']), 'Preflight must fail closed for a present malformed ledger namespace.');
+foreach ([null, new stdClass()] as $malformedLedger) {
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $db->npcs[22]['plugin_extended_data']->mind_poisoning = $malformedLedger;
+    same('invalid', persistJudgments($event, $subjects, $judgments, $db), 'Present null and empty-object ledgers must fail closed.');
+    check(eventAlreadyProcessed($db->npcs[22], '1', 100, $event['utterance_id']), 'Preflight must fail closed for present null and empty-object ledgers.');
+    same([], $db->history, 'Invalid present ledger state must not create history.');
+}
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['plugin_extended_data']->mind_poisoning = (object)[
+    'playthrough_id' => '2', 'floor_event_id' => 0, 'events' => [],
+];
+same('committed', persistJudgments($event, $subjects, $judgments, $db), 'A valid ledger from another playthrough may start a fresh playthrough ledger.');
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $modelCalls = 0;

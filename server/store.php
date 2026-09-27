@@ -66,6 +66,33 @@ function knownLedgerArray(mixed $value): ?array
     return is_array($value) ? $value : null;
 }
 
+function storedLedgerNamespace(object $pluginExtendedData): ?array
+{
+    if (!property_exists($pluginExtendedData, 'mind_poisoning')) {
+        return [];
+    }
+    $ledger = knownLedgerArray($pluginExtendedData->mind_poisoning);
+    if (
+        !is_array($ledger)
+        || !is_string($ledger['playthrough_id'] ?? null) || $ledger['playthrough_id'] === ''
+        || !is_int($ledger['floor_event_id'] ?? null) || $ledger['floor_event_id'] < 0
+        || !is_array($ledger['events'] ?? null) || !array_is_list($ledger['events'])
+        || count($ledger['events']) > 128
+    ) {
+        return null;
+    }
+    foreach ($ledger['events'] as $entry) {
+        if (
+            !is_array($entry)
+            || !is_int($entry['event_id'] ?? null) || $entry['event_id'] < 1
+            || !is_string($entry['utterance_id'] ?? null) || $entry['utterance_id'] === ''
+        ) {
+            return null;
+        }
+    }
+    return $ledger;
+}
+
 function jsonValueKey(mixed $value): string
 {
     if ($value instanceof \stdClass) {
@@ -143,22 +170,19 @@ function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, 
     if (!$plugins instanceof \stdClass) {
         return true;
     }
-    $ledger = knownLedgerArray($plugins->mind_poisoning ?? null);
-    if (!is_array($ledger) || ($ledger['playthrough_id'] ?? null) !== $playthroughId) {
-        return false;
-    }
-    $floor = $ledger['floor_event_id'] ?? 0;
-    $entries = $ledger['events'] ?? [];
-    if (!is_int($floor) || $floor < 0 || !is_array($entries)) {
+    $ledger = storedLedgerNamespace($plugins);
+    if ($ledger === null) {
         return true;
     }
+    if ($ledger === [] || $ledger['playthrough_id'] !== $playthroughId) {
+        return false;
+    }
+    $floor = $ledger['floor_event_id'];
+    $entries = $ledger['events'];
     if ($eventId <= $floor) {
         return true;
     }
     foreach ($entries as $entry) {
-        if (!is_array($entry) || !is_int($entry['event_id'] ?? null) || !is_string($entry['utterance_id'] ?? null)) {
-            return true;
-        }
         if ($entry['event_id'] === $eventId || $entry['utterance_id'] === $utteranceId) {
             return true;
         }
@@ -316,6 +340,14 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         ) {
             return 'stale';
         }
+        if (
+            array_key_exists('player', $subjects)
+            && is_string($event['player_name'] ?? null)
+            && trim($event['player_name']) !== ''
+            && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
+        ) {
+            return 'stale';
+        }
         if (!sameActorName($listener['npc_name'] ?? null, $event['listener_name'])) {
             return 'stale';
         }
@@ -386,20 +418,15 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             $updatedExtendedData->relationships = $updatedRelationships;
         }
 
-        $pluginNamespace = knownLedgerArray($pluginExtendedData->mind_poisoning ?? null) ?? [];
-        if (($pluginNamespace['playthrough_id'] ?? null) === $event['playthrough_id']) {
-            $floor = $pluginNamespace['floor_event_id'] ?? 0;
-            $entries = $pluginNamespace['events'] ?? [];
-            if (!is_int($floor) || $floor < 0 || !is_array($entries)) {
-                return 'invalid';
-            }
-            if ($event['event_id'] <= $floor) {
+        $pluginNamespace = storedLedgerNamespace($pluginExtendedData);
+        if ($pluginNamespace === null) {
+            return 'invalid';
+        }
+        if ($pluginNamespace !== [] && $pluginNamespace['playthrough_id'] === $event['playthrough_id']) {
+            if ($event['event_id'] <= $pluginNamespace['floor_event_id']) {
                 return 'below-floor';
             }
-            foreach ($entries as $entry) {
-                if (!is_array($entry) || !is_int($entry['event_id'] ?? null) || !is_string($entry['utterance_id'] ?? null)) {
-                    return 'invalid';
-                }
+            foreach ($pluginNamespace['events'] as $entry) {
                 if ($entry['event_id'] === $event['event_id'] || $entry['utterance_id'] === $event['utterance_id']) {
                     return 'duplicate';
                 }

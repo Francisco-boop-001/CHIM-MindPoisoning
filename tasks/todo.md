@@ -1,5 +1,25 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Proactive debug run — 2026-09-27
+
+Starting at clean `2a54ac3`. No failing user scenario supplied. Prior fixture, SQL planning, packaging, and publication gates are complete; do not repeat them without a concrete unresolved risk. This run targets fixture blind spots at identity/model, transaction/hook, and installed-loader boundaries. Installed distro/mod remain read-only; no provider calls, live DB mutations, publication, or pin advancement.
+
+- [x] Inspect working tree, recent changes, prior plans, lessons, design and verification limits.
+- [x] Influence: investigate pure subject/model boundary cases not established by existing fixtures; reproduce confirmed defects before smallest repairs. Own `server/influence.php`, `server/model.php`, `tests/influence_test.php`, `tests/model_test.php`, `tasks/debug-influence.md`.
+- [x] Runtime: investigate ACK identity, transaction/dedupe and lifecycle failure paths; reproduce confirmed defects before smallest repairs. Own `server/prerequest.php`, `server/store.php`, `tests/runtime_test.php`, `tasks/debug-runtime.md`.
+- [x] Packaging: inspect real loader/bootstrap and shipped entry-point compatibility against fixture assumptions, read-only product review. Own only `tests/bootstrap_check.php` if a meaningful isolated check is possible, and `tasks/debug-bootstrap.md`. Report cross-owner defects rather than editing runtime modules. Completed package-format checks need no repetition.
+- [x] Lead: review every finding/diff, inspect affected callers and targeted output, return defects to original owner, and record exact evidence limits and pin status.
+
+All agents use Ponytail full and gpt-6-luna/max; shared workspace edits must be preserved. Acceptance: each confirmed defect has reproduction/root-cause evidence and focused passing verification, or an explicit unresolved limitation; no speculative cleanup. Lead owns this ledger and final review, not product code.
+
+### Debug review and handoff
+
+Three independent gpt-6-luna/max agents completed bounded reviews with distinct ownership. Influence/model and installed-loader investigations confirmed existing contracts and justified no code/test changes. Runtime reproduced two defects before fixing them: malformed present dedupe state committed instead of rejecting, and a same-profile Player rename during evaluation committed stale Player context. Shared namespace validation now guards preflight and persistence; Player-subject persistence revalidates the evaluated nonempty name. Absent first use, valid other-playthrough state, and NPC-only decisions remain eligible.
+
+Lead reviewed every changed product/test line and the surrounding hook/store call paths, returned the overwritten shared model fixture for isolation, and requested the narrow null/empty-object and NPC-only checks. Final independent runtime fixture exited 0 under WSL, with exactly the three existing injected failure logs (snapshot failure, ambiguous aliases, malformed model JSON). Worker lint for both changed PHP files and final diff checks passed. Evidence: `tasks/debug-runtime.md`, `tasks/debug-influence.md`, `tasks/debug-bootstrap.md`.
+
+At debug-run handoff these were local uncommitted source fixes. The user subsequently authorized their commit and push to GitHub; that publication covers source and regression evidence, not a rebuilt release. Existing v0.1.0 assets still represent the earlier source and do not contain these fixes. No package/release/deployment pin advanced. No installed files, live DB, provider or game were modified/exercised; actual transaction/concurrency/provider/in-game acceptance remains pending. No broad unchanged suite was repeated.
+
 ## Public README rewrite
 
 User approved the reader-first README direction and asked to push it. Starting state: published source/release complete; the only existing local edit is the approved README lesson in `tasks/lessons.md`.

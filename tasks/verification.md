@@ -1,5 +1,13 @@
 # Candidate verification
 
+## Latest local debug fixes — 2026-09-27
+
+Starting source: `2a54ac3`. Two persistence defects were reproduced with the in-memory adapter and fixed locally: malformed present dedupe namespaces now fail closed at preflight/commit, and Player judgments reject a changed nonempty Player name between evaluation and transactional revalidation. First-use initialization, valid other-playthrough reset, and NPC-only judgments remain eligible. Lead reviewed the complete diff/callers and independently ran `tests/runtime_test.php` via WSL PHP: exit 0, `runtime store checks passed`, with the three expected injected failure logs. Worker syntax checks passed for both changed PHP files; diff whitespace check passed. Details: `tasks/debug-runtime.md`.
+
+Subject/model and loader reviews found no justified additional changes; see `tasks/debug-influence.md` and `tasks/debug-bootstrap.md`. Those findings are source inspection, not live integration proof. No unchanged packaging/model suites were repeated.
+
+The user subsequently authorized committing and pushing these reviewed source fixes to GitHub. This publication covers source and regression evidence only: the fixes are not packaged, installed or runtime-promoted. Published v0.1.0 assets and all pins are unchanged and do not include these fixes. All earlier archive/source-identity statements below describe their historical candidate, not the current modified source. Live PostgreSQL writes/concurrency, provider and in-game acceptance remain unverified.
+
 ## Published development prerelease
 
 User authorized the confirmed public repository `https://github.com/Francisco-boop-001/CHIM-Plugins`. Source is on `main`; release tag `mind_poisoning-v0.1.0` points to publication commit `0a6f3a8`. The README and repository description identify it as the user's home for CHIM plugins, with Mind Poisoning first.
