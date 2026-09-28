@@ -11,7 +11,7 @@ use function ChimMindPoisoning\renderDashboard;
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
     header('X-Frame-Options: SAMEORIGIN');
-    header("Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'none'; img-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'");
+    header("Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'");
 
     $sendFixed = static function (int $status, string $contentType, string $body, array $headers = []): void {
         http_response_code($status);

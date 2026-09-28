@@ -33,6 +33,14 @@ function dashboardIntegrationHeader(array $headers, string $name): ?string
     return null;
 }
 
+function dashboardIntegrationRefreshRegions(string $html): array
+{
+    preg_match_all('/data-dashboard-refresh-region="([^"]+)"/', $html, $matches);
+    $regions = $matches[1] ?? [];
+    sort($regions, SORT_STRING);
+    return $regions;
+}
+
 function dashboardIntegrationRemoveTree(string $path, string $tempBase): void
 {
     $resolvedPath = realpath($path);
@@ -73,7 +81,7 @@ try {
     }
 
     foreach ([
-        'dashboard.php', 'dashboard_data.php', 'dashboard_view.php', 'dashboard.css',
+        'dashboard.php', 'dashboard_data.php', 'dashboard_view.php', 'dashboard.css', 'dashboard.js',
         'dashboard-art.webp', 'store.php', 'influence.php', 'logging.php', 'manifest.json',
     ] as $file) {
         if (!copy($sourceServer . DIRECTORY_SEPARATOR . $file, $pluginDir . DIRECTORY_SEPARATOR . $file)) {
@@ -191,6 +199,10 @@ PHP);
     [$status, $headers, $html] = dashboardIntegrationRequest($pageUrl . '?tab=interactions');
     dashboardIntegrationAssert($status === 200, 'Real dashboard controller failed to render the interaction page.');
     dashboardIntegrationAssert(str_contains($html, '<html lang="en" data-theme="day">'), 'Real renderer did not use the controller’s default day theme.');
+    dashboardIntegrationAssert(preg_match('/<script\b(?=[^>]*\bsrc="dashboard\.js")(?=[^>]*\bdefer\b)[^>]*><\/script>/', $html) === 1, 'Real renderer omitted its deferred external refresh script.');
+    dashboardIntegrationAssert(dashboardIntegrationRefreshRegions($html) === [
+        'database-source', 'interactions', 'last-updated', 'logs-source', 'notices',
+    ], 'Interactions page rendered the wrong refresh-region set.');
     foreach ([
         'Showing log-only history', 'Current affinity is unavailable', 'Before 31', 'After 33',
         'Proposed', 'Applied', 'Current', 'Unverified history',
@@ -202,11 +214,18 @@ PHP);
     dashboardIntegrationAssert(str_contains($html, '<div><dt>Applied</dt><dd class="numeric">+2</dd></div>'), 'Rendered interaction did not show the confirmed applied change.');
     dashboardIntegrationAssert(dashboardIntegrationHeader($headers, 'Content-Type') === 'text/html; charset=UTF-8', 'Interaction response has the wrong content type.');
     $csp = (string)dashboardIntegrationHeader($headers, 'Content-Security-Policy');
-    dashboardIntegrationAssert(str_contains($csp, "style-src 'self'") && str_contains($csp, "img-src 'self'") && str_contains($csp, "script-src 'none'"), 'Page CSP did not retain self-only artwork/style and disabled scripts.');
+    dashboardIntegrationAssert(str_contains($csp, "style-src 'self'") && str_contains($csp, "img-src 'self'") && str_contains($csp, "script-src 'self'") && str_contains($csp, "connect-src 'self'"), 'Page CSP did not restrict assets and refresh requests to the same origin.');
+    dashboardIntegrationAssert(!str_contains($csp, "'unsafe-inline'") && !str_contains($csp, "'unsafe-eval'"), 'Page CSP enabled inline or evaluated script.');
+    dashboardIntegrationAssert(preg_match_all('/<script\b[^>]*>/i', $html, $scriptTags) === 1 && str_contains($scriptTags[0][0], 'src="dashboard.js"'), 'Page included inline or unexpected JavaScript.');
 
     [$status, $headers, $css] = dashboardIntegrationRequest($baseUrl . '/ext/mind_poisoning/dashboard.css');
     dashboardIntegrationAssert($status === 200 && str_contains($css, '.dashboard-shell'), 'Real dashboard stylesheet route did not serve local CSS.');
     dashboardIntegrationAssert(str_starts_with((string)dashboardIntegrationHeader($headers, 'Content-Type'), 'text/css'), 'Stylesheet response has the wrong content type.');
+
+    [$status, $headers, $script] = dashboardIntegrationRequest($baseUrl . '/ext/mind_poisoning/dashboard.js');
+    dashboardIntegrationAssert($status === 200 && $script === file_get_contents($sourceServer . '/dashboard.js'), 'Same-origin dashboard JavaScript was not served from the exact packaged source.');
+    $scriptType = strtolower((string)dashboardIntegrationHeader($headers, 'Content-Type'));
+    dashboardIntegrationAssert(str_starts_with($scriptType, 'application/javascript') || str_starts_with($scriptType, 'text/javascript'), 'Dashboard script response has the wrong content type.');
 
     [$status, $headers, $art] = dashboardIntegrationRequest($baseUrl . '/ext/mind_poisoning/dashboard-art.webp');
     dashboardIntegrationAssert($status === 200 && str_starts_with($art, 'RIFF') && substr($art, 8, 4) === 'WEBP', 'Same-origin dashboard artwork was not served as WebP.');
@@ -215,6 +234,9 @@ PHP);
     $diagnosticQuery = '?tab=diagnostics&theme=day&q=' . rawurlencode($targetRequestId) . '&outcome=committed&level=info';
     [$status, , $diagnostics] = dashboardIntegrationRequest($pageUrl . $diagnosticQuery);
     dashboardIntegrationAssert($status === 200, 'Real dashboard controller failed to render diagnostics.');
+    dashboardIntegrationAssert(dashboardIntegrationRefreshRegions($diagnostics) === [
+        'database-source', 'diagnostics', 'download', 'last-updated', 'logs-source', 'notices',
+    ], 'Logs page rendered the wrong refresh-region set.');
     dashboardIntegrationAssert(str_contains($diagnostics, $targetRequestId), 'Diagnostics filter omitted the matching RequestLog ID.');
     dashboardIntegrationAssert(!str_contains($diagnostics, $otherRequestId), 'Diagnostics q filter included an unrelated RequestLog ID.');
     dashboardIntegrationAssert(!str_contains($diagnostics, 'SECRET_CORE_TEXT_SHOULD_NOT_ESCAPE'), 'Diagnostics exposed unrelated core log text.');

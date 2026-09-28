@@ -131,6 +131,7 @@ $root = $tempBase . DIRECTORY_SEPARATOR . 'mp-dashboard-' . bin2hex(random_bytes
 $pluginDir = $root . '/ext/mind_poisoning';
 mkdir($pluginDir, 0777, true);
 copy(__DIR__ . '/../server/dashboard.php', $pluginDir . '/dashboard.php');
+dashboardAssert(copy(__DIR__ . '/../server/dashboard.js', $pluginDir . '/dashboard.js'), 'Cannot copy dashboard refresh script into the HTTP fixture.');
 
 file_put_contents($pluginDir . '/dashboard_data.php', <<<'PHP'
 <?php
@@ -184,13 +185,16 @@ function renderDashboard(array $model, array $filters): void
 {
     $theme = htmlspecialchars((string)($filters['theme'] ?? 'day'), ENT_QUOTES, 'UTF-8');
     echo '<!doctype html><html><head><title>Mind Poisoning fixture</title></head>'
-        . '<body data-theme="' . $theme . '"><main>Dashboard fixture</main></body></html>';
+        . '<body data-theme="' . $theme . '"><main>Dashboard fixture</main>'
+        . '<script src="ext/mind_poisoning/dashboard.js" defer></script></body></html>';
 }
 PHP
 );
 
 file_put_contents($root . '/router.php', <<<'PHP'
 <?php
+$path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+if ($path === '/ext/mind_poisoning/dashboard.js') return false;
 $address = getenv('MP_DASHBOARD_FIXTURE_ADDR');
 if (is_string($address)) $_SERVER['REMOTE_ADDR'] = $address;
 $user = getenv('MP_DASHBOARD_FIXTURE_USER');
@@ -235,10 +239,17 @@ try {
         dashboardAssert(str_contains((string)dashboardHeader($headers, 'Cache-Control'), 'no-store'), 'Page omitted no-store cache control.');
         dashboardAssert(dashboardHeader($headers, 'X-Content-Type-Options') === 'nosniff', 'Page omitted nosniff.');
         $csp = (string)dashboardHeader($headers, 'Content-Security-Policy');
-        dashboardAssert(str_contains($csp, "script-src 'none'"), 'Page CSP did not disable scripts.');
+        dashboardAssert(str_contains($csp, "script-src 'self'") && str_contains($csp, "connect-src 'self'"), 'Page CSP did not restrict refresh JavaScript and requests to the same origin.');
+        dashboardAssert(!str_contains($csp, "'unsafe-inline'") && !str_contains($csp, "'unsafe-eval'"), 'Page CSP enabled inline or evaluated script.');
+        dashboardAssert(str_contains($body, '<script src="ext/mind_poisoning/dashboard.js" defer></script>'), 'Dashboard fixture omitted the external refresh script.');
         dashboardAssert(str_contains($csp, "frame-ancestors 'self'"), 'Page CSP did not constrain framing.');
         dashboardAssert(str_contains($csp, "style-src 'self'") && str_contains($csp, "img-src 'self'"), 'Page CSP did not allow only same-origin style and artwork assets.');
         dashboardAssert(str_contains($body, 'data-theme="day"'), 'Theme did not default to day mode.');
+
+        [$status, $scriptHeaders, $script] = dashboardRequest(str_replace('/dashboard.php', '/ext/mind_poisoning/dashboard.js', $localUrl));
+        dashboardAssert($status === 200 && $script !== '', 'Same-origin dashboard JavaScript was not served.');
+        $scriptType = strtolower((string)dashboardHeader($scriptHeaders, 'Content-Type'));
+        dashboardAssert(str_starts_with($scriptType, 'application/javascript') || str_starts_with($scriptType, 'text/javascript'), 'Dashboard script has the wrong content type.');
 
         [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions&theme=night&q=preserve-me');
         dashboardAssert($status === 200 && str_contains($body, 'data-theme="night"'), 'Controller did not pass normalized night theme to the renderer.');

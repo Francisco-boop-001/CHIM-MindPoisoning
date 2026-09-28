@@ -3,7 +3,7 @@
     "mind-poisoning": {
       "name": "mind_poisoning",
       "display_name": "Mind Poisoning",
-      "description": "Development candidate: conservative NPC listener-affinity updates from identity-checked client-reported speech, with a read-only history dashboard.",
+      "description": "Development candidate: conservative NPC listener-affinity updates from identity-checked client-reported speech, with a read-only history dashboard and pausable automatic refresh.",
       "status": "development_candidate",
       "git_repo": "Francisco-boop-001/CHIM-Plugins",
       "github_url": "https://github.com/Francisco-boop-001/CHIM-Plugins",

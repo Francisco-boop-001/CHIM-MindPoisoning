@@ -24,6 +24,7 @@ SERVER_FILES = (
     "README.md",
     "dashboard-art.webp",
     "dashboard.css",
+    "dashboard.js",
     "dashboard.php",
     "dashboard_data.php",
     "dashboard_view.php",

@@ -402,3 +402,30 @@ Focused packaging tests and actual archive/source-byte verification passed. The 
 - [x] Push main after downloads are verified; preserve runtime manifest and original release assets.
 
 Installer.1 final review: documentation links and diffs accepted; focused tests passed; clean-tag ZIP and both published downloads matched exactly. All publication gates complete before main push. Runtime remains v0.1.5 PRE-ALPHA with unchanged compatibility reference; no deployment or modlist changes. GUI installation, live CHIM sync and game behavior remain unverified; custom-content flag may remain.
+
+## Dashboard automatic refresh — 2026-09-28
+
+Approved bounded design: read-only updates every five seconds with Auto pause control and last-updated feedback; preserve filters, scroll and interaction state; suspend hidden tabs and prevent overlapping requests. Reuse the existing escaped page renderer and data reader, external same-origin JavaScript only. No model calls, writes, installed CHIM/modlist changes or release/pin advancement.
+
+- [x] Implement polling and minimal renderer/CSP hooks (runtime owner).
+- [x] Add package/fixture support and focused behavioral checks (packaging owner).
+- [x] Review all affected call paths, failure handling and verification output; return defects to owners.
+- [x] Record evidence and remaining runtime limitations.
+
+### Automatic refresh review
+
+- Lead reviewed controller access/CSP, renderer regions, polling lifecycle, failure handling, package allowlist and test changes. Returned and resolved the active-tab region mismatch, missing request timeout and unstable diagnostic-detail identity before acceptance.
+- Isolated browser preview: both tabs updated; timestamp advanced from 11:59:43Z to 11:59:48Z; pause retained 11:59:48Z beyond five seconds; resume advanced to 12:00:10Z while an unsaved filter remained. Logs updated from 12:00:19Z to 12:00:34Z with one open detail, SUMMARY focus and scrollY 497.6 retained. Browser error log empty. Day and Night controls visually reviewed; screenshot: tasks/evidence/dashboard-refresh-night.png.
+- Focused checks passed: Node syntax and dashboard_refresh_test.js (simulated filtered GET, no overlap, failure/timeout retention, hidden-tab stale response); PHP preview self-test, dashboard_http_test.php and dashboard_integration_test.php (isolated fixtures); all seven test_package.py tests (exact JS inclusion in DWPkg, tarball and nested MO2 payload). Diff whitespace check passed.
+- Read-only behavior reuses the existing GET controller and data reader; no model calls or relationship writes added. The preview server was stopped and its browser tab closed. Installed CHIM, mods and modlist were untouched.
+- Version remains v0.1.5; compatibility pin and published packages unchanged. This source addition is uncommitted and unpublished. Live CHIM installation, authentication, database/provider/game behavior and real polling load remain unverified.
+## Publish automatic refresh v0.1.6 — 2026-09-28
+
+User authorized commit, push and publish. Keep PRE-ALPHA status and CHIM compatibility reference unchanged; preserve user critique and pending catalog drafts.
+- [x] Prepare and review v0.1.6 manifest, current documentation and release notes.
+- [x] Verify focused release gates and build all three packages.
+- [ ] Commit/tag approved files and reproduce packages from clean tagged source.
+- [ ] Publish prerelease, download and compare checksums, then advance main.
+- [ ] Record publication evidence and remote state.
+
+Release preparation review: metadata/docs accepted; seven package tests, Node refresh behavior, isolated PHP dashboard integration, and read-only installed Manager/installer helper checks passed. All three v0.1.6 packages built and internally verified. Clean-tag reproduction and publication verification remain pending. PRE-ALPHA status and compatibility reference unchanged.

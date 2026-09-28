@@ -119,6 +119,7 @@ function renderDashboard(array $model, array $filters): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mind Poisoning — Interactions and Logs</title>
     <link rel="stylesheet" href="dashboard.css">
+    <script defer src="dashboard.js"></script>
 </head>
 <body>
 <div class="dashboard-shell">
@@ -144,7 +145,7 @@ function renderDashboard(array $model, array $filters): void
         </figure>
         <div class="poster-imprint">
             <span>A LISTENER’S AFFINITY RECORD</span>
-            <span>VERSION <?= $escape($version) ?> <span aria-hidden="true">/</span> GENERATED <?= $escape($generatedAt) ?></span>
+            <span>VERSION <?= $escape($version) ?> <span aria-hidden="true">/</span> UPDATED <span data-dashboard-refresh-region="last-updated"><time id="dashboard-last-updated" datetime="<?= $escape($generatedAt) ?>"><?= $escape($generatedAt) ?></time></span></span>
         </div>
         <nav class="printed-tabs" aria-label="Journal sections">
             <a href="<?= $escape($queryUrl('interactions')) ?>"<?= $tab === 'interactions' ? ' aria-current="page"' : '' ?>>Interactions</a>
@@ -155,11 +156,17 @@ function renderDashboard(array $model, array $filters): void
     <section class="source-strip" aria-label="Data source status">
         <p>Sources</p>
         <dl>
-            <div><dt>Plugin log</dt><dd class="<?= $escape($sourceClass($source['logs'] ?? null)) ?>"><?= $escape($text($source['logs'] ?? null)) ?></dd></div>
-            <div><dt>Affinity data</dt><dd class="<?= $escape($sourceClass($source['database'] ?? null)) ?>"><?= $escape($text($source['database'] ?? null)) ?></dd></div>
+            <div><dt>Plugin log</dt><dd class="<?= $escape($sourceClass($source['logs'] ?? null)) ?>" data-dashboard-refresh-region="logs-source"><?= $escape($text($source['logs'] ?? null)) ?></dd></div>
+            <div><dt>Affinity data</dt><dd class="<?= $escape($sourceClass($source['database'] ?? null)) ?>" data-dashboard-refresh-region="database-source"><?= $escape($text($source['database'] ?? null)) ?></dd></div>
         </dl>
     </section>
 
+    <div class="refresh-controls" data-dashboard-refresh-controls hidden>
+        <button id="dashboard-refresh-toggle" type="button" aria-pressed="false">Pause updates</button>
+        <p id="dashboard-refresh-status" role="status" aria-live="polite">Automatic updates every 5 seconds.</p>
+    </div>
+
+    <div data-dashboard-refresh-region="notices">
     <?php if (($source['limited'] ?? false) === true): ?>
         <p class="notice notice--limited" role="status">The available records are limited. Older log entries may have been truncated or rotated.</p>
     <?php endif; ?>
@@ -176,6 +183,7 @@ function renderDashboard(array $model, array $filters): void
             <?php endforeach; ?>
         </ul>
     <?php endif; ?>
+    </div>
 
     <main id="main-content">
         <?php if ($tab === 'interactions'): ?>
@@ -210,6 +218,7 @@ function renderDashboard(array $model, array $filters): void
                     <?php endif; ?>
                 </form>
 
+                <div data-dashboard-refresh-region="interactions">
                 <?php if ($interactions === []): ?>
                     <div class="empty-state" role="status">
                         <h3><?= $q !== '' || $outcome !== '' ? 'No matching interactions' : ($databaseUnavailable ? 'No log-only interactions available' : 'No recorded interactions') ?></h3>
@@ -308,6 +317,7 @@ function renderDashboard(array $model, array $filters): void
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
+                </div>
             </section>
         <?php else: ?>
             <section aria-labelledby="logs-heading">
@@ -316,11 +326,13 @@ function renderDashboard(array $model, array $filters): void
                         <p class="eyebrow">Plugin record trace</p>
                         <h2 id="logs-heading">Logs</h2>
                     </div>
-                    <?php if (!$logsUnavailable && $records !== []): ?>
-                        <a class="download-link" href="<?= $escape($queryUrl('diagnostics', true)) ?>">Download filtered plugin log</a>
-                    <?php else: ?>
-                        <span class="download-unavailable" aria-disabled="true"><?= $logsUnavailable ? 'Plugin log download unavailable' : 'No matching log records to download' ?></span>
-                    <?php endif; ?>
+                    <div class="download-slot" data-dashboard-refresh-region="download">
+                        <?php if (!$logsUnavailable && $records !== []): ?>
+                            <a class="download-link" href="<?= $escape($queryUrl('diagnostics', true)) ?>">Download filtered plugin log</a>
+                        <?php else: ?>
+                            <span class="download-unavailable" aria-disabled="true"><?= $logsUnavailable ? 'Plugin log download unavailable' : 'No matching log records to download' ?></span>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <form class="filter-form" method="get" action="dashboard.php">
@@ -354,6 +366,7 @@ function renderDashboard(array $model, array $filters): void
                     <?php endif; ?>
                 </form>
 
+                <div data-dashboard-refresh-region="diagnostics">
                 <?php if ($logsUnavailable): ?>
                     <div class="empty-state" role="status">
                         <h3>Plugin log unavailable</h3>
@@ -375,8 +388,14 @@ function renderDashboard(array $model, array $filters): void
                             <?php
                             $recordLevel = $text($record['level'] ?? null);
                             $recordEvent = $text($record['event'] ?? null);
+                            $safeRecord = array_intersect_key($record, $safeLogFields);
+                            $recordJson = json_encode(
+                                $safeRecord,
+                                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+                            );
+                            $recordKey = hash('sha256', is_string($recordJson) ? $recordJson : '{}');
                             ?>
-                            <details class="diagnostic-record">
+                            <details class="diagnostic-record" data-refresh-key="<?= $escape($recordKey) ?>">
                                 <summary>
                                     <span class="record-time"><?= $escape($text($record['timestamp'] ?? null)) ?></span>
                                     <span class="status <?= $escape($levelClass($recordLevel)) ?>"><?= $escape($codeLabel($recordLevel)) ?></span>
@@ -395,18 +414,12 @@ function renderDashboard(array $model, array $filters): void
                                     <?php endforeach; ?>
                                     <div><dt>Commit state</dt><dd><?= $escape($text($record['commit_state'] ?? null)) ?></dd></div>
                                 </dl>
-                                <?php
-                                $safeRecord = array_intersect_key($record, $safeLogFields);
-                                $recordJson = json_encode(
-                                    $safeRecord,
-                                    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
-                                );
-                                ?>
                                 <pre class="record-json"><code><?= $escape(is_string($recordJson) ? $recordJson : '{}') ?></code></pre>
                             </details>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
+                </div>
             </section>
         <?php endif; ?>
     </main>

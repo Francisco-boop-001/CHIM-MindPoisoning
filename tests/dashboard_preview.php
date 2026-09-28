@@ -179,7 +179,7 @@ function dashboardPreviewModel(string $mode = 'default'): array
 
     return [
         'version' => 'fixture only',
-        'generated_at' => '2026-09-27T16:20:00Z',
+        'generated_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
         'notices' => ['PREVIEW DATA — synthetic records only; this page reads no live CHIM services.'],
         'source' => $source,
         'interactions' => $interactions,
@@ -253,6 +253,7 @@ function dashboardPreviewSelfTest(): void
     dashboardPreviewAssert(str_contains($html, '<html lang="en" data-theme="night">'), 'Explicit night mode was not rendered.');
     dashboardPreviewAssert(str_contains($html, '<h1 class="poster-title" id="dashboard-title"><span>MIND</span><span class="title-rust">POISONING</span></h1>'), 'Selectable poster heading is missing.');
     dashboardPreviewAssert(str_contains($html, 'src="dashboard-art.webp"'), 'Poster artwork is not served from the plugin directory.');
+    dashboardPreviewAssert(preg_match('/<script\b(?=[^>]*\bsrc="dashboard\.js")(?=[^>]*\bdefer\b)[^>]*><\/script>/', $html) === 1, 'External auto-refresh script is missing.');
     dashboardPreviewAssert(str_contains($html, 'PREVIEW DATA — synthetic records only'), 'Synthetic fixture is not labeled.');
     dashboardPreviewAssert(str_contains($html, 'href="#main-content">Skip to content</a>'), 'Skip link is missing.');
     dashboardPreviewAssert(str_contains($html, 'aria-current="page">Interactions</a>'), 'Active Interactions tab state is missing.');
@@ -313,7 +314,7 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--self-test') {
 }
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if (in_array($path, ['/dashboard.css', '/dashboard-art.webp'], true)) {
+if (in_array($path, ['/dashboard.css', '/dashboard.js', '/dashboard-art.webp'], true)) {
     return false;
 }
 if ($path !== '/dashboard.php') {

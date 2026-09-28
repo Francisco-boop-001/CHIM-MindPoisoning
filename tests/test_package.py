@@ -136,7 +136,9 @@ class PackageTests(unittest.TestCase):
 
     def test_current_webp_artwork_is_in_both_packages_without_source_png(self) -> None:
         artwork = (PROJECT / "server" / "dashboard-art.webp").read_bytes()
+        refresh_script = (PROJECT / "server" / "dashboard.js").read_bytes()
         self.assertTrue(artwork.startswith(b"RIFF") and artwork[8:12] == b"WEBP")
+        self.assertIn("dashboard.js", SERVER_FILES)
         self.assertEqual(
             (PROJECT / "assets" / "dashboard-art-source.png").read_bytes()[:8],
             b"\x89PNG\r\n\x1a\n",
@@ -153,12 +155,15 @@ class PackageTests(unittest.TestCase):
 
         with ZipFile(dwpkg) as archive:
             self.assertEqual(archive.read("server/dashboard-art.webp"), artwork)
+            self.assertEqual(archive.read("server/dashboard.js"), refresh_script)
             self.assertNotIn("server/dashboard-art.png", archive.namelist())
         with tarfile.open(tarball, "r:gz") as archive:
             members = {member.name: member for member in archive.getmembers()}
             self.assertNotIn("mind_poisoning/dashboard-art.png", members)
             with archive.extractfile(members["mind_poisoning/dashboard-art.webp"]) as payload:
                 self.assertEqual(payload.read(), artwork)
+            with archive.extractfile(members["mind_poisoning/dashboard.js"]) as payload:
+                self.assertEqual(payload.read(), refresh_script)
         member_name = (
             f"CHIM/server-plugins/{manifest['name']}/{manifest['version']}.dwpkg"
         )
@@ -169,6 +174,7 @@ class PackageTests(unittest.TestCase):
         verify_archive(nested_package, PROJECT)
         with ZipFile(nested_package) as archive:
             self.assertEqual(archive.read("server/dashboard-art.webp"), artwork)
+            self.assertEqual(archive.read("server/dashboard.js"), refresh_script)
             self.assertNotIn("server/dashboard-art.png", archive.namelist())
 
     def test_mo2_sync_zip_is_deterministic_and_has_importable_path(self) -> None:

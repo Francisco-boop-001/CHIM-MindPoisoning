@@ -1,12 +1,14 @@
 # Mind Poisoning dashboard
 
-The read-only Interactions/Logs dashboard ships in the v0.1.5 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
+The read-only Interactions/Logs dashboard ships in the v0.1.6 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
 
 ## Page and access
 
-The packaged endpoint path is `ext/mind_poisoning/dashboard.php`; its stylesheet and text-free poster illustration (`dashboard.css` and `dashboard-art.webp`) are in the same directory. The title is selectable HTML text. The manifest `config_url` points to `../ext/mind_poisoning/dashboard.php` from CHIM's server-plugin UI.
+The packaged endpoint path is `ext/mind_poisoning/dashboard.php`; its stylesheet, text-free poster illustration, and refresh script (`dashboard.css`, `dashboard-art.webp`, and `dashboard.js`) are in the same directory. The title is selectable HTML text. The manifest `config_url` points to `../ext/mind_poisoning/dashboard.php` from CHIM's server-plugin UI.
 
 Choose Day or Night from the labeled controls above the poster. The mode is stored in the `theme=day|night` query parameter, so ordinary tab links, filter submissions, and the log download retain it without JavaScript or browser storage. Day is the default.
+
+Automatic refresh requests the current filtered dashboard after each five-second interval following the prior request's completion, with a 15-second timeout. The pause control and hidden-tab or active-data interaction stop refresh requests; they do not change the query filters. A failed or timed-out request leaves the last successful view in place. Refresh uses only the dashboard's read-only data sources; it does not call the model/provider or write data. Without JavaScript, use the browser's normal reload.
 
 The controller permits a request when the web server supplies a nonempty `REMOTE_USER`, or when the client address is loopback (`127.0.0.1` or `::1`) and the request has no `Forwarded`, `X-Forwarded-For`, or `X-Real-IP` header. It does not add a login. A reverse proxy that reaches PHP over loopback but strips those headers can appear to be a local request; deployments with that topology must require web-server authentication on the route. Remote access must not expose the endpoint anonymously. The remote authentication wiring has not been verified in a live CHIM deployment.
 
@@ -35,4 +37,4 @@ Run the view against an explicitly labeled synthetic fixture from the repository
 php -S 127.0.0.1:8080 -t server tests/dashboard_preview.php
 ```
 
-Open `http://127.0.0.1:8080/dashboard.php`. Append `?theme=night` for Night mode. Fixture-only states are available with `?preview=empty`, `?preview=database-unavailable`, and `?preview=logs-unavailable`; no CHIM bootstrap, database, or provider is used. Focused checks are `php tests/dashboard_preview.php --self-test`, `php tests/dashboard_data_test.php`, `php tests/dashboard_http_test.php`, and `php tests/dashboard_integration_test.php`. These use synthetic or isolated temporary fixtures only; none contacts a live CHIM service.
+Open `http://127.0.0.1:8080/dashboard.php`. Append `?theme=night` for Night mode. Fixture-only states are available with `?preview=empty`, `?preview=database-unavailable`, and `?preview=logs-unavailable`; no CHIM bootstrap, database, or provider is used. Focused checks are `php tests/dashboard_preview.php --self-test`, `php tests/dashboard_data_test.php`, `php tests/dashboard_http_test.php`, and `php tests/dashboard_integration_test.php`. `node tests/dashboard_refresh_test.js` simulates the polling timer, request failure/timeout, and stale hidden-tab response; it is not a browser test. These checks use synthetic or isolated temporary fixtures only; none contacts a live CHIM service.
