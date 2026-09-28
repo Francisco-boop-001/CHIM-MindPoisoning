@@ -364,11 +364,21 @@ Review: lead's composed dashboard integration check passed. The v0.1.5 manifest 
 
 ## Prepare v0.1.5 PRE-ALPHA release documentation — 2026-09-27
 
-- [ ] Replace current-candidate wording/links with v0.1.5 PRE-ALPHA release information while retaining historical release notes.
-- [ ] Create v0.1.5 release notes covering D-01/D-02/D-03 and truthful runtime limits.
-- [ ] Validate release links/text and inspect only the assigned documentation diff; do not alter payload/version/package files.
-- [ ] Leave commit, tag, asset publication, and publication confirmation to the lead.
+- [x] Replace current-candidate wording/links with v0.1.5 PRE-ALPHA release information while retaining historical release notes.
+- [x] Create v0.1.5 release notes covering D-01/D-02/D-03 and truthful runtime limits.
+- [x] Validate release links/text and inspect only the assigned documentation diff; do not alter payload/version/package files.
+- [x] Leave commit, tag, asset publication, and publication confirmation to the lead (completed below).
 
 ### Dashboard-fix lead review
 
 Accepted D01 fixed denial guidance after isolated Windows-to-WSL localhost forwarding returned127.0.0.1 and HTTP access tests passed; no gateway/private-range access exemption added. Reviewed D02 query/caller/fixture, returned fixture shim/catalog/overflow mistakes, then accepted actual PostgreSQL15 synthetic-reader proof and numeric catalog/tie corrections. Scratch clusters stopped/removed. Reviewed WebP side-by-side (82 percent smaller artwork) and every asset/package reference; original preserved outside payload. Independently ran dashboard_integration_test.php successfully and verified final dwpkg/tar against source plus exact nested MO2 package bytes/path. Reviewed installation steps and corrected filename/sync ordering. Local0.1.5 pre-alpha artifacts under dist/0.1.5: MO2 ZIP697184bytes, dwpkg854348bytes, tar695905bytes; hashes in SHA256SUMS. Guide docs/local-candidate-v0.1.5.md. No commit/push/publication/deployment; public0.1.4 and compatibility reference unchanged. No installed CHIM/mod mutation or live CHIM DB/provider/game verification. Synchronous model call remains pending latency evidence. Prior submission drafts and user critique preserved.
+
+## Publish v0.1.5 — final review
+
+- [x] Release documentation reviewed, including direct v0.1.3-to-v0.1.5 sync and unchanged dashboard access gate.
+- [x] Focused release checks passed; final artifacts source-verified.
+- [x] Committed ce1932c and tagged mind_poisoning-v0.1.5; clean tag reproduced all three artifacts exactly.
+- [x] Published PRE-ALPHA release and downloaded all assets; exact bytes/checksums match local builds.
+- [x] Approved main update only after published-asset verification.
+
+Review: source/package gates complete. Compatibility reference unchanged; no deployment pin advanced. Live clean-server install, CHIM writes/provider/game acceptance remain unverified. Catalog submission and protected installations remain untouched. Exact publication evidence is in tasks/verification.md.
