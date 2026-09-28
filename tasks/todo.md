@@ -424,8 +424,10 @@ Approved bounded design: read-only updates every five seconds with Auto pause co
 User authorized commit, push and publish. Keep PRE-ALPHA status and CHIM compatibility reference unchanged; preserve user critique and pending catalog drafts.
 - [x] Prepare and review v0.1.6 manifest, current documentation and release notes.
 - [x] Verify focused release gates and build all three packages.
-- [ ] Commit/tag approved files and reproduce packages from clean tagged source.
-- [ ] Publish prerelease, download and compare checksums, then advance main.
-- [ ] Record publication evidence and remote state.
+- [x] Commit/tag approved files and reproduce packages from clean tagged source.
+- [x] Publish prerelease, download and compare checksums, then advance main.
+- [x] Record publication evidence and remote state.
 
 Release preparation review: metadata/docs accepted; seven package tests, Node refresh behavior, isolated PHP dashboard integration, and read-only installed Manager/installer helper checks passed. All three v0.1.6 packages built and internally verified. Clean-tag reproduction and publication verification remain pending. PRE-ALPHA status and compatibility reference unchanged.
+
+Publication review: source commit a596906, annotated tag mind_poisoning-v0.1.6. All three packages rebuilt byte-identically from clean git-archive tag source; initial rebuild output path was corrected to stay inside that source tree, as required by the existing builder. Added the missing JavaScript LF attribute before tagging to preserve reproducibility on Windows. GitHub release is public (not draft), explicitly prerelease. Downloaded all four published assets and compared exact bytes. Only after successful comparisons was main advanced from 78663d3 to a596906. See tasks/release-v0.1.6.md for asset hashes. Historical releases, compatibility reference, installed CHIM and modlist remain unchanged; user critique and pending submission drafts remain untracked.
