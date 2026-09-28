@@ -396,7 +396,9 @@ Focused packaging tests and actual archive/source-byte verification passed. The 
 
 ## Publish v0.1.5 installer revision 1
 
-- [ ] Review source-only release links/notes and focused package evidence.
-- [ ] Commit and tag mind_poisoning-v0.1.5-installer.1; reproduce ZIP from clean tag.
-- [ ] Publish separate PRE-ALPHA installer revision and verify downloaded assets.
-- [ ] Push main after downloads are verified; preserve runtime manifest and original release assets.
+- [x] Review source-only release links/notes and focused package evidence.
+- [x] Commit and tag mind_poisoning-v0.1.5-installer.1; reproduce ZIP from clean tag.
+- [x] Publish separate PRE-ALPHA installer revision and verify downloaded assets.
+- [x] Push main after downloads are verified; preserve runtime manifest and original release assets.
+
+Installer.1 final review: documentation links and diffs accepted; focused tests passed; clean-tag ZIP and both published downloads matched exactly. All publication gates complete before main push. Runtime remains v0.1.5 PRE-ALPHA with unchanged compatibility reference; no deployment or modlist changes. GUI installation, live CHIM sync and game behavior remain unverified; custom-content flag may remain.
