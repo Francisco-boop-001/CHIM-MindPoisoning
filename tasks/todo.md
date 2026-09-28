@@ -333,7 +333,9 @@ Reviewed prompt/parser changes, every changed fixture, validation catch before p
 
 ## Publish v0.1.4 — 2026-09-27
 
-- [ ] Prepare release metadata/docs and inspect exact pending scope.
-- [ ] Run focused release checks, build source-verified packages, commit and tag.
-- [ ] Rebuild clean tag; publish and verify downloads before advancing main update pointer.
-- [ ] Record release evidence; preserve critique and protected installations.
+- [x] Prepare release metadata/docs and inspect exact pending scope.
+- [x] Run focused release checks, build source-verified packages, commit and tag.
+- [x] Rebuild clean tag; publish and verify downloads before advancing main update pointer.
+- [x] Record release evidence; preserve critique and protected installations.
+
+Review: release source 7ce9b50, tag mind_poisoning-v0.1.4. Clean-tag builds match both source-verified archives byte-for-byte. GitHub prerelease published and all three downloaded assets matched local bytes and digests before main advancement. Official catalog submission and live deployment were not performed. User critique excluded; protected installations and compatibility/deployment references unchanged.
