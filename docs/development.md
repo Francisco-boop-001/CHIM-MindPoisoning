@@ -1,6 +1,6 @@
 # Development guide
 
-Mind Poisoning v0.1.4 is the development-candidate prerelease for HerikaServer. Download the [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning.tar.gz) or [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning-0.1.4.dwpkg) from the [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.4). Earlier [v0.1.3](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [v0.1.2](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) prereleases contain earlier source. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; this is not a deployment pin. The official CHIM catalog entry has not been submitted or approved. Live runtime behavior remains unverified.
+Mind Poisoning v0.1.5 is a PRE-ALPHA development-candidate prerelease. Download the [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.5/mind_poisoning.tar.gz), [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.5/mind_poisoning-0.1.5.dwpkg), or [MO2 import wrapper](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.5/mind_poisoning-0.1.5-mo2.zip) from the [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.5). Earlier [v0.1.4](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.4), [v0.1.3](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [v0.1.2](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) prereleases contain earlier source. Compatibility reference: `cf5030f15781637498be86debe26fcf102f5690d`; this is not a deployment pin. The official CHIM catalog entry has not been submitted or approved. Live runtime behavior remains unverified.
 
 ## Structured logging
 
@@ -16,7 +16,7 @@ Persistence records include `commit_state`: `not_attempted` means no COMMIT was 
 
 The current event stream uses debug-only `ack_started`, `ack_eligible`, `model_started`, and per-subject `judgment_proposal` details. `model_finished` is info for a valid response, warning for an invalid response, and error for a failed call. `persistence_finished` reports persistence results, while `persistence_cleanup_failed` is error-level. One final `request_finished` record summarizes skipped, rejected, failed, or committed outcomes; cleanup failure raises its level to error without rewriting a confirmed commit outcome.
 
-Typed, allowlisted reason codes for known connector/request failures and model-response validation rejections were introduced earlier and remain in v0.1.4. Connector/request failures remain error-level, and validation rejections retain warning-level reporting. Unexpected exceptions use generic fallback reasons; exception and provider text are not logged. Published v0.1.2 and v0.1.3 assets remain historical and unchanged.
+Typed, allowlisted reason codes for known connector/request failures and model-response validation rejections were introduced earlier and remain in v0.1.5. Connector/request failures remain error-level, and validation rejections retain warning-level reporting. Unexpected exceptions use generic fallback reasons; exception and provider text are not logged. Published v0.1.2, v0.1.3, and v0.1.4 assets remain historical and unchanged.
 
 ## v0.1.4 changes
 
@@ -30,7 +30,14 @@ The inspected CHIM UI truncates `.log` files larger than 25 MiB when its index p
 
 ## Dashboard
 
-The v0.1.4 candidate packages a read-only dashboard at `ext/mind_poisoning/dashboard.php`, with its data reader, stylesheet, and poster art beside it. See the [dashboard guide](dashboard.md) for access assumptions, read limits, and fixture checks. Live web-server authentication, PostgreSQL behavior, and dashboard use in CHIM remain unverified.
+The v0.1.5 candidate packages a read-only dashboard at `ext/mind_poisoning/dashboard.php`, with its data reader, stylesheet, and poster art beside it. It samples at most 100 listeners selected by their newest valid retained event IDs; it is not an exhaustive global history view. See the [dashboard guide](dashboard.md) for access assumptions, read limits, and fixture checks. The Windows `localhost` route was checked with an isolated responder; installed CHIM authentication and dashboard use remain unverified.
+
+## v0.1.5 changes
+
+- The dashboard reader selects at most 100 active-profile listeners by each listener's newest valid retained event ID before applying its limit. A real PostgreSQL check used an isolated synthetic schema; compatibility and concurrency against a live CHIM database remain unverified.
+- The dashboard's existing 1536×1024 poster is now WebP: 649,836 bytes instead of 3,615,533 bytes, about 82% smaller. The source PNG is preserved outside the runtime package.
+- The release includes an MO2 import wrapper containing exactly `CHIM/server-plugins/mind_poisoning/0.1.5.dwpkg`. The wrapper is for local file sync, not the repository tarball format used for catalog/Plugin Manager ingestion.
+- The dashboard guide describes the Windows-to-WSL `localhost` path. The isolated localhost responder does not prove installed CHIM routing, web authentication, or live dashboard behavior.
 
 ## Runtime contract
 
@@ -47,10 +54,10 @@ The v0.1.4 candidate packages a read-only dashboard at `ext/mind_poisoning/dashb
 
 Prerequisites: Python 3.10+ and PHP 8.2 for the PHP checks. No provider credentials or live database are needed for these local fixtures.
 
-Build the v0.1.4 candidate into `dist/0.1.4/` from its frozen source tree:
+Build the v0.1.5 release formats into `dist/0.1.5/` from the source tree:
 
 ```sh
-python -c "from pathlib import Path; from scripts.package import build_package, build_repository_archive; root=Path.cwd(); out=root / 'dist' / '0.1.4'; build_repository_archive(root, out / 'mind_poisoning.tar.gz'); build_package(root, out / 'mind_poisoning-0.1.4.dwpkg')"
+python -c "from pathlib import Path; from scripts.package import build_package, build_repository_archive, build_mo2_sync_archive; root=Path.cwd(); out=root / 'dist' / '0.1.5'; out.mkdir(parents=True, exist_ok=True); build_package(root, out / 'mind_poisoning-0.1.5.dwpkg'); build_repository_archive(root, out / 'mind_poisoning.tar.gz'); build_mo2_sync_archive(root, out / 'mind_poisoning-0.1.5-mo2.zip')"
 ```
 
 To reproduce published v0.1.2 assets historically, use a clean checkout of the `mind_poisoning-v0.1.2` tag, not current source. Build into that checkout's `dist/0.1.2/`:
@@ -59,7 +66,11 @@ To reproduce published v0.1.2 assets historically, use a clean checkout of the `
 python -c "from pathlib import Path; from scripts.package import build_package, build_repository_archive; root=Path.cwd(); out=root / 'dist' / '0.1.2'; build_repository_archive(root, out / 'mind_poisoning.tar.gz'); build_package(root, out / 'mind_poisoning-0.1.2.dwpkg')"
 ```
 
-Published v0.1.2 assets contain eight payload files, including structured logging; the earlier v0.1.1 assets contain seven. v0.1.3 introduced the thirteen-file dashboard payload; v0.1.4 retains that payload. Keep all historical assets distinct from current source. The repository tarball has one top-level `mind_poisoning/` directory and `manifest.json` is at the package root after the installer strips that directory. The `.dwpkg` is the separate schema-4 package-manager format.
+Published v0.1.2 assets contain eight payload files, including structured logging; the earlier v0.1.1 assets contain seven. v0.1.3 introduced the thirteen-file dashboard payload; v0.1.4 retains that payload. v0.1.5 keeps 13 files but replaces `dashboard-art.png` with `dashboard-art.webp`; the preserved PNG master under `assets/` is not packaged. Keep all historical assets distinct from current source. The repository tarball has one top-level `mind_poisoning/` directory and `manifest.json` is at the package root after the installer strips that directory. The `.dwpkg` is the separate schema-4 package-manager format.
+
+## v0.1.5 MO2 file-sync wrapper
+
+The wrapper is `dist/0.1.5/mind_poisoning-0.1.5-mo2.zip` and contains exactly `CHIM/server-plugins/mind_poisoning/0.1.5.dwpkg`. Import that ZIP as a separate MO2 mod for an isolated test profile. It is not the repository `.tar.gz` format used for catalog/Plugin Manager ingestion. See the [v0.1.5 installation guide](local-candidate-v0.1.5.md). Packaging does not imply live CHIM load, migration, database, provider, or in-game validation; the plugin has no migrations.
 
 Run the local checks:
 
@@ -88,9 +99,9 @@ These fixture checks do not prove live PostgreSQL transactions/concurrency, prov
 
 ## Release and catalog
 
-Repository: [Francisco-boop-001/CHIM-Plugins](https://github.com/Francisco-boop-001/CHIM-Plugins). The v0.1.4 candidate uses tag `mind_poisoning-v0.1.4`; its versioned repository `.tar.gz` and schema-4 `.dwpkg` are separate formats. Earlier [v0.1.3](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [v0.1.2](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) remain available as historical versions.
+Repository: [Francisco-boop-001/CHIM-Plugins](https://github.com/Francisco-boop-001/CHIM-Plugins). The v0.1.5 PRE-ALPHA candidate uses tag `mind_poisoning-v0.1.5`; its repository `.tar.gz`, schema-4 `.dwpkg`, and MO2 wrapper are separate formats. Earlier [v0.1.4](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.4), [v0.1.3](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [v0.1.2](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) remain available as historical versions.
 
-The catalog snippet is `distribution/plugin_repository_entry.json`. The installed plugin manifest URL stays on `main/server/manifest.json`; the channel package URL substitutes the fetched manifest version into the plugin-specific `mind_poisoning-v<version>` release path. Existing installed manifests provide the same update channel if the catalog lookup misses. Publish and verify the tagged asset before advancing the `main` manifest/catalog pointer so it does not advertise a missing package. Existing v0.1.3 installations need one file-sync upgrade because their installed manifest lacks `schema_version: 2`; the v0.1.4 manifest enables subsequent version comparisons. Keep `status` as `development_candidate`; the official catalog entry has not been submitted or approved. Avoid `releases/latest`, which is shared across plugins.
+The catalog snippet is `distribution/plugin_repository_entry.json`; its separate submission draft remains pending maintainer discussion and has not been submitted. The installed plugin manifest URL stays on `main/server/manifest.json`; the channel package URL substitutes the fetched manifest version into the plugin-specific `mind_poisoning-v<version>` release path. Existing installed manifests provide the same update channel if the catalog lookup misses. Publish and verify the tagged asset before advancing the `main` manifest/catalog pointer so it does not advertise a missing package. Existing v0.1.3 installations need one file-sync upgrade because their installed manifest lacks `schema_version: 2`; the v0.1.5 manifest enables subsequent version comparisons. Keep `status` as `development_candidate`; the official catalog entry has not been submitted or approved. Avoid `releases/latest`, which is shared across plugins.
 
 There is an upstream multi-plugin matching limitation: `ui/server_plugins.php` returns the first entry whose repository or package name matches. Before adding another catalog entry with this same `git_repo`, CHIM should prioritize an exact package-name match. Version-specific package URLs avoid release selection ambiguity but do not fix catalog identity matching.
 

@@ -201,17 +201,24 @@ PHP
 );
 
 try {
-    [$deniedProcess, $deniedPipes, $deniedUrl] = dashboardStartServer($root . '/router.php', $root, '203.0.113.9', null);
-    try {
-        [$status, $headers, $body] = dashboardRequest($deniedUrl . '?tab=diagnostics', 'GET', [
-            'X-Forwarded-For: 127.0.0.1',
-            'Remote-User: spoofed-user',
-        ]);
-        dashboardAssert($status === 403, 'Remote request with spoofed identity headers was not denied.');
-        dashboardAssert($body === "Forbidden.\n", 'Denied response was not fixed and generic.');
-        dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Denied request loaded or called dashboard data code.');
-    } finally {
-        dashboardStopServer($deniedProcess, $deniedPipes);
+    $deniedBody = "Forbidden.\n\nFor Windows WSL access, replace the host in your CHIM URL with localhost; keep the port and path, then select Plugin Page again. For remote access, configure web-server authentication to set REMOTE_USER.\n";
+    foreach ([
+        ['203.0.113.9', ['X-Forwarded-For: 127.0.0.1', 'Remote-User: spoofed-user', 'Host: attacker.example']],
+        ['172.17.224.1', []],
+        ['192.168.1.50', []],
+    ] as [$remoteAddress, $headers]) {
+        [$deniedProcess, $deniedPipes, $deniedUrl] = dashboardStartServer($root . '/router.php', $root, $remoteAddress, null);
+        try {
+            [$status, $responseHeaders, $body] = dashboardRequest($deniedUrl . '?tab=diagnostics', 'GET', $headers);
+            dashboardAssert($status === 403, 'Untrusted remote, WSL gateway, or private-network request was not denied.');
+            dashboardAssert($body === $deniedBody, 'Denied response did not give only the fixed localhost/server-auth guidance.');
+            dashboardAssert(str_starts_with((string)dashboardHeader($responseHeaders, 'Content-Type'), 'text/plain'), 'Denied guidance must remain plain text.');
+            dashboardAssert(dashboardHeader($responseHeaders, 'Location') === null, 'Denied response must not redirect based on request data.');
+            dashboardAssert(!str_contains($body, 'attacker.example'), 'Denied guidance must not reflect the Host header.');
+            dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Denied request loaded or called dashboard data code.');
+        } finally {
+            dashboardStopServer($deniedProcess, $deniedPipes);
+        }
     }
 
     [$localProcess, $localPipes, $localUrl] = dashboardStartServer($root . '/router.php', $root, '127.0.0.1', null);
@@ -220,6 +227,7 @@ try {
             'X-Forwarded-For: 198.51.100.4',
         ]);
         dashboardAssert($status === 403, 'Loopback request carrying a forwarded-address header received the local exemption.');
+        dashboardAssert($body === $deniedBody, 'Forwarded loopback denial did not give the fixed localhost/server-auth guidance.');
         dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Forwarded loopback request loaded or called dashboard data code.');
 
         [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions');

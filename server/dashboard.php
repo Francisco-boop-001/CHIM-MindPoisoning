@@ -32,7 +32,11 @@ use function ChimMindPoisoning\renderDashboard;
         && !$hasForwardedAddress;
     $hasAuthenticatedUser = is_string($remoteUser) && trim($remoteUser) !== '';
     if (!$isLoopback && !$hasAuthenticatedUser) {
-        $sendFixed(403, 'text/plain; charset=UTF-8', "Forbidden.\n");
+        $sendFixed(
+            403,
+            'text/plain; charset=UTF-8',
+            "Forbidden.\n\nFor Windows WSL access, replace the host in your CHIM URL with localhost; keep the port and path, then select Plugin Page again. For remote access, configure web-server authentication to set REMOTE_USER.\n"
+        );
         return;
     }
 

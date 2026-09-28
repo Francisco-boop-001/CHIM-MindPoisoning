@@ -339,3 +339,36 @@ Reviewed prompt/parser changes, every changed fixture, validation catch before p
 - [x] Record release evidence; preserve critique and protected installations.
 
 Review: release source 7ce9b50, tag mind_poisoning-v0.1.4. Clean-tag builds match both source-verified archives byte-for-byte. GitHub prerelease published and all three downloaded assets matched local bytes and digests before main advancement. Official catalog submission and live deployment were not performed. User critique excluded; protected installations and compatibility/deployment references unchanged.
+
+## CHIM catalog submission — 2026-09-27
+
+- [x] Read current official submission guide, upstream PR template, and catalog; check duplicates.
+- [x] Prepare pre-alpha catalog entry and reviewable PR body with evidence and unmet prerequisites.
+- [ ] Resolve maintainer-discussion status and guide compatibility before submitting; never claim live tests were run.
+- [x] Record submission status and link if created.
+
+Current blockers: current guide requires main channel, root manifest, clean-server install confirmation; v0.1.4 has candidate channel, explicit nested manifest URL, and only isolated/source/package proof. Upstream PR template asks for prior Discord discussion. User asked for discussion status; protected installs remain read-only.
+
+Review: user confirmed no prior Discord discussion and requested preparation only. Draft entry, PR body and Discord message are prepared under distribution/submission and tasks/catalog-submission.md. Lead verified JSON, unchanged transport fields and visible PRE-ALPHA warnings. No fork, PR, remote change or installation performed. Submission gate remains pending maintainer discussion, channel/root-manifest resolution, and clean-server loading proof.
+
+## Dashboard deployment fixes and installable candidate — 2026-09-27
+
+- [x] D01: verify host connection behavior in isolated responder; implement secure usable access and denial guidance.
+- [x] D02: select recent relevant ledger activity before bounded truncation; verify over-limit case.
+- [x] D03: re-encode poster, review visual fidelity, update every consumer/package allowlist.
+- [x] Lead review diffs/failure paths and targeted evidence; build local v0.1.5 packages and installation guide.
+
+Owners: runtime dashboard access/tests; influence dashboard data/recency/tests; packaging image/view/packaging/docs. Shared edits preserved. No CHIM/mod installation, provider/database calls, GitHub publication or catalog submission. Model worker remains deferred pending real latency evidence.
+
+Review: lead's composed dashboard integration check passed. The v0.1.5 manifest preserves candidate status/channel and compatibility reference. Built and source-verified `.dwpkg`, repository `.tar.gz`, and MO2 wrapper under `dist/0.1.5/`; the wrapper's single nested package matches the directly verified `.dwpkg`. Exact sizes/hashes and image-conversion limits are in `tasks/d03-image.md`. Candidate remains unpublished; no protected install or release/deployment pin changed.
+
+## Prepare v0.1.5 PRE-ALPHA release documentation — 2026-09-27
+
+- [ ] Replace current-candidate wording/links with v0.1.5 PRE-ALPHA release information while retaining historical release notes.
+- [ ] Create v0.1.5 release notes covering D-01/D-02/D-03 and truthful runtime limits.
+- [ ] Validate release links/text and inspect only the assigned documentation diff; do not alter payload/version/package files.
+- [ ] Leave commit, tag, asset publication, and publication confirmation to the lead.
+
+### Dashboard-fix lead review
+
+Accepted D01 fixed denial guidance after isolated Windows-to-WSL localhost forwarding returned127.0.0.1 and HTTP access tests passed; no gateway/private-range access exemption added. Reviewed D02 query/caller/fixture, returned fixture shim/catalog/overflow mistakes, then accepted actual PostgreSQL15 synthetic-reader proof and numeric catalog/tie corrections. Scratch clusters stopped/removed. Reviewed WebP side-by-side (82 percent smaller artwork) and every asset/package reference; original preserved outside payload. Independently ran dashboard_integration_test.php successfully and verified final dwpkg/tar against source plus exact nested MO2 package bytes/path. Reviewed installation steps and corrected filename/sync ordering. Local0.1.5 pre-alpha artifacts under dist/0.1.5: MO2 ZIP697184bytes, dwpkg854348bytes, tar695905bytes; hashes in SHA256SUMS. Guide docs/local-candidate-v0.1.5.md. No commit/push/publication/deployment; public0.1.4 and compatibility reference unchanged. No installed CHIM/mod mutation or live CHIM DB/provider/game verification. Synchronous model call remains pending latency evidence. Prior submission drafts and user critique preserved.

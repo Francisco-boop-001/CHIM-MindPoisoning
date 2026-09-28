@@ -391,7 +391,7 @@ function dashboardReadDatabase(string $serverRoot): array
         $playerName = count($profiles) === 1 ? dashboardLabel($profiles[0]['player_name'] ?? null, '') : '';
         $identityRows = dashboardPgRows(
             $connection,
-            'SELECT id::text AS id, CASE WHEN char_length(npc_name) <= 160 THEN npc_name ELSE NULL END AS npc_name, (npc_name IS NOT NULL AND char_length(npc_name) > 160) AS name_limited FROM public.core_npc_master ORDER BY id LIMIT $1',
+            'SELECT id::text AS id, CASE WHEN char_length(npc_name) <= 160 THEN npc_name ELSE NULL END AS npc_name, (npc_name IS NOT NULL AND char_length(npc_name) > 160) AS name_limited FROM public.core_npc_master ORDER BY public.core_npc_master.id ASC LIMIT $1',
             [DASHBOARD_NPC_ROWS + 1]
         );
         $limited = count($identityRows) > DASHBOARD_NPC_ROWS;
@@ -434,6 +434,38 @@ function dashboardReadDatabase(string $serverRoot): array
                             )
                         ) AS namespace_invalid
                  FROM public.core_npc_master
+                 LEFT JOIN LATERAL (
+                     SELECT MAX(
+                         CASE
+                             WHEN jsonb_typeof(event.value) = 'object'
+                              AND jsonb_typeof(event.value->'event_id') = 'number'
+                              AND (event.value->>'event_id') ~ '^[1-9][0-9]{0,18}$'
+                              AND (
+                                  char_length(event.value->>'event_id') < 19
+                                  OR (event.value->>'event_id') COLLATE \"C\" <= '9223372036854775807' COLLATE \"C\"
+                              )
+                              AND jsonb_typeof(event.value->'utterance_id') = 'string'
+                              AND NULLIF(event.value->>'utterance_id', '') IS NOT NULL
+                             THEN (event.value->>'event_id')::bigint
+                         END
+                     ) AS latest_event_id
+                     FROM jsonb_array_elements(
+                         CASE
+                             WHEN jsonb_typeof(plugin_extended_data) = 'object'
+                              AND jsonb_typeof(plugin_extended_data->'mind_poisoning') = 'object'
+                              AND octet_length((plugin_extended_data->'mind_poisoning')::text) <= $2
+                              AND plugin_extended_data->'mind_poisoning'->>'playthrough_id' = $1
+                              AND jsonb_typeof(plugin_extended_data->'mind_poisoning'->'events') = 'array'
+                              AND CASE
+                                  WHEN jsonb_typeof(plugin_extended_data->'mind_poisoning'->'events') = 'array'
+                                  THEN jsonb_array_length(plugin_extended_data->'mind_poisoning'->'events') <= 128
+                                  ELSE false
+                              END
+                             THEN plugin_extended_data->'mind_poisoning'->'events'
+                             ELSE '[]'::jsonb
+                         END
+                     ) AS event(value)
+                 ) recent ON TRUE
                  WHERE jsonb_typeof(plugin_extended_data) IS NOT NULL
                    AND (
                        jsonb_typeof(plugin_extended_data) <> 'object'
@@ -446,7 +478,7 @@ function dashboardReadDatabase(string $serverRoot): array
                            )
                        )
                    )
-                 ORDER BY id LIMIT $3",
+                 ORDER BY recent.latest_event_id DESC NULLS LAST, public.core_npc_master.id ASC LIMIT $3",
                 [$activeId, DASHBOARD_LEDGER_BYTES, DASHBOARD_LEDGER_ROWS + 1]
             );
         }

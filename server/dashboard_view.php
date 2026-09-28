@@ -139,7 +139,7 @@ function renderDashboard(array $model, array $filters): void
         </div>
         <h1 class="poster-title" id="dashboard-title"><span>MIND</span><span class="title-rust">POISONING</span></h1>
         <figure class="poster-illustration">
-            <img src="dashboard-art.png" width="1536" height="1024" alt="Two travelers whisper together at a snowy mountain pass while one listens with a guarded expression." fetchpriority="high" decoding="async">
+            <img src="dashboard-art.webp" width="1536" height="1024" alt="Two travelers whisper together at a snowy mountain pass while one listens with a guarded expression." fetchpriority="high" decoding="async">
             <figcaption>Someone had something to say about you.</figcaption>
         </figure>
         <div class="poster-imprint">

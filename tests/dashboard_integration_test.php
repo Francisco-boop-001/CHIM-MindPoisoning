@@ -74,7 +74,7 @@ try {
 
     foreach ([
         'dashboard.php', 'dashboard_data.php', 'dashboard_view.php', 'dashboard.css',
-        'dashboard-art.png', 'store.php', 'influence.php', 'logging.php', 'manifest.json',
+        'dashboard-art.webp', 'store.php', 'influence.php', 'logging.php', 'manifest.json',
     ] as $file) {
         if (!copy($sourceServer . DIRECTORY_SEPARATOR . $file, $pluginDir . DIRECTORY_SEPARATOR . $file)) {
             throw new RuntimeException('Cannot copy a real dashboard module into the fixture.');
@@ -208,9 +208,9 @@ PHP);
     dashboardIntegrationAssert($status === 200 && str_contains($css, '.dashboard-shell'), 'Real dashboard stylesheet route did not serve local CSS.');
     dashboardIntegrationAssert(str_starts_with((string)dashboardIntegrationHeader($headers, 'Content-Type'), 'text/css'), 'Stylesheet response has the wrong content type.');
 
-    [$status, $headers, $art] = dashboardIntegrationRequest($baseUrl . '/ext/mind_poisoning/dashboard-art.png');
-    dashboardIntegrationAssert($status === 200 && str_starts_with($art, "\x89PNG\r\n\x1a\n"), 'Same-origin dashboard artwork was not served as a PNG.');
-    dashboardIntegrationAssert(str_starts_with((string)dashboardIntegrationHeader($headers, 'Content-Type'), 'image/png'), 'Dashboard artwork response has the wrong content type.');
+    [$status, $headers, $art] = dashboardIntegrationRequest($baseUrl . '/ext/mind_poisoning/dashboard-art.webp');
+    dashboardIntegrationAssert($status === 200 && str_starts_with($art, 'RIFF') && substr($art, 8, 4) === 'WEBP', 'Same-origin dashboard artwork was not served as WebP.');
+    dashboardIntegrationAssert(str_starts_with((string)dashboardIntegrationHeader($headers, 'Content-Type'), 'image/webp'), 'Dashboard artwork response has the wrong content type.');
 
     $diagnosticQuery = '?tab=diagnostics&theme=day&q=' . rawurlencode($targetRequestId) . '&outcome=committed&level=info';
     [$status, , $diagnostics] = dashboardIntegrationRequest($pageUrl . $diagnosticQuery);

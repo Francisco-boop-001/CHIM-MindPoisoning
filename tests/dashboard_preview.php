@@ -252,7 +252,7 @@ function dashboardPreviewSelfTest(): void
     dashboardPreviewAssert(is_string($html) && str_starts_with($html, '<!doctype html>'), 'Renderer did not return a complete document.');
     dashboardPreviewAssert(str_contains($html, '<html lang="en" data-theme="night">'), 'Explicit night mode was not rendered.');
     dashboardPreviewAssert(str_contains($html, '<h1 class="poster-title" id="dashboard-title"><span>MIND</span><span class="title-rust">POISONING</span></h1>'), 'Selectable poster heading is missing.');
-    dashboardPreviewAssert(str_contains($html, 'src="dashboard-art.png"'), 'Poster artwork is not served from the plugin directory.');
+    dashboardPreviewAssert(str_contains($html, 'src="dashboard-art.webp"'), 'Poster artwork is not served from the plugin directory.');
     dashboardPreviewAssert(str_contains($html, 'PREVIEW DATA — synthetic records only'), 'Synthetic fixture is not labeled.');
     dashboardPreviewAssert(str_contains($html, 'href="#main-content">Skip to content</a>'), 'Skip link is missing.');
     dashboardPreviewAssert(str_contains($html, 'aria-current="page">Interactions</a>'), 'Active Interactions tab state is missing.');
@@ -313,7 +313,7 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--self-test') {
 }
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if (in_array($path, ['/dashboard.css', '/dashboard-art.png'], true)) {
+if (in_array($path, ['/dashboard.css', '/dashboard-art.webp'], true)) {
     return false;
 }
 if ($path !== '/dashboard.php') {

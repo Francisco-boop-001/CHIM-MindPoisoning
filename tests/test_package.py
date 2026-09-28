@@ -15,6 +15,7 @@ from scripts.package import (
     PackageError,
     build_package,
     build_repository_archive,
+    build_mo2_sync_archive,
     verify_archive,
     verify_repository_archive,
 )
@@ -130,6 +131,59 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(member.mtime, REPOSITORY_TAR_MTIME)
                 with archive.extractfile(member) as contents:
                     self.assertEqual(contents.read(), (self.source / "server" / name).read_bytes())
+
+    def test_current_webp_artwork_is_in_both_packages_without_source_png(self) -> None:
+        artwork = (PROJECT / "server" / "dashboard-art.webp").read_bytes()
+        self.assertTrue(artwork.startswith(b"RIFF") and artwork[8:12] == b"WEBP")
+        self.assertEqual(
+            (PROJECT / "assets" / "dashboard-art-source.png").read_bytes()[:8],
+            b"\x89PNG\r\n\x1a\n",
+        )
+        self.assertIn("dashboard-art.webp", SERVER_FILES)
+        self.assertNotIn("dashboard-art.png", SERVER_FILES)
+
+        dwpkg = self.root / "current.dwpkg"
+        tarball = self.root / "current.tar.gz"
+        mo2_bundle = self.root / "current-mo2.zip"
+        build_package(PROJECT, dwpkg)
+        build_repository_archive(PROJECT, tarball)
+        manifest = build_mo2_sync_archive(PROJECT, mo2_bundle)
+
+        with ZipFile(dwpkg) as archive:
+            self.assertEqual(archive.read("server/dashboard-art.webp"), artwork)
+            self.assertNotIn("server/dashboard-art.png", archive.namelist())
+        with tarfile.open(tarball, "r:gz") as archive:
+            members = {member.name: member for member in archive.getmembers()}
+            self.assertNotIn("mind_poisoning/dashboard-art.png", members)
+            with archive.extractfile(members["mind_poisoning/dashboard-art.webp"]) as payload:
+                self.assertEqual(payload.read(), artwork)
+        member_name = (
+            f"CHIM/server-plugins/{manifest['name']}/{manifest['version']}.dwpkg"
+        )
+        with ZipFile(mo2_bundle) as wrapper:
+            self.assertEqual(wrapper.namelist(), [member_name])
+            nested_package = self.root / "current-mo2.dwpkg"
+            nested_package.write_bytes(wrapper.read(member_name))
+        verify_archive(nested_package, PROJECT)
+        with ZipFile(nested_package) as archive:
+            self.assertEqual(archive.read("server/dashboard-art.webp"), artwork)
+            self.assertNotIn("server/dashboard-art.png", archive.namelist())
+
+    def test_mo2_sync_zip_is_deterministic_and_has_importable_path(self) -> None:
+        write_fixture_project(self.source)
+        first = self.root / "first-mo2.zip"
+        second = self.root / "second-mo2.zip"
+
+        build_mo2_sync_archive(self.source, first)
+        build_mo2_sync_archive(self.source, second)
+
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        member_name = f"CHIM/server-plugins/{FIXTURE_NAME}/0.1.0.dwpkg"
+        with ZipFile(first) as archive:
+            self.assertEqual(archive.namelist(), [member_name])
+            nested_package = self.root / "nested.dwpkg"
+            nested_package.write_bytes(archive.read(member_name))
+        self.assertEqual(verify_archive(nested_package, self.source)["version"], "0.1.0")
 
 
 def emit_manager_fixture() -> Path:

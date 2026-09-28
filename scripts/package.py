@@ -13,14 +13,14 @@ import stat
 import tarfile
 import tempfile
 from pathlib import Path
-from zipfile import ZIP_STORED, BadZipFile, ZipFile, ZipInfo
+from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 
 
 SCHEMA_VERSION = 4
 SERVER_FILES = (
     "AGENTS.md",
     "README.md",
-    "dashboard-art.png",
+    "dashboard-art.webp",
     "dashboard.css",
     "dashboard.php",
     "dashboard_data.php",
@@ -261,11 +261,52 @@ def build_repository_archive(project_root: Path, archive_path: Path) -> dict:
     return json.loads(entries["server/manifest.json"])
 
 
+def build_mo2_sync_archive(project_root: Path, archive_path: Path) -> dict:
+    """Build a deterministic ZIP that MO2 imports as a CHIM file-sync mod."""
+    root = Path(project_root).resolve()
+    output = Path(archive_path).resolve()
+    try:
+        output.relative_to(root)
+    except ValueError as error:
+        raise PackageError("Package output must stay inside the project") from error
+    if output in {(root / "server" / name).resolve() for name in SERVER_FILES}:
+        raise PackageError("Package output cannot replace a server source file")
+
+    manifest, _ = _read_entries(root)
+    package_name = manifest["name"]
+    version = manifest["version"]
+    member_name = f"CHIM/server-plugins/{package_name}/{version}.dwpkg"
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as temp_name:
+        temporary_root = Path(temp_name)
+        package_path = temporary_root / f"{package_name}-{version}.dwpkg"
+        wrapper_path = temporary_root / output.name
+        build_package(root, package_path)
+        package_bytes = package_path.read_bytes()
+
+        with ZipFile(wrapper_path, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+            info = ZipInfo(member_name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            archive.writestr(info, package_bytes)
+
+        with ZipFile(wrapper_path) as archive:
+            if archive.namelist() != [member_name] or archive.testzip() is not None:
+                raise PackageError("MO2 archive does not contain exactly one valid CHIM sync package")
+            if archive.read(member_name) != package_bytes:
+                raise PackageError("MO2 archive changed the CHIM sync package bytes")
+
+        os.replace(wrapper_path, output)
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--format",
-        choices=("dwpkg", "repository-tar-gz"),
+        choices=("dwpkg", "repository-tar-gz", "mo2-sync-zip"),
         default="dwpkg",
         help="package format (default: dwpkg)",
     )
@@ -275,6 +316,12 @@ def main() -> None:
     if options.format == "repository-tar-gz":
         output = project_root / "dist" / f"{inner['name']}.tar.gz"
         manifest = build_repository_archive(project_root, output)
+    elif options.format == "mo2-sync-zip":
+        output = (
+            project_root / "dist" / inner["version"]
+            / f"{inner['name']}-{inner['version']}-mo2.zip"
+        )
+        manifest = build_mo2_sync_archive(project_root, output)
     else:
         output = project_root / "dist" / f"{inner['name']}-{inner['version']}.dwpkg"
         manifest = build_package(project_root, output)
