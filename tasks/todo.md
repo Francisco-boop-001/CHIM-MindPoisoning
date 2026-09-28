@@ -382,3 +382,21 @@ Accepted D01 fixed denial guidance after isolated Windows-to-WSL localhost forwa
 - [x] Approved main update only after published-asset verification.
 
 Review: source/package gates complete. Compatibility reference unchanged; no deployment pin advanced. Live clean-server install, CHIM writes/provider/game acceptance remain unverified. Catalog submission and protected installations remain untouched. Exact publication evidence is in tasks/verification.md.
+
+## Correct MO2 custom-content wrapper — 2026-09-27
+
+- [x] Inspect the existing wrapper and official MO2 FOMOD extraction behavior; preserve the published v0.1.5 ZIP.
+- [x] Add a distinct deterministic FOMOD wrapper that maps the unchanged `.dwpkg` to its CHIM virtual path.
+- [x] Add a focused test for FOMOD mapping, exact nested package bytes, archive layout and deterministic output.
+- [x] Build the local corrected wrapper and record its identity and limitations; do not install it or publish it.
+
+### Review
+
+Focused packaging tests and actual archive/source-byte verification passed. The FOMOD mapping sets the expected CHIM path but does not clear MO2's post-install custom-content flag. No MO2 GUI/install or profile change was performed. Evidence: tasks/mo2-wrapper-correction.md.
+
+## Publish v0.1.5 installer revision 1
+
+- [ ] Review source-only release links/notes and focused package evidence.
+- [ ] Commit and tag mind_poisoning-v0.1.5-installer.1; reproduce ZIP from clean tag.
+- [ ] Publish separate PRE-ALPHA installer revision and verify downloaded assets.
+- [ ] Push main after downloads are verified; preserve runtime manifest and original release assets.

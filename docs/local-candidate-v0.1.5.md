@@ -2,12 +2,14 @@
 
 Mind Poisoning v0.1.5 is a PRE-ALPHA development-candidate prerelease. Use it only in an isolated test profile and server/database. The official CHIM catalog entry has not been submitted or approved.
 
-Download the [MO2 import wrapper](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.5/mind_poisoning-0.1.5-mo2.zip). It contains one file at `CHIM/server-plugins/mind_poisoning/0.1.5.dwpkg`. This wrapper is for MO2/file sync, not Skyrim's `Data` plugins, and not the repository tarball expected by the CHIM catalog installer.
+Download the [corrected MO2 import wrapper](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.5-installer.1/mind_poisoning-0.1.5-mo2-installer.zip). It contains the unchanged package at `CHIM/server-plugins/mind_poisoning/0.1.5.dwpkg`. This wrapper is for MO2/file sync, not Skyrim's `Data` plugins, and not the repository tarball expected by the CHIM catalog installer.
+
+The original `mind_poisoning-0.1.5-mo2.zip` remains on the v0.1.5 runtime release. The corrected FOMOD wrapper is a separate installer-only release; it preserves the same `.dwpkg` but does not suppress MO2's custom-content warning. See [MO2 wrapper correction](mo2-wrapper-correction.md) for the exact mapping and limits.
 
 ## Install through MO2
 
 1. Use a separate MO2 profile and an isolated CHIM server/database. A separate game profile alone does not isolate server data.
-2. In MO2, choose **Install a new mod from an archive** and select the downloaded `mind_poisoning-0.1.5-mo2.zip` file.
+2. In MO2, choose **Install a new mod from an archive** and select the downloaded `mind_poisoning-0.1.5-mo2-installer.zip` file.
 3. Install it as a separate mod, enable it only in the test profile, and inspect its file tree. It must contain `CHIM/server-plugins/mind_poisoning/0.1.5.dwpkg`.
 4. Start the isolated CHIM server, launch Skyrim through the test MO2 profile, and load a test save. CHIM client file sync is documented to run on SAVE LOAD; this project has not verified that behavior on an installed server.
 5. From the Windows host, open the existing Plugin Manager page, for example `http://localhost:8081/HerikaServer/ui/server_plugins.php`, and confirm `mind_poisoning` 0.1.5 appears. Substitute the configured port and base path if they differ. The localhost path was checked with an isolated responder, not an installed CHIM server; live loading remains unverified. The plugin has no migrations.

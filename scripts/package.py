@@ -12,7 +12,9 @@ import re
 import stat
 import tarfile
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from xml.sax.saxutils import escape, quoteattr
 from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 
 
@@ -302,11 +304,85 @@ def build_mo2_sync_archive(project_root: Path, archive_path: Path) -> dict:
     return manifest
 
 
+def build_mo2_fomod_archive(project_root: Path, archive_path: Path) -> dict:
+    """Build a deterministic FOMOD wrapper with an exact CHIM sync destination."""
+    root = Path(project_root).resolve()
+    output = Path(archive_path).resolve()
+    try:
+        output.relative_to(root)
+    except ValueError as error:
+        raise PackageError("Package output must stay inside the project") from error
+    if output in {(root / "server" / name).resolve() for name in SERVER_FILES}:
+        raise PackageError("Package output cannot replace a server source file")
+
+    manifest, _ = _read_entries(root)
+    package_name = manifest["name"]
+    version = manifest["version"]
+    package_member = f"CHIM/server-plugins/{package_name}/{version}.dwpkg"
+    info = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<fomod>\n"
+        "  <Name>Mind Poisoning PRE-ALPHA</Name>\n"
+        f"  <Version>{escape(version)}</Version>\n"
+        "  <Description>CHIM server package only. Use an isolated PRE-ALPHA test profile and server/database. No ESP/ESL or Skyrim scripts are included. Live CHIM and in-game verification are incomplete.</Description>\n"
+        "</fomod>\n"
+    ).encode("utf-8")
+    module_config = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<config>\n"
+        f"  <moduleName>{escape(package_name)} PRE-ALPHA</moduleName>\n"
+        "  <requiredInstallFiles>\n"
+        f"    <file source={quoteattr(package_member)} destination={quoteattr(package_member)} />\n"
+        "  </requiredInstallFiles>\n"
+        "</config>\n"
+    ).encode("utf-8")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as temp_name:
+        temporary_root = Path(temp_name)
+        package_path = temporary_root / f"{package_name}-{version}.dwpkg"
+        wrapper_path = temporary_root / output.name
+        build_package(root, package_path)
+        package_bytes = package_path.read_bytes()
+
+        with ZipFile(wrapper_path, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+            for name, contents in (
+                ("fomod/info.xml", info),
+                ("fomod/ModuleConfig.xml", module_config),
+                (package_member, package_bytes),
+            ):
+                item = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                item.compress_type = ZIP_DEFLATED
+                item.create_system = 3
+                item.external_attr = (stat.S_IFREG | 0o644) << 16
+                archive.writestr(item, contents)
+
+        try:
+            with ZipFile(wrapper_path) as archive:
+                expected_names = ["fomod/info.xml", "fomod/ModuleConfig.xml", package_member]
+                if archive.namelist() != expected_names or archive.testzip() is not None:
+                    raise PackageError("MO2 FOMOD archive has an invalid member list or CRC")
+                if archive.read(package_member) != package_bytes:
+                    raise PackageError("MO2 FOMOD archive changed the CHIM sync package bytes")
+                config = ET.fromstring(archive.read("fomod/ModuleConfig.xml"))
+                files = config.findall("./requiredInstallFiles/file")
+                if len(files) != 1 or files[0].attrib != {
+                    "source": package_member,
+                    "destination": package_member,
+                }:
+                    raise PackageError("MO2 FOMOD must map the package to its exact CHIM path")
+        except ET.ParseError as error:
+            raise PackageError("MO2 FOMOD configuration is not valid XML") from error
+
+        os.replace(wrapper_path, output)
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--format",
-        choices=("dwpkg", "repository-tar-gz", "mo2-sync-zip"),
+        choices=("dwpkg", "repository-tar-gz", "mo2-sync-zip", "mo2-fomod-zip"),
         default="dwpkg",
         help="package format (default: dwpkg)",
     )
@@ -322,6 +398,12 @@ def main() -> None:
             / f"{inner['name']}-{inner['version']}-mo2.zip"
         )
         manifest = build_mo2_sync_archive(project_root, output)
+    elif options.format == "mo2-fomod-zip":
+        output = (
+            project_root / "dist" / inner["version"]
+            / f"{inner['name']}-{inner['version']}-mo2-installer.zip"
+        )
+        manifest = build_mo2_fomod_archive(project_root, output)
     else:
         output = project_root / "dist" / f"{inner['name']}-{inner['version']}.dwpkg"
         manifest = build_package(project_root, output)

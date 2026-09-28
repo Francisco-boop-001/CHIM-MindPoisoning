@@ -21,3 +21,4 @@
 
 - When a PostgreSQL SELECT exposes an ID as text, qualify the underlying numeric column in ORDER BY; an unqualified output alias can silently change cap/tie selection to lexical order. Exercise bounded selection against real synthetic SQL data, including IDs with different digit lengths.
 - Verify the actual Windows-to-WSL request source before treating host access as loopback. Preserve the access gate when a localhost route works; never infer safe access from private-range or default-gateway membership.
+- A FOMOD source/destination mapping proves where selected files are copied, not whether MO2 classifies the resulting mod as valid game content. For CHIM-only payloads, verify the intended mapping and describe any remaining content warning; preview installers only when they can be canceled before installation, and never alter a user's modlist for a packaging check.

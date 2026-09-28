@@ -3,6 +3,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZIP_STORED, ZipFile
 
@@ -15,6 +16,7 @@ from scripts.package import (
     PackageError,
     build_package,
     build_repository_archive,
+    build_mo2_fomod_archive,
     build_mo2_sync_archive,
     verify_archive,
     verify_repository_archive,
@@ -183,6 +185,40 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(archive.namelist(), [member_name])
             nested_package = self.root / "nested.dwpkg"
             nested_package.write_bytes(archive.read(member_name))
+        self.assertEqual(verify_archive(nested_package, self.source)["version"], "0.1.0")
+
+    def test_mo2_fomod_zip_is_deterministic_and_maps_exact_package_bytes(self) -> None:
+        write_fixture_project(self.source)
+        first = self.root / "first-mo2-installer.zip"
+        second = self.root / "second-mo2-installer.zip"
+
+        build_mo2_fomod_archive(self.source, first)
+        build_mo2_fomod_archive(self.source, second)
+
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        member_name = f"CHIM/server-plugins/{FIXTURE_NAME}/0.1.0.dwpkg"
+        with ZipFile(first) as archive:
+            self.assertEqual(
+                archive.namelist(),
+                ["fomod/info.xml", "fomod/ModuleConfig.xml", member_name],
+            )
+            info = archive.read("fomod/info.xml").decode("utf-8")
+            self.assertIn("<Name>Mind Poisoning PRE-ALPHA</Name>", info)
+            self.assertIn("PRE-ALPHA", info)
+            self.assertIn("isolated PRE-ALPHA test profile", info)
+            config = ET.fromstring(archive.read("fomod/ModuleConfig.xml"))
+            self.assertIsNone(config.find("installSteps"))
+            files = config.findall("./requiredInstallFiles/file")
+            self.assertEqual(
+                [item.attrib for item in files],
+                [{"source": member_name, "destination": member_name}],
+            )
+            nested_package = self.root / "nested-fomod.dwpkg"
+            nested_package.write_bytes(archive.read(member_name))
+
+        expected_package = self.root / "expected.dwpkg"
+        build_package(self.source, expected_package)
+        self.assertEqual(nested_package.read_bytes(), expected_package.read_bytes())
         self.assertEqual(verify_archive(nested_package, self.source)["version"], "0.1.0")
 
 
