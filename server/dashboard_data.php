@@ -168,7 +168,7 @@ function dashboardReadLogs(string $serverRoot): array
     if ($offset > 0) {
         array_shift($lines); // The first tail line may start in the middle of a shared log entry.
     }
-    if (!str_ends_with($tail, "\n")) {
+    if ($tail !== '' && !str_ends_with($tail, "\n")) {
         array_pop($lines); // Ignore a log line that was still being written.
         $limited = true;
     }

@@ -6,11 +6,11 @@ Mind Poisoning is a CHIM server plugin. It lets a listener's opinion of one name
 
 ## Status and download
 
-The current development-candidate prerelease is v0.1.3: [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.3/mind_poisoning.tar.gz), and [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.3/mind_poisoning-0.1.3.dwpkg). The repository archive is the catalog/Plugin Manager format; `.dwpkg` is the CHIM server file-sync format. The official CHIM catalog entry has not been submitted or approved. The older [v0.1.2 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) contain earlier source.
+The current development-candidate prerelease is v0.1.4: [release page](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.4), [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning.tar.gz), and [CHIM sync package](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning-0.1.4.dwpkg). The repository archive is the catalog/Plugin Manager format; `.dwpkg` is the CHIM server file-sync format. The official CHIM catalog entry has not been submitted or approved. The older [v0.1.3 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.3), [v0.1.2 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.2), [v0.1.1 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.1), and [v0.1.0 prerelease](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.0) contain earlier source.
 
 Source and fixture checks passed. Live PostgreSQL writes/concurrency, provider behavior, client ACK behavior, dashboard authentication, and in-game playback/save-load remain unverified.
 
-Version 0.1.3 adds typed, allowlisted reasons for known connector/request and judgment-validation failures, and packages the read-only Interactions/Logs dashboard. Unexpected exception and provider text remains generic and is not logged. See the [dashboard guide](dashboard.md) and [developer guide](development.md) for access assumptions and limits.
+Version 0.1.4 adds a semantic mention decision for lexical subject candidates, correct empty-log reporting, and the schema-2 manifest metadata needed for later Plugin Manager updates. The model can still misclassify a mention. The published v0.1.3 manifest lacks the update gate, so existing installs need one manual v0.1.4 file-sync upgrade first. After that, the Manager can use the installed manifest's channel for future version checks; the official catalog entry is only needed for catalog listing and has not been approved. See the [dashboard guide](dashboard.md) and [developer guide](development.md) for access assumptions and limits.
 
 ## Requirements
 
@@ -24,26 +24,28 @@ The model call is synchronous and can delay the `_speech` acknowledgement. Its 1
 
 The plugin evaluates exact `_speech` acknowledgements bound to one chat event by utterance ID, with matching speaker, listener, explicit non-broadcast target, and playthrough. The model uses the speech text reported by the client ACK; this is a client report, not independent proof of audio playback. No fuzzy text or event-tail matching selects the event. Aborted, unmatched, ambiguous, duplicate, broadcast, and Player-listener events are skipped. If the current event names the Player as a subject, ambiguous legacy Player relationship aliases are rejected before the model call; NPC-only events remain eligible.
 
+Names are first found by case-insensitive whole-word matching, so an NPC named May can appear as a candidate when the transcript uses “may” as an ordinary word. In v0.1.4, the existing model call must decide whether each candidate refers to a person; ordinary-word or uncertain uses should return `subject_mentioned=false` with zero delta. Missing or non-boolean mention decisions and false with a nonzero delta are rejected before persistence. This is model-based semantic judgment, not guaranteed entity recognition, so the model can still misclassify a mention. Lowercase names remain eligible and are not filtered by capitalization alone. False lexical candidates still count toward the cap of 8 subjects and may be sent in the same model call.
+
 Each affinity change is between -5 and +5; affinity remains between -100 and +100. A zero change is valid. The prompt can include up to 8 relevant prior events from the same listener and playthrough, with up to 8 subject judgments per event. This bounded, untrusted context is not a cooldown or guaranteed repetition detector, so repeated claims can still influence affinity again. Committed decisions, including zero, retain full NPC/history snapshots.
 
-## Install v0.1.3 for an isolated test
+## Install v0.1.4 for an isolated test
 
 Mind Poisoning is a CHIM server extension, not a Skyrim ESP. The MO2 option below supplies the server package; it does not install a game plugin. Test in a separate MO2 profile and isolated CHIM server/database.
 
-For manual CHIM file sync, download [`mind_poisoning-0.1.3.dwpkg`](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.3/mind_poisoning-0.1.3.dwpkg), rename it to `0.1.3.dwpkg`, and keep its contents intact. Copy it to the CHIM data directory at:
+For manual CHIM file sync, download [`mind_poisoning-0.1.4.dwpkg`](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning-0.1.4.dwpkg), rename it to `0.1.4.dwpkg`, and keep its contents intact. Copy it to the CHIM data directory at:
 
 ```text
-Data/CHIM/server-plugins/mind_poisoning/0.1.3.dwpkg
+Data/CHIM/server-plugins/mind_poisoning/0.1.4.dwpkg
 ```
 
 Alternatively, create and enable a separate empty mod in the MO2 test profile with the intact package at this relative path:
 
 ```text
-CHIM/server-plugins/mind_poisoning/0.1.3.dwpkg
+CHIM/server-plugins/mind_poisoning/0.1.4.dwpkg
 ```
 
-The [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.3/mind_poisoning.tar.gz) is for repository/catalog Plugin Manager ingestion, not a manual `.dwpkg` upload. The official catalog entry has not been submitted or approved, so use the direct `.dwpkg` path above for a local test.
+The published v0.1.3 manifest does not include `schema_version: 2`, so those existing installs do not meet the Plugin Manager's update eligibility gate. Install v0.1.4 once using file sync to add the new manifest; future version checks can then use its per-plugin candidate channel even if catalog lookup misses. The [repository archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.4/mind_poisoning.tar.gz) is for repository/catalog Plugin Manager ingestion, not a manual `.dwpkg` upload. The official catalog entry has not been submitted or approved, so use the direct `.dwpkg` path above for initial installation.
 
-Start and connect to the isolated CHIM test server, launch Skyrim through the separate MO2 profile, and load a test save. CHIM's documented sync runs on SAVE LOAD; confirm the `mind_poisoning` 0.1.3 entry appears in Plugin Manager. This file-sync procedure is documented by CHIM but has not been live-tested by this project.
+Start and connect to the isolated CHIM test server, launch Skyrim through the separate MO2 profile, and load a test save. CHIM's documented sync runs on SAVE LOAD; confirm the `mind_poisoning` 0.1.4 entry appears in Plugin Manager. This file-sync procedure is documented by CHIM but has not been live-tested by this project.
 
 To stop future evaluations, remove the plugin from the CHIM server-side installation and remove its `.dwpkg` from the sync source, including the MO2 mod if used. Removing the plugin does not undo affinities already stored in CHIM.

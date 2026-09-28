@@ -28,6 +28,7 @@ function judgment(string $subject, mixed $delta = 1, string $evidence = 'Farkas 
 {
     return [
         'subject' => $subject,
+        'subject_mentioned' => true,
         'delta' => $delta,
         'reason' => 'A named claim may shift the listener view.',
         'evidence' => $evidence,
@@ -245,5 +246,63 @@ $extraField = $valid;
 $extraField[0]['type'] = 'enemy';
 rejected(fn() => parseJudgments(encoded($extraField), $parseSubjects, $parseUtterance), 'Unexpected relation-type edits should be rejected.');
 rejected(fn() => parseJudgments(str_repeat('x', 16385), $parseSubjects, $parseUtterance), 'Responses over 16 KiB should be rejected.');
+
+$maySubjects = ['npc:8' => ['name' => 'May', 'id' => 8]];
+$mayNpcCatalog = [['id' => 8, 'npc_name' => 'May']];
+$incidentalMayEvent = $event;
+$incidentalMayEvent['text'] = 'You may trust Jarl Balgruuf.';
+$lowercaseMayEvent = $event;
+$lowercaseMayEvent['text'] = 'I met may by the gate.';
+check(isset(findSubjects($incidentalMayEvent, $mayNpcCatalog, 'Dovah')['npc:8']), 'The common-word occurrence may remain a candidate for semantic classification.');
+check(isset(findSubjects($lowercaseMayEvent, $mayNpcCatalog, 'Dovah')['npc:8']), 'Lowercase client text must still produce a candidate for semantic classification.');
+$missingMentionResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'delta' => 2, 'reason' => 'The candidate was present.', 'evidence' => 'may',
+]]], JSON_THROW_ON_ERROR);
+$missingMentionAccepted = false;
+try {
+    parseJudgments($missingMentionResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
+    $missingMentionAccepted = true;
+} catch (\ChimMindPoisoning\JudgmentValidationFailure) {
+}
+check(!$missingMentionAccepted, 'A nonzero judgment without a semantic mention decision must fail closed.');
+
+$falseMentionResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 1, 'reason' => 'The word is incidental.', 'evidence' => 'may',
+]]], JSON_THROW_ON_ERROR);
+$falseMentionReason = null;
+try {
+    parseJudgments($falseMentionResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
+} catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+    $falseMentionReason = $error->reasonCode;
+}
+check($falseMentionReason === 'judgment_mention_invalid', 'A false semantic mention with nonzero delta must be rejected specifically.');
+$wrongMentionTypeResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => 'false', 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => 'may',
+]]], JSON_THROW_ON_ERROR);
+$wrongMentionTypeReason = null;
+try {
+    parseJudgments($wrongMentionTypeResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
+} catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+    $wrongMentionTypeReason = $error->reasonCode;
+}
+check($wrongMentionTypeReason === 'judgment_mention_invalid', 'The mention decision must be a JSON boolean, not a string.');
+
+$falseZeroResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => 'may',
+]]], JSON_THROW_ON_ERROR);
+$falseZeroParsed = parseJudgments($falseZeroResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
+check($falseZeroParsed['npc:8']['delta'] === 0 && !array_key_exists('subject_mentioned', $falseZeroParsed['npc:8']), 'A non-mention zero must normalize to the existing persistence shape.');
+
+$lowercaseNameResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => true, 'delta' => 1, 'reason' => 'The utterance refers to May.', 'evidence' => 'found may at the gate',
+]]], JSON_THROW_ON_ERROR);
+$lowercaseNameParsed = parseJudgments($lowercaseNameResponse, $maySubjects, 'I found may at the gate.');
+check($lowercaseNameParsed['npc:8']['delta'] === 1, 'A semantically confirmed lowercase name must remain eligible.');
+check(!array_key_exists('subject_mentioned', $lowercaseNameParsed['npc:8']), 'Mention metadata must not expand the persisted judgment shape.');
+
+$mayPromptEvent = $event;
+$mayPromptEvent['text'] = 'You may trust Jarl Balgruuf.';
+$mayMessages = buildMessages($mayPromptEvent, $speaker, $listener, $maySubjects);
+check(str_contains($mayMessages[0]['content'], 'subject_mentioned'), 'The prompt must provide the mention field required by the parser.');
 
 echo "influence checks passed\n";

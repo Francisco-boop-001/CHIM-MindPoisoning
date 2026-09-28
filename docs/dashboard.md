@@ -1,6 +1,6 @@
 # Mind Poisoning dashboard
 
-The read-only Interactions/Logs dashboard is included in the v0.1.3 development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. Live web-server authentication and PostgreSQL behavior remain unverified.
+The read-only Interactions/Logs dashboard is included in the v0.1.4 development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
 
 ## Page and access
 

@@ -290,3 +290,50 @@ Reviewed `README.md`, player/developer/dashboard guides, contributor notes, mani
 - [x] Download published assets and confirm matching bytes, digests, and prerelease status.
 
 Review: release source is 7212d7b24aee80d2c5d09e26b0eb14cafd519197. Release and catalog snippet advance to v0.1.3; compatibility reference and installed deployment remain unchanged. Live database/provider/game and deployed authentication remain unverified. Full release evidence is in tasks/verification.md. Only user-owned critique.md remains outside Git.
+
+## Manifest update flow and storage API review — 2026-09-27
+
+- [x] Trace installed Plugin Manager/update consumers and add minimal manifest metadata plus a consumer-focused regression check.
+- [x] Review supported NpcMaster/database transaction facilities against atomic affinity, dedupe and history requirements; make no storage changes without evidence.
+- [x] Lead review all diffs and focused output, record limitations and unchanged release/deployment pins.
+- [x] Save verified CHIM plugin development guidance in the authorized memory extension folder.
+
+Ownership: packaging owns manifest and focused update-flow test/report; runtime owns read-only storage review/report; influence owns repository development guidance/lessons after findings. All retained gpt-6-luna/max agents use Ponytail full and preserve shared edits. Protected distro/mod remain read-only. No publication or pin advancement in this task.
+
+### Lead review
+
+Reviewed manifest/catalog diff and retained candidate identity; rejected misleading Stable channel rename. Reviewed isolated helper harness and removed release-version coupling. Independently ran manifest_update_check.php: all four checks passed. Built both verification-only archives under dist/manifest-check and verified source bytes plus inner schema2/outer dwpkg schema4. Read installed reconnect/setPluginData bodies and confirmed compatibility revision with explicit git -C; storage exception retained because public helpers cannot pin the composite transaction across connection failures. No gameplay/storage code changed. Added reusable project guide and lessons; saved user-authorized memory note at L:/Proyectos/Snake/codex_home_test/memories/extensions/ad_hoc/notes/20260927-chim-plugin-contracts.md. Release version/tag/deployment unchanged; published0.1.3 is still unfixed. A later version and one-time upgrade are required to distribute this change. No live DB/provider/game/install proof.
+
+## Delegated bug hunt — 2026-09-27
+
+- [x] Inspect current tree and prior verified fixes; preserve pending metadata work and critique.md.
+- [x] Packaging owner audit update/distribution path and fix reproducible defects with focused checks.
+- [x] Runtime owner audit ACK/model/persistence failure paths and fix reproducible defects with focused checks.
+- [x] Dashboard owner audit reader/auth/render/filter/export paths and fix reproducible defects with focused checks.
+- [x] Lead review every diff, relevant callers/failures and verification output; return defects to owners.
+- [x] Record final findings, unresolved runtime limits and unchanged pins.
+
+Ownership: packaging owns manifest/catalog/package scripts + update/package tests; runtime owns prerequest/model/influence/store/logging + matching tests; influence owns dashboard PHP/CSS + dashboard tests. Each owns tasks/bughunt-<area>.md. No overlapping edits; cross-area dependencies must be reported before changes. All retained gpt-6-luna/max workers use Ponytail full. Lead coordinates/reviews only, writes no product code. No live CHIM/mod/provider/database execution or release/pin change.
+
+### Bug-hunt lead review
+
+Reviewed both final code/test diffs and their callers: the dashboard reader feeds the limited-source notice; its empty-tail guard preserves unfinished-line handling. Independently ran the isolated empty/unfinished log fixture successfully under WSL PHP. Reviewed the packaging harness's exact installed member/byte comparison, tamper rejection, state preservation and migration guard; returned the duplicated thirteen-file count to its owner and accepted the nonempty guard after the focused real-manager scratch harness passed all four checks. Runtime owner reproduced the existing May/common-word ambiguity; no capitalization heuristic was added because it would reject valid lowercase names without resolving sentence-initial ambiguity. No other confirmed product defect in this bounded hunt. Reports: tasks/bughunt-dashboard.md, tasks/bughunt-packaging.md, tasks/bughunt-runtime.md. Prior metadata work and user critique preserved. Changes remain local; version, compatibility, release and deployment pins unchanged. No live database/provider/game or installed CHIM/mod execution or modification.
+
+## Resolve common-word subject ambiguity — 2026-09-27
+
+- [x] Runtime owner trace candidate/judgment/persistence contract and implement semantic disambiguation without capitalization regressions.
+- [x] Verify negative common-word and positive lowercase-name cases with isolated checks.
+- [x] Lead review all changes and evidence; update limitations, preserve pins and protected installations.
+
+Scope: remaining MP-06 finding only. Runtime owns implementation/tests; documentation follows the accepted contract. Lead coordinates/reviews and writes no product code. No live provider, database, deployment or publication.
+
+### Mention-guard lead review
+
+Reviewed prompt/parser changes, every changed fixture, validation catch before persistence, and zero-delta storage path. Required subject_mentioned boolean rejects malformed or contradictory responses with no persistence; parser preserves the existing stored shape. Generic-role and ordinary-word ambiguity is explicitly judged within the existing model call; lowercase candidates remain eligible. Returned prose-locked assertions and unpublished-version wording to owners for correction. Independently ran influence_test.php and runtime_test.php: exit 0, with only the runtime suite's expected injected persistence-failure messages. Checks use fake model/database dependencies and do not prove provider language accuracy. Documentation and review distinguish that limit. Prior changes preserved; no commit, publication, version/compatibility/deployment pin or protected installation change.
+
+## Publish v0.1.4 — 2026-09-27
+
+- [ ] Prepare release metadata/docs and inspect exact pending scope.
+- [ ] Run focused release checks, build source-verified packages, commit and tag.
+- [ ] Rebuild clean tag; publish and verify downloads before advancing main update pointer.
+- [ ] Record release evidence; preserve critique and protected installations.

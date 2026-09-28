@@ -57,6 +57,17 @@ function resetInteractionTestRequest(int $requestGeneration, int $currentGenerat
     chimInteractionBegin();
 }
 
+function validModelResponse(array $judgments): string
+{
+    foreach ($judgments as &$judgment) {
+        if (is_array($judgment) && !array_key_exists('subject_mentioned', $judgment)) {
+            $judgment['subject_mentioned'] = true;
+        }
+    }
+    unset($judgment);
+    return json_encode(['judgments' => $judgments], JSON_THROW_ON_ERROR);
+}
+
 function chimIsGlobalLlmConnectorEnabled(string $connectorField): bool
 {
     return $connectorField === 'RELLLM_CONNECTOR' && ($GLOBALS['runtime_test_relationship_enabled'] ?? true);
@@ -485,10 +496,10 @@ $capturedMessages = null;
 $model = static function (array $messages) use (&$modelCalls, &$capturedMessages): string {
     $modelCalls++;
     $capturedMessages = $messages;
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
         ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('committed', handleSpeechAck($ack, $db, $model), 'A matching direct NPC speech acknowledgment should compose through persistence.');
 same(1, $modelCalls, 'One acknowledged utterance should make one model request.');
@@ -504,6 +515,67 @@ same(1, $modelCalls, 'Preflight dedupe must avoid a second model call.');
 same(1, count($db->history), 'Preflight duplicate must not create a second snapshot.');
 
 [$event, $subjects, $judgments, $db] = baseFixture();
+$event['text'] = 'You may trust Jarl Balgruuf.';
+$event['source_data'] = 'Aela: You may trust Jarl Balgruuf. (Talking to Lydia)';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$db->npcs[44] = [
+    'id' => 44, 'npc_name' => 'May',
+    'extended_data' => (object)['relationships' => new stdClass()],
+    'plugin_extended_data' => new stdClass(),
+];
+$commonWordAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$beforeCommonWord = unserialize(serialize($db->npcs[22]));
+$commonWordMessages = null;
+$commonWordRecords = [];
+$commonWordModel = static function (array $messages) use (&$commonWordMessages): string {
+    $commonWordMessages = $messages;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'subject_mentioned' => true, 'delta' => 0, 'reason' => 'The Jarl is named but no change is supported.', 'evidence' => 'Jarl Balgruuf'],
+        ['subject' => 'npc:44', 'subject_mentioned' => false, 'delta' => 2, 'reason' => 'May is an ordinary word here.', 'evidence' => 'may'],
+    ]);
+};
+same('failed', handleSpeechAck($commonWordAck, $db, $commonWordModel, captureRequestLog($commonWordRecords)), 'A common-word candidate explicitly marked as unmentioned must reject a nonzero delta.');
+$commonWordContext = json_decode($commonWordMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+check(isset($commonWordContext['candidates']['npc:44']), 'The common-word catalog match should reach the model as a candidate, not as a confirmed mention.');
+same('judgment_mention_invalid', lastRequestSummary($commonWordRecords)['reason'] ?? null, 'The common-word rejection must have the stable validation reason.');
+check(ChimMindPoisoning\sameJsonValue($beforeCommonWord, $db->npcs[22]), 'Rejected common-word judgments must not mutate listener state.');
+same([], $db->history, 'Rejected common-word judgments must not create a history snapshot.');
+same(0, $db->beginCalls, 'Rejected common-word judgments must fail before persistence begins.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$event['text'] = 'I met may by the gate.';
+$event['source_data'] = 'Aela: I met may by the gate. (Talking to Lydia)';
+$db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$db->npcs[44] = [
+    'id' => 44, 'npc_name' => 'May',
+    'extended_data' => (object)['relationships' => new stdClass()],
+    'plugin_extended_data' => new stdClass(),
+];
+$lowercaseMayAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$lowercaseMayMessages = null;
+$lowercaseMayModel = static function (array $messages) use (&$lowercaseMayMessages): string {
+    $lowercaseMayMessages = $messages;
+    return validModelResponse([
+        ['subject' => 'npc:44', 'subject_mentioned' => true, 'delta' => 2, 'reason' => 'The sentence refers to May.', 'evidence' => 'met may by the gate'],
+    ]);
+};
+same('committed', handleSpeechAck($lowercaseMayAck, $db, $lowercaseMayModel), 'A lowercased genuine NPC name remains eligible when the model confirms the mention.');
+$lowercaseMayContext = json_decode($lowercaseMayMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+check(isset($lowercaseMayContext['candidates']['npc:44']), 'Lowercase client text must retain the matching NPC candidate.');
+same(2, $db->npcs[22]['extended_data']->relationships->May->aff, 'A confirmed lowercase-name judgment should persist through the composed path.');
+same(1, count($db->history), 'A confirmed lowercase-name judgment should snapshot the listener.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
 $event['text'] = 'I trust Jarl Balgruuf. The Dragonborn is brave.';
 $event['source_data'] = 'Aela: I trust Jarl Balgruuf. The Dragonborn is brave. (Talking to Lydia)';
 $db->events[100] = $event + ['type' => 'chat', 'delivery_state' => 'spoken'];
@@ -516,9 +588,9 @@ $truncatedAck = ['_speech', 0, 10, json_encode([
 $capturedAckMessages = null;
 $ackTextModel = static function (array $messages) use (&$capturedAckMessages): string {
     $capturedAckMessages = $messages;
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('committed', handleSpeechAck($truncatedAck, $db, $ackTextModel), 'A transformed ACK matching the exact utterance ID should not be rejected for text inequality.');
 $ackPrompt = json_decode($capturedAckMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
@@ -570,10 +642,10 @@ $toggleOffModel = static function (array $messages) use (&$modelCalls): string {
     $modelCalls++;
     $GLOBALS['runtime_test_interaction_allowed'] = false;
     $GLOBALS['runtime_test_interaction_generation'] = 2;
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
         ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('interaction-stale', handleSpeechAck($ack, $db, $toggleOffModel), 'An Off/generation change during model evaluation must reject persistence.');
 same(1, $modelCalls, 'A request interrupted during evaluation should make only its original model call.');
@@ -607,9 +679,9 @@ $npcOnlyWithAliasesAck = ['_speech', 0, 10, json_encode([
 $modelCalls = 0;
 $npcOnlyWithAliasesModel = static function (array $messages) use (&$modelCalls): string {
     $modelCalls++;
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('committed', handleSpeechAck($npcOnlyWithAliasesAck, $db, $npcOnlyWithAliasesModel), 'NPC-only judgments must remain eligible with ambiguous Player aliases.');
 same(1, $modelCalls, 'NPC-only judgments should still reach the model.');
@@ -631,10 +703,10 @@ $playerAck = ['_speech', 0, 10, json_encode([
 $beforePlayerDrift = unserialize(serialize($db->npcs[22]));
 $renamingModel = static function (array $messages) use ($db): string {
     $db->playerName = 'Dovah Prime';
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
         ['subject' => 'player', 'delta' => -1, 'reason' => 'Named Player reaction', 'evidence' => 'Dovah is brave.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('stale', handleSpeechAck($playerAck, $db, $renamingModel), 'A same-profile Player rename during evaluation must reject stale Player identity context.');
 check(ChimMindPoisoning\sameJsonValue($beforePlayerDrift, $db->npcs[22]), 'A same-profile Player rename must not mutate listener state.');
@@ -654,9 +726,9 @@ $npcOnlyAck = ['_speech', 0, 10, json_encode([
 ], JSON_THROW_ON_ERROR)];
 $npcOnlyModel = static function (array $messages) use ($db): string {
     $db->playerName = 'Dovah Prime';
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('committed', handleSpeechAck($npcOnlyAck, $db, $npcOnlyModel), 'A same-profile Player rename must not reject an NPC-only judgment.');
 same(1, count($db->history), 'NPC-only judgments remain snapshot eligible after a Player rename.');
@@ -740,10 +812,10 @@ same(0, $db->beginCalls, 'Restore-policy rejection must happen before transactio
 unset($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA']);
 
 resetAckLoggingInteraction();
-$loggingResponse = static fn(array $messages): string => json_encode(['judgments' => [
+$loggingResponse = static fn(array $messages): string => validModelResponse([
     ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
     ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
-]], JSON_THROW_ON_ERROR);
+]);
 [$event, $subjects, $judgments, $db] = baseFixture();
 $requestRecords = [];
 same('committed', handleSpeechAck($ack, $db, $loggingResponse, captureRequestLog($requestRecords, true)), 'Request logging must preserve a successful ACK result.');
@@ -812,10 +884,10 @@ resetAckLoggingInteraction();
 $midModelOffRecords = [];
 $offDuringModel = static function (array $messages): string {
     $GLOBALS['runtime_test_interaction_allowed'] = false;
-    return json_encode(['judgments' => [
+    return validModelResponse([
         ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
         ['subject' => 'player', 'delta' => -1, 'reason' => 'Listener reaction', 'evidence' => 'The Dragonborn is brave.'],
-    ]], JSON_THROW_ON_ERROR);
+    ]);
 };
 same('interaction-off', handleSpeechAck($ack, $db, $offDuringModel, captureRequestLog($midModelOffRecords)), 'An Off transition during model evaluation must preserve the skip status.');
 $midModelOffSummary = lastRequestSummary($midModelOffRecords);
@@ -899,7 +971,7 @@ same([], $db->history, 'Unknown model failures must not create a history snapsho
 
 $parserRows = [];
 foreach ($judgments as $subject => $judgment) {
-    $parserRows[] = ['subject' => $subject] + $judgment;
+    $parserRows[] = ['subject' => $subject, 'subject_mentioned' => true] + $judgment;
 }
 $wrongSubjectRows = $parserRows;
 $wrongSubjectRows[0]['subject'] = 'npc:999';
@@ -909,6 +981,8 @@ $wrongReasonRows = $parserRows;
 $wrongReasonRows[0]['reason'] = ' ';
 $wrongEvidenceRows = $parserRows;
 $wrongEvidenceRows[0]['evidence'] = 'not in the utterance';
+$wrongMentionRows = $parserRows;
+$wrongMentionRows[0]['subject_mentioned'] = false;
 $incompleteRows = array_slice($parserRows, 0, 1);
 $parserFailures = [
     'response_too_large' => str_repeat('x', 16385),
@@ -917,6 +991,7 @@ $parserFailures = [
     'judgment_schema_invalid' => json_encode(['judgments' => ['not-an-object']], JSON_THROW_ON_ERROR),
     'judgment_subject_invalid' => json_encode(['judgments' => $wrongSubjectRows], JSON_THROW_ON_ERROR),
     'judgment_delta_invalid' => json_encode(['judgments' => $wrongDeltaRows], JSON_THROW_ON_ERROR),
+    'judgment_mention_invalid' => json_encode(['judgments' => $wrongMentionRows], JSON_THROW_ON_ERROR),
     'judgment_reason_invalid' => json_encode(['judgments' => $wrongReasonRows], JSON_THROW_ON_ERROR),
     'judgment_evidence_invalid' => json_encode(['judgments' => $wrongEvidenceRows], JSON_THROW_ON_ERROR),
     'judgment_candidates_incomplete' => json_encode(['judgments' => $incompleteRows], JSON_THROW_ON_ERROR),
