@@ -647,8 +647,10 @@ Limits: pause is an operator file, checked preflight/post-model, not an atomic c
 
 - [x] Bump only the manifest version and prepare current README/release notes; preserve the CHIM compatibility reference.
 - [x] Run release gates and build the repository archive, CHIM sync package, plain MO2 ZIP, and SHA256SUMS.txt.
-- [ ] Rebuild from the clean tag and verify all package bytes/checksums.
-- [ ] Publish the verified tag/assets before advancing main.
-- [ ] Record commit, tag, asset hashes, and publication evidence.
+- [x] Rebuild from the clean tag and verify all package bytes/checksums.
+- [x] Publish the verified tag/assets before advancing main.
+- [x] Record commit, tag, asset hashes, and publication evidence.
 
 Release review: runtime and logging fixtures, touched PHP lint, installed manifest-update helper checks, and seven packaging tests passed. GNU tar strip-one extraction matched all 15 allowlisted payload files. The prior isolated PostgreSQL timeout/rollback proof was reviewed, not repeated. Lead reviewed code and release metadata; compatibility reference unchanged. Clean-tag rebuild and publication verification remain pending below.
+
+Final publication review: v0.1.9 PRE-ALPHA is public. Clean-tag rebuild and downloaded-asset byte/checksum comparisons passed before main advanced. Source commit 0502c979b1622ebd62592bfcf2850908acbd6153; see release-v0.1.9.md for hashes and limits. Installed environment and compatibility reference unchanged.
