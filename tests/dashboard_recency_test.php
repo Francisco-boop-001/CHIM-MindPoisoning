@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace ChimMindPoisoning;
 
 require_once __DIR__ . '/../server/dashboard_data.php';
+require_once __DIR__ . '/../server/store.php';
 
 function d02Assert(bool $condition, string $message): void
 {
@@ -24,6 +25,29 @@ function d02Query(\PgSql\Connection $connection, string $query, array $params = 
         return $rows;
     } finally {
         pg_free_result($result);
+    }
+}
+
+function d02StorePlaythrough(\PgSql\Connection $connection): ?array
+{
+    $hadDb = array_key_exists('db', $GLOBALS);
+    $oldDb = $GLOBALS['db'] ?? null;
+    $GLOBALS['db'] = new class($connection) {
+        public function __construct(private \PgSql\Connection $connection) {}
+
+        public function fetchOne(string $query, array $params = []): array
+        {
+            return d02Query($this->connection, $query, $params)[0] ?? [];
+        }
+    };
+    try {
+        return (new PostgresStoreDb())->activePlaythrough();
+    } finally {
+        if ($hadDb) {
+            $GLOBALS['db'] = $oldDb;
+        } else {
+            unset($GLOBALS['db']);
+        }
     }
 }
 
@@ -141,7 +165,46 @@ try {
     $malformed = dashboardReadDatabase($sourceRoot);
     d02Assert(array_column($malformed['rows'], 'id') === ['10', '2', '3', '4', '5', '6', '7'], 'Invalid, oversized, and empty ledgers did not sort after valid activity with stable numeric ties.');
     d02Assert($malformed['invalid_ledgers'], 'Malformed fixture ledgers were not reported.');
-    echo "dashboard_recency_test: actual PostgreSQL selection passed (recent row cap, active profile, numeric ties, invalid event IDs, oversized event array, identity cap)\n";
+
+    d02Query($connection, "UPDATE chim_meta.playthrough_profiles SET is_active = FALSE");
+    d02Query($connection, "DELETE FROM public.core_npc_master WHERE plugin_extended_data ? 'mind_poisoning'");
+    foreach ([30 => 'unprofiled', 31 => '1', 32 => '2'] as $id => $scope) {
+        d02InsertLedger($connection, $id, $scope, json_encode([[
+            'event_id' => $id,
+            'utterance_id' => 'utt_' . str_pad((string)$id, 8, '0', STR_PAD_LEFT),
+            'judgments' => [],
+        ]], JSON_THROW_ON_ERROR));
+    }
+    $unprofiled = dashboardReadDatabase($sourceRoot);
+    d02Assert($unprofiled['active_playthrough'] === 'unprofiled', 'Zero active profiles did not resolve to the shared-server scope.');
+    d02Assert($unprofiled['player_name'] === 'Test Player', 'The zero-profile path did not independently resolve the current player name.');
+    d02Assert(array_column($unprofiled['rows'], 'id') === ['30'], 'Unprofiled selection mixed explicit-profile ledgers into shared-server history.');
+    d02Assert(d02StorePlaythrough($connection) === ['id' => 'unprofiled', 'player_name' => 'Test Player'], 'The store adapter did not resolve the zero-profile shared-server context.');
+
+    d02Query($connection, "DELETE FROM public.core_player WHERE id = 'player_name'");
+    $missingPlayer = dashboardReadDatabase($sourceRoot);
+    d02Assert($missingPlayer['active_playthrough'] === 'unprofiled' && $missingPlayer['player_name'] === '', 'Missing player data was replaced with a fabricated identity or invalidated the shared scope.');
+    d02Assert(array_column($missingPlayer['rows'], 'id') === ['30'], 'Missing player data changed ledger scope selection.');
+    d02Assert(d02StorePlaythrough($connection) === ['id' => 'unprofiled', 'player_name' => ''], 'The store adapter fabricated or discarded a missing player name.');
+    d02Query($connection, "INSERT INTO public.core_player (id, value) VALUES ('player_name', 'Test Player')");
+
+    d02Query($connection, "UPDATE chim_meta.playthrough_profiles SET is_active = (id = 1)");
+    $profiled = dashboardReadDatabase($sourceRoot);
+    d02Assert($profiled['active_playthrough'] === '1', 'A single explicit profile did not retain its numeric identity.');
+    d02Assert(array_column($profiled['rows'], 'id') === ['31'], 'Explicit profile selection included shared or other-profile ledgers.');
+    d02Assert(d02StorePlaythrough($connection) === ['id' => '1', 'player_name' => 'Test Player'], 'The store adapter did not resolve the one active profile.');
+
+    d02Query($connection, 'UPDATE chim_meta.playthrough_profiles SET is_active = TRUE');
+    $ambiguous = dashboardReadDatabase($sourceRoot);
+    d02Assert($ambiguous['active_playthrough'] === null && $ambiguous['rows'] === [], 'Multiple active profiles did not fail closed.');
+    d02Assert(d02StorePlaythrough($connection) === null, 'The store adapter did not fail closed for multiple active profiles.');
+
+    d02Query($connection, 'DROP TABLE chim_meta.playthrough_profiles');
+    $missingProfileTable = dashboardReadDatabase($sourceRoot);
+    d02Assert($missingProfileTable['active_playthrough'] === 'unprofiled', 'An absent optional profile table was treated as a database failure.');
+    d02Assert(array_column($missingProfileTable['rows'], 'id') === ['30'], 'Absent profile-table selection did not remain isolated to shared-server history.');
+    d02Assert(d02StorePlaythrough($connection) === ['id' => 'unprofiled', 'player_name' => 'Test Player'], 'The store adapter did not treat an absent optional profile table as shared-server scope.');
+    echo "dashboard_recency_test: actual PostgreSQL selection passed (profiled, unprofiled, missing player, absent profile table, ambiguous profiles, ledger isolation, recency caps)\n";
 } finally {
     pg_close($connection);
     @unlink($libraryPath . DIRECTORY_SEPARATOR . 'postgresql.class.php');

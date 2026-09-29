@@ -1,11 +1,11 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-Plugins",
   "description": "Conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, with a read-only history dashboard.",
   "status": "development_candidate",
-  "config_url": "../ext/mind_poisoning/dashboard.php",
+  "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",
   "channels": {
     "candidate": {

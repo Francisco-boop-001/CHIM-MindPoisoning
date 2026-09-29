@@ -24,3 +24,11 @@
 - A FOMOD source/destination mapping proves where selected files are copied, not whether MO2 classifies the resulting mod as valid game content. For CHIM-only payloads, verify the intended mapping and describe any remaining content warning; preview installers only when they can be canceled before installation, and never alter a user's modlist for a packaging check.
 - State supported speaker, listener and subject roles explicitly before suggesting live test scenarios. Player-origin dialogue and NPC speech acknowledgements are different event paths; inspect the actual player input contract before extending support, rather than merely removing an actor exclusion.
 - Treat named roleplay examples as acceptance examples, not feature scope. Player gossip must support arbitrary identifiable NPC subjects and positive, negative or neutral speech; never hard-code example characters or require a negative delta.
+
+- Treat a reported installer crash as a distinct failure from a content warning. Archive checksums, XML parsing and file mappings do not prove native MO2/FOMOD execution; inspect the actual installer implementation and crash evidence before claiming compatibility.
+
+- A plain CHIM-only ZIP bypasses FOMOD but does not satisfy MO2's Skyrim content checker. When asked to remove its validation error, inspect the exact checker and ship a legitimate accepted payload layout; do not present bypassing one installer as resolving content validation.
+
+- Separate CHIM's supported regular-mod/file-sync distribution from MO2's generic content classifier. A checker warning does not invalidate the author's supported distribution route. Explain the boundary and investigate installer compatibility before proposing a different installation system.
+
+- Do not make optional CHIM Playthrough Saves an implicit plugin prerequisite. Verify ordinary unprofiled operation as well as active-profile mode; keep shared-database scope distinct from a unique Skyrim save, and apply the same identity contract to persistence, logs and dashboard readers.

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../server/store.php';
 require_once __DIR__ . '/../server/prerequest.php';
 
 use ChimMindPoisoning\StoreDb;
+use ChimMindPoisoning\PostgresStoreDb;
 use ChimMindPoisoning\RequestLog;
 use function ChimMindPoisoning\assertIdleTransactionStatus;
 use function ChimMindPoisoning\assertPgSqlConnection;
@@ -15,6 +16,7 @@ use function ChimMindPoisoning\handlePlayerInput;
 use function ChimMindPoisoning\nextLedger;
 use function ChimMindPoisoning\normalizeEventRow;
 use function ChimMindPoisoning\persistJudgments;
+use function ChimMindPoisoning\resolvePlaythroughContext;
 
 function chimInteractionAllowed(): bool
 {
@@ -286,6 +288,48 @@ function same(mixed $expected, mixed $actual, string $message): void
 {
     if ($expected !== $actual) {
         throw new RuntimeException($message . '\nexpected: ' . var_export($expected, true) . '\nactual: ' . var_export($actual, true));
+    }
+}
+
+final class ProfileContextQueryDb
+{
+    public bool $profileTableExists = true;
+    public array $activeProfiles = [];
+    public mixed $playerName = 'Hawke';
+    public mixed $catalogOverride = 'auto';
+    public bool $omitCatalogField = false;
+    public bool $omitPlayerName = false;
+    public array $queries = [];
+
+    public function fetchOne(string $query, array $parameters = []): array
+    {
+        $this->queries[] = [$query, $parameters];
+        if (str_contains($query, 'to_regclass')) {
+            if ($this->omitCatalogField) {
+                return [];
+            }
+            if ($this->catalogOverride !== 'auto') {
+                return ['profile_table' => $this->catalogOverride];
+            }
+            return ['profile_table' => $this->profileTableExists ? 'chim_meta.playthrough_profiles' : null];
+        }
+        if (str_contains($query, 'jsonb_agg')) {
+            $row = ['active_profiles' => json_encode($this->activeProfiles, JSON_THROW_ON_ERROR)];
+            if (!$this->omitPlayerName) {
+                $row['player_name'] = $this->playerName;
+            }
+            return $row;
+        }
+        if (str_contains($query, 'FROM core_player')) {
+            return $this->omitPlayerName ? [] : ['player_name' => $this->playerName];
+        }
+        return [];
+    }
+
+    public function fetchAll(string $query): array
+    {
+        $this->queries[] = [$query, []];
+        return str_contains($query, 'FROM chim_meta.playthrough_profiles') ? $this->activeProfiles : [];
     }
 }
 
@@ -1471,6 +1515,124 @@ check($playerBootstrapJsonStart !== false, 'The Player bootstrap failure should 
 $playerBootstrapSummary = json_decode(substr($playerBootstrapError, $playerBootstrapJsonStart), true, 512, JSON_THROW_ON_ERROR);
 same('runtime_bootstrap_failed', $playerBootstrapSummary['reason'] ?? null, 'A Player bootstrap failure should use its safe fixed reason.');
 same('player', $playerBootstrapSummary['speaker_kind'] ?? null, 'A Player bootstrap failure should retain its speaker kind.');
+
+$priorContextDb = $GLOBALS['db'] ?? null;
+$contextDb = new ProfileContextQueryDb();
+$GLOBALS['db'] = $contextDb;
+try {
+    $contextStore = new PostgresStoreDb();
+    same(['id' => 'unprofiled', 'player_name' => 'Hawke'], $contextStore->activePlaythrough(), 'The production store should resolve a zero-row profile table to the current global player context.');
+
+    $contextDb->playerName = 'Isabela';
+    $contextDb->activeProfiles = [['id' => '12']];
+    same(['id' => '12', 'player_name' => 'Isabela'], $contextStore->activePlaythrough(), 'One active profile should retain the existing numeric context.');
+
+    $contextDb->playerName = 'Hawke';
+    $contextDb->profileTableExists = false;
+    $contextDb->activeProfiles = [];
+    same(['id' => 'unprofiled', 'player_name' => 'Hawke'], $contextStore->activePlaythrough(), 'A missing optional profile table should use the unprofiled database scope.');
+
+    $contextDb->omitPlayerName = true;
+    same(null, $contextStore->activePlaythrough(), 'A malformed current-player query result must not be interpreted as unprofiled.');
+    $contextDb->omitPlayerName = false;
+    $contextDb->profileTableExists = true;
+    $contextDb->catalogOverride = false;
+    same(null, $contextStore->activePlaythrough(), 'A non-string catalog result must fail closed instead of claiming the table is present.');
+    $contextDb->catalogOverride = ['unexpected'];
+    same(null, $contextStore->activePlaythrough(), 'An array catalog result must fail closed.');
+    $contextDb->catalogOverride = 'auto';
+
+    $contextDb->profileTableExists = true;
+    $contextDb->activeProfiles = [['id' => '2'], ['id' => '3']];
+    same(null, $contextStore->activePlaythrough(), 'The production store must reject multiple active profiles.');
+
+    $contextDb->activeProfiles = [['id' => '0']];
+    same(null, $contextStore->activePlaythrough(), 'The production store must reject an invalid active profile ID.');
+
+    $contextDb->activeProfiles = [['id' => true]];
+    same(null, $contextStore->activePlaythrough(), 'The production store must reject a boolean profile ID.');
+} finally {
+    if ($priorContextDb === null) {
+        unset($GLOBALS['db']);
+    } else {
+        $GLOBALS['db'] = $priorContextDb;
+    }
+}
+
+same(['id' => 'unprofiled', 'player_name' => 'Hawke'], resolvePlaythroughContext([], ' Hawke '), 'Zero active profiles should resolve to the explicit global database scope.');
+same(['id' => '12', 'player_name' => 'Isabela'], resolvePlaythroughContext([['id' => '12']], ' Isabela '), 'Exactly one valid profile should keep its numeric scope and current name.');
+same(['id' => '12', 'player_name' => 'Isabela'], resolvePlaythroughContext([['id' => 12]], ' Isabela '), 'An integer profile ID should normalize to its canonical decimal string.');
+same(null, resolvePlaythroughContext([['id' => '2'], ['id' => '3']], 'Hawke'), 'Multiple active profiles must remain ambiguous.');
+same(null, resolvePlaythroughContext([['id' => '0']], 'Hawke'), 'A nonpositive profile ID must fail closed.');
+same(null, resolvePlaythroughContext([['id' => true]], 'Hawke'), 'A boolean profile ID must fail closed.');
+same(null, resolvePlaythroughContext([['id' => 12.0]], 'Hawke'), 'A floating-point profile ID must fail closed.');
+same(null, resolvePlaythroughContext([['id' => '012']], 'Hawke'), 'A noncanonical profile ID string must fail closed.');
+same(['id' => 'unprofiled', 'player_name' => ''], resolvePlaythroughContext([], null), 'An unavailable player name must not be fabricated.');
+same(['id' => 'unprofiled', 'player_name' => ''], resolvePlaythroughContext([], 42), 'A malformed player-name type must not be converted into an identity.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->profileId = 'unprofiled';
+$event['playthrough_id'] = 'unprofiled';
+$db->events[100]['playthrough_id'] = 'unprofiled';
+$npcUnprofiledCalls = 0;
+$npcUnprofiledModel = static function (array $messages) use (&$npcUnprofiledCalls): string {
+    $npcUnprofiledCalls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => 0, 'reason' => 'Neutral reaction', 'evidence' => 'The Dragonborn is brave.'],
+    ]);
+};
+same('committed', handleSpeechAck($ack, $db, $npcUnprofiledModel), 'An NPC acknowledgment should persist under the explicit unprofiled database scope.');
+same('unprofiled', $db->npcs[22]['plugin_extended_data']->mind_poisoning->playthrough_id, 'The dedupe ledger should record the unprofiled scope.');
+same('duplicate', handleSpeechAck($ack, $db, $npcUnprofiledModel), 'An exact replay should remain deduplicated in the unprofiled scope.');
+same(1, $npcUnprofiledCalls, 'The unprofiled duplicate must stop before a second model request.');
+same(1, count($db->history), 'The unprofiled duplicate must not make another history snapshot.');
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->profileId = 'unprofiled';
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$playerUnprofiledCalls = 0;
+$playerUnprofiledModel = static function (array $messages) use (&$playerUnprofiledCalls): string {
+    $playerUnprofiledCalls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible report', 'evidence' => 'kept his promise'],
+    ]);
+};
+same('committed', handlePlayerInput($playerRequest, $playerInsert, $db, $playerUnprofiledModel), 'A routed Player input should persist under the unprofiled database scope.');
+same('unprofiled', $db->npcs[22]['plugin_extended_data']->mind_poisoning->playthrough_id, 'Player input dedupe should use the unprofiled scope too.');
+same('duplicate', handlePlayerInput($playerRequest, $playerInsert, $db, $playerUnprofiledModel), 'An exact Player input replay should remain deduplicated in the unprofiled scope.');
+same(1, $playerUnprofiledCalls, 'The unprofiled Player duplicate must stop before a second model request.');
+same(1, count($db->history), 'The unprofiled Player duplicate must not make another history snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+foreach (['npc', 'player'] as $unprofiledPath) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $db->profileId = 'unprofiled';
+    $beforeContextSwitch = unserialize(serialize($db->npcs[22]));
+    $switchContextDuringModel = static function (array $messages) use ($db, $unprofiledPath): string {
+        $db->profileId = '1';
+        $evidence = $unprofiledPath === 'player' ? 'kept his promise' : 'I trust Jarl Balgruuf.';
+        $rows = [['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => $evidence]];
+        if ($unprofiledPath === 'npc') {
+            $rows[] = ['subject' => 'player', 'delta' => 0, 'reason' => 'Neutral reaction', 'evidence' => 'The Dragonborn is brave.'];
+        }
+        return validModelResponse($rows);
+    };
+    if ($unprofiledPath === 'npc') {
+        $event['playthrough_id'] = 'unprofiled';
+        $db->events[100]['playthrough_id'] = 'unprofiled';
+        same('stale', handleSpeechAck($ack, $db, $switchContextDuringModel), 'A profile activation during NPC model work must reject stale unprofiled context.');
+    } else {
+        [$playerRequest, $playerInsert] = playerInputFixture($db);
+        same('stale', handlePlayerInput($playerRequest, $playerInsert, $db, $switchContextDuringModel), 'A profile activation during Player model work must reject stale unprofiled context.');
+        unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+    }
+    check(ChimMindPoisoning\sameJsonValue($beforeContextSwitch, $db->npcs[22]), 'A profile context switch must not mutate listener state.');
+    same([], $db->history, 'A profile context switch must not create a history snapshot.');
+}
 
 unset($GLOBALS['runtime_test_interaction_allowed'], $GLOBALS['runtime_test_interaction_generation'], $GLOBALS['runtime_test_relationship_enabled'], $GLOBALS['RELLLM_CONNECTOR']);
 unset($_SERVER['HTTP_X_CHIM_GENERATION'], $_SERVER['HTTP_X_CHIM_PASSIVE']);

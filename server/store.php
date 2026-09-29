@@ -25,6 +25,29 @@ interface StoreDb
     public function release(): void;
 }
 
+function resolvePlaythroughContext(array $profileRows, mixed $playerName): ?array
+{
+    $name = static fn(mixed $value): string => is_string($value) ? trim($value) : '';
+    if ($profileRows === []) {
+        return ['id' => 'unprofiled', 'player_name' => $name($playerName)];
+    }
+    if (count($profileRows) !== 1 || !is_array($profileRows[0])) {
+        return null;
+    }
+    $idValue = $profileRows[0]['id'] ?? null;
+    if (is_int($idValue) && $idValue > 0) {
+        $id = (string)$idValue;
+    } elseif (is_string($idValue) && preg_match('/\A[1-9][0-9]{0,18}\z/D', $idValue) === 1) {
+        $id = $idValue;
+    } else {
+        return null;
+    }
+    return [
+        'id' => $id,
+        'player_name' => $name($playerName),
+    ];
+}
+
 function assertPgSqlConnection(mixed $connection): void
 {
     if (!class_exists(\PgSql\Connection::class) || !$connection instanceof \PgSql\Connection) {
@@ -783,15 +806,43 @@ final class PostgresStoreDb implements StoreDb
 
     public function activePlaythrough(): ?array
     {
-        $rows = $this->rows(
-            "SELECT profile.id,
-                    (SELECT player.value FROM core_player player WHERE player.id = 'player_name' LIMIT 1) AS player_name
-             FROM chim_meta.playthrough_profiles profile WHERE profile.is_active IS TRUE ORDER BY profile.id LIMIT 2"
-        );
-        if (count($rows) !== 1 || !is_numeric($rows[0]['id'] ?? null) || (int)$rows[0]['id'] < 1) {
+        $catalog = $this->one("SELECT to_regclass('chim_meta.playthrough_profiles') AS profile_table");
+        if (!array_key_exists('profile_table', $catalog)) {
             return null;
         }
-        return ['id' => (string)(int)$rows[0]['id'], 'player_name' => trim((string)($rows[0]['player_name'] ?? ''))];
+        if ($catalog['profile_table'] === null) {
+            $player = $this->one("SELECT (SELECT value FROM core_player WHERE id = 'player_name' LIMIT 1) AS player_name");
+            return array_key_exists('player_name', $player)
+                ? resolvePlaythroughContext([], $player['player_name'])
+                : null;
+        }
+        if (!is_string($catalog['profile_table']) || $catalog['profile_table'] === '') {
+            return null;
+        }
+
+        $row = $this->one(
+            "SELECT COALESCE(
+                        jsonb_agg(jsonb_build_object('id', profile.id::text) ORDER BY profile.id),
+                        '[]'::jsonb
+                    )::text AS active_profiles,
+                    (SELECT player.value FROM core_player player WHERE player.id = 'player_name' LIMIT 1) AS player_name
+             FROM (
+                 SELECT id FROM chim_meta.playthrough_profiles
+                 WHERE is_active IS TRUE ORDER BY id LIMIT 2
+             ) profile"
+        );
+        if (!array_key_exists('active_profiles', $row) || !array_key_exists('player_name', $row)) {
+            return null;
+        }
+        try {
+            $profiles = json_decode((string)$row['active_profiles'], true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (!is_array($profiles) || !array_is_list($profiles)) {
+            return null;
+        }
+        return resolvePlaythroughContext($profiles, $row['player_name']);
     }
 
     public function acknowledgedEvent(string $utteranceId): ?array

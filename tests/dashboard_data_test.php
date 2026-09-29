@@ -85,6 +85,25 @@ $wireRecord->commit_state = 'unconfirmed';
 $unconfirmed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($wireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 dashboardDataAssert(is_array($unconfirmed) && dashboardNormalizedOutcome($unconfirmed) === 'unconfirmed', 'Unconfirmed commit state was not normalized.');
 
+$sharedWireRecord = clone $wireRecord;
+$sharedWireRecord->playthrough_id = 'unprofiled';
+$sharedParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($sharedWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($sharedParsed) && ($sharedParsed['playthrough_id'] ?? null) === 'unprofiled',
+    'The exact shared-server scope was not retained from a plugin log record.'
+);
+$sharedWireRecord->event_id = 'unprofiled';
+$invalidSharedIds = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($sharedWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($invalidSharedIds)
+        && ($invalidSharedIds['playthrough_id'] ?? null) === 'unprofiled'
+        && !isset($invalidSharedIds['event_id']),
+    'The shared scope exception weakened numeric event-ID validation.'
+);
+$sharedWireRecord->playthrough_id = 'unprofiled:1';
+$forgedSharedScope = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($sharedWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(is_array($forgedSharedScope) && !isset($forgedSharedScope['playthrough_id']), 'A forged shared scope was accepted.');
+
 $playerWireRecord = clone $wireRecord;
 $playerWireRecord->utterance_id = 'input_42';
 $playerWireRecord->speaker_kind = 'player';
@@ -213,6 +232,42 @@ dashboardDataAssert(
     'Legacy NPC speaker and confirmed persistence values did not correlate to the active playthrough.'
 );
 
+$sharedDatabase = $database;
+$sharedDatabase['rows'][0]['plugin_extended_data'] = clone $database['rows'][0]['plugin_extended_data'];
+$sharedDatabase['rows'][0]['plugin_extended_data']->mind_poisoning = clone $database['rows'][0]['plugin_extended_data']->mind_poisoning;
+$sharedDatabase['active_playthrough'] = 'unprofiled';
+$sharedDatabase['rows'][0]['plugin_extended_data']->mind_poisoning->playthrough_id = 'unprofiled';
+$sharedRecords = array_map(static function (array $record): array {
+    if (($record['playthrough_id'] ?? null) === '17') {
+        $record['playthrough_id'] = 'unprofiled';
+    }
+    return $record;
+}, $records);
+$sharedLimited = false;
+$sharedInteractions = dashboardBuildInteractions($sharedDatabase, $sharedRecords, $sharedLimited);
+dashboardDataAssert(
+    count($sharedInteractions) === 1
+        && $sharedInteractions[0]['playthrough_id'] === 'unprofiled'
+        && $sharedInteractions[0]['attribution'] === 'shared'
+        && $sharedInteractions[0]['changes'][0]['before'] === 0
+        && $sharedInteractions[0]['changes'][0]['after'] === 2,
+    'Shared-server ledger and log records did not correlate within their exact scope.'
+);
+$profiledDatabase = $sharedDatabase;
+$profiledDatabase['rows'][0]['plugin_extended_data'] = clone $sharedDatabase['rows'][0]['plugin_extended_data'];
+$profiledDatabase['rows'][0]['plugin_extended_data']->mind_poisoning = clone $sharedDatabase['rows'][0]['plugin_extended_data']->mind_poisoning;
+$profiledDatabase['active_playthrough'] = '17';
+$profiledDatabase['rows'][0]['plugin_extended_data']->mind_poisoning->playthrough_id = '17';
+$profiledLimited = false;
+$profiledInteractions = dashboardBuildInteractions($profiledDatabase, $sharedRecords, $profiledLimited);
+dashboardDataAssert(
+    count($profiledInteractions) === 1
+        && $profiledInteractions[0]['playthrough_id'] === '17'
+        && $profiledInteractions[0]['attribution'] === 'active'
+        && $profiledInteractions[0]['changes'][0]['before'] === null,
+    'Unprofiled history or logs leaked into an explicit profile scope.'
+);
+
 $playerDatabase = $database;
 $playerDatabase['rows'][0]['plugin_extended_data']->mind_poisoning->events = [[
     'event_id' => 43,
@@ -280,6 +335,22 @@ $interactionHtml = ob_get_clean();
 dashboardDataAssert(
     is_string($interactionHtml) && str_contains($interactionHtml, 'Input event <code>input_123</code>'),
     'Input row correlation IDs should be labeled Input event in the dashboard.'
+);
+$sharedViewModel = $dashboardModel;
+$sharedViewModel['scope_label'] = 'Shared server';
+$sharedViewModel['scope_notice'] = 'This history is not isolated to a unique Skyrim save.';
+$sharedViewModel['interactions'] = $sharedInteractions;
+ob_start();
+renderDashboard($sharedViewModel, ['tab' => 'interactions']);
+$sharedHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($sharedHtml)
+        && str_contains($sharedHtml, 'Scope: <strong>Shared server</strong>')
+        && str_contains($sharedHtml, 'This history is not isolated to a unique Skyrim save.')
+        && str_contains($sharedHtml, 'Scope <code>Shared server</code>')
+        && str_contains($sharedHtml, 'Shared server history')
+        && !str_contains($sharedHtml, 'Playthrough <code>unprofiled</code>'),
+    'The dashboard described the no-profile context as a unique playthrough instead of a shared server scope.'
 );
 $databaseWithoutSubjectName = $database;
 unset($databaseWithoutSubjectName['identities']['9']);

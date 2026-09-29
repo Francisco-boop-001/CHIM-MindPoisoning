@@ -312,6 +312,9 @@ final class RequestLog
             if ($key === 'speaker_kind') {
                 return in_array($value, ['npc', 'player'], true) ? $value : null;
             }
+            if ($key === 'playthrough_id' && $value === 'unprofiled') {
+                return $value;
+            }
             return self::sanitizeId($value);
         }
         if (in_array($key, self::CODE_FIELDS, true)) {

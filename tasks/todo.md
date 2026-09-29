@@ -466,3 +466,121 @@ User authorized commit, push and publish. Preserve PRE-ALPHA status, compatibili
 Release preparation review: metadata accepted; composed Player/NPC, influence, logging, dashboard-data, store-logging, all seven package tests and manifest-update helper checks passed. All three v0.1.7 packages built and verified. The legacy package-manager harness initially rejected real release inputs because it requires a synthetic v0.1.0 ZIP fixture; generated the specified fixture and its 15-file scratch installation/tamper-preservation checks passed. This is not a live installation check. Tag reproduction/publication remain pending.
 
 Publication review: f2179f0 tagged mind_poisoning-v0.1.7; all three clean-tag packages matched, all four uploaded assets downloaded and matched before draft publication. Public prerelease metadata and SHA-256 digests confirmed; main advanced only after publication. Evidence: tasks/release-v0.1.7.md. Compatibility reference and installed environment unchanged.
+
+## v0.1.7 bug run — 2026-09-28
+
+Scope: audit the newly published Player path and affected shared callers; fix only demonstrated defects. Installed CHIM/client/modlist remain read-only. No release/version/pin change in this task. Prior fixture, SQL and package results are recorded above; do not repeat completed work without a concrete remaining risk.
+- [x] Inspect working tree, release evidence and relevant lessons; preserve critique and pending submission drafts.
+- [x] Runtime owner: inspect actual hook/routing/global state contract, reproduce and fix confirmed hook defects.
+- [x] Influence owner: inspect prompt/model/storage boundary and transaction/source revalidation, fix demonstrated defects.
+- [x] Dashboard owner: inspect Player attribution, log correlation and dashboard failure paths, fix demonstrated defects.
+- [x] Lead review changed call paths, diffs and targeted verification; record known limits and audit outcome.
+
+Ownership is disjoint: runtime owns hook/runtime fixtures; influence owns prompt/model/store and dedicated tests; dashboard owns logger/dashboard and dedicated tests. Lead reviews and maintains this evidence only.
+
+### v0.1.7 bug-run review
+
+No confirmed product defect found; no product code/test changes justified. Three retained owners audited independent areas with Ponytail/systematic debugging; lead reviewed their findings and current diff.
+
+- Hook/source contract: pinned main.php captures Player TTS source before processor/request.php:188–189 target suffix and main mood context are appended. The input row is inserted before extension postrequest. Inspected post-insert paths use copies or read the original request; top-level eventlogInsert remains available through GLOBALS. Prefix binding and speech-only judgment are consistent with this contract.
+- Storage counterexample rejected: a plain active-profile SELECT does not permit switching mid-commit because the SQL constructor enters the shared work.lock request lease (playthrough_runtime.php:68–88,119–151); the core switch takes exclusive switch.lock then work.lock (playthrough_home.php:133–145) before changing the active profile. Additional locking would be redundant. Source tuple precision, actor/alias gates, strict model judgment parsing and listener locks remained consistent in the bounded audit.
+- Dashboard/logging: explicit Player markers, bounded input IDs, full event/profile/listener correlation, escaping, access-before-load and read-only refresh remain consistent. The documented 100-listener selection is not exhaustive history.
+- Fresh executable check: `wsl -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning/tests/runtime_test.php` exited 0 with `runtime store checks passed`. Snapshot/alias error lines were expected failure injections. Previously completed package/SQL/UI tests were not repeated.
+- Unknown: core decodes special execution_mode values separately from target_mode. Narrator/everyone targets and narrator_inputtext are rejected, but the searched readable client script formats did not establish whether a special execution mode can accompany an eligible ordinary direct/automatic request. No failure was reproduced; do not add speculative guards. Capture the actual routing envelope during isolated in-game acceptance to resolve this.
+- Live database/provider/client/game execution remains unverified. v0.1.7 release, compatibility reference, installed CHIM and modlist unchanged. Only this local audit checklist/evidence was updated; no commit/push/publication performed for this bug run.
+
+## MO2 ZIP crash investigation — 2026-09-28
+
+User reports MO2 crashes when installing the archive from its Downloads list. Prior archive byte/mapping checks do not prove native installer compatibility. No retry in the user's MO2, modlist/profile changes, or installed CHIM changes authorized.
+- [x] Packaging owner: inspect actual release ZIP, primary MO2/FOMOD requirements, and recent read-only installer logs; establish crash cause before editing.
+- [x] Assess reproduction/fix evidence: exact crash cause not established; no speculative product fix. Provide separately labeled plain-ZIP workaround.
+- [x] Lead review evidence/diff and targeted verification; distinguish native MO2 proof from format validation.
+
+### MO2 crash investigation outcome
+
+- User reports crashing when installing the ZIP from MO2 Downloads. Read-only logs show FomodPlusInstaller::install for mind_poisoning (tree size 2) immediately before the latest dump. This is temporal correlation, not a faulting stack. The downloaded ZIP SHA-256 matches the published wrapper exactly, ruling out download corruption.
+- The minidump has no ExceptionStream; no exception code/faulting address is available. Installed FOMOD Plus DLL has no usable PE version resource, and its March 2025 timestamp could not be matched to a source commit. Current upstream source explicitly supports empty installSteps and independently processes requiredInstallFiles, so omission of steps is not a proven root cause. No invented installer step or product-code patch was made.
+- Separate workaround: dist/0.1.7/mind_poisoning-0.1.7-mo2-plain.zip, 704954 bytes, SHA-256 31a084530fa1d3184f3e73bf00bbedcba3e6d22f0d05d9f6055bad7eb43bfb29. Reuses the existing plain sync-ZIP builder; contains only CHIM/server-plugins/mind_poisoning/0.1.7.dwpkg. Lead verified CRC, exact member list, absence of FOMOD metadata, and byte identity with the published DWPkg. It avoids the FOMOD metadata route but is NOT a confirmed native MO2 crash fix; the custom-content warning may remain.
+- No user application launched, no repeated crash requested, no modlist/profile/installed CHIM changes, no debugging tool installed. Product source and public release unchanged. Native reproduction and exact fault diagnosis remain unresolved; workaround is local and unpublished.
+
+Crash evidence paths (read-only): F:/EldergleamNext/logs/fomodplus.log; F:/EldergleamNext/logs/mo_interface.log; F:/EldergleamNext/crashDumps/ModOrganizer-2.5.2-20260929T012800.dmp; F:/EldergleamNext/plugins/fomod_plus_installer.dll.
+Upstream references: https://github.com/aglowinthefield/mo2-fomod-plus/blob/main/installer/FomodPlusInstaller.cpp ; https://github.com/aglowinthefield/mo2-fomod-plus/blob/main/installer/ui/FomodViewModel.cpp ; https://github.com/aglowinthefield/mo2-fomod-plus/blob/main/installer/lib/FileInstaller.cpp . Current upstream is not confirmed identical to the installed binary.
+
+## MO2 content validation correction — 2026-09-28
+
+User screenshot confirms plain CHIM-only ZIP still triggers red invalid-data warning. Fix the actual MO2 game-data checker contract with a useful, non-gameplay payload layout, preserving the exact DWPkg; do not claim CRC/XML checks prove native acceptance. Installed environment remains read-only.
+- [x] Packaging owner: inspect primary MO2 Skyrim content checker and identify smallest legitimate accepted layout.
+- [x] Determine correction: archive already matches CHIM; no honest checker-green archive-only change exists. Correct documented manual-installer workflow instead.
+- [x] Lead review payload, verification and limitations; retain exact-payload plain workaround and correct instructions.
+
+### Content validation findings and supported continuation
+
+CHIM author guidance, official Modders Guide and CHIM-Custom sample agree on Data/CHIM/server-plugins/<name>/<version>.dwpkg. Existing plain ZIP matches that path. The Skyrim SE ModDataChecker accepts known game folders/extensions, excluding CHIM and dwpkg; moving the data root cannot turn this server-only payload green without adding irrelevant content. No dummy game file/config or additional MO2 plugin was introduced.
+
+Official modorganizer-installer_manual src/installdialog.cpp on_okButton_clicked explicitly offers Ignore after failed testForProblem; Ignore calls accept. src/installermanual.cpp returns RESULT_SUCCESS for QDialog::Accepted. Correct instruction: retain CHIM under <data>, click OK then Ignore in Continue?; do not select inner CHIM as data root. This confirms upstream supported behavior, not exact installed binary execution. Updated docs/mind-poisoning.md to describe this path and the unresolved published FOMOD crash; plain workaround remains local/unpublished.
+
+Secondary FOMOD check: installed DLL SHA-256 736b43abb6c6c9869583df9bb44f26e0461d72d516fc49a1032fb4d24c00c716 did not match closest prior official v1.11.0 DLL f9f5242e7dc848e78d2b1457663ab577066249d7edd66366b0ebcb981a19980b. Exact source remains unknown. No claim that adding installer steps fixes the crash. Scratch download removed; installed files untouched.
+
+References: https://dwemerdynamics.com/chim/modders-guide.html ; https://github.com/ModOrganizer2/modorganizer-game_bethesda/blob/master/src/games/skyrimse/skyrimsemoddatachecker.h ; https://github.com/ModOrganizer2/modorganizer-installer_manual/blob/master/src/installdialog.cpp ; https://github.com/ModOrganizer2/modorganizer-installer_manual/blob/master/src/installermanual.cpp . No release or pin changes; native user install/sync still awaiting confirmation.
+
+## Installed dashboard Forbidden — 2026-09-29
+
+User confirms game recognized plugin but Plugin Page returned dashboard 403. Recognition is installation evidence, not successful gossip/provider/database proof. Preserve local/authenticated-remote access policy and read-only installed environment.
+- [x] Capture actual URL/client route; verified the actual localhost endpoint before further log/config inspection was needed.
+- [x] Distinguish wrong origin from forwarding/access-gate incompatibility: direct WSL IP was denied, localhost succeeded; no code change justified.
+- [x] Review evidence and provide exact working route without weakening access controls.
+
+Installed dashboard verification: user supplied http://172.17.226.57:8081/HerikaServer/ext/mind_poisoning/dashboard.php (remote-origin denial). A single read-only Windows Invoke-WebRequest to http://localhost:8081/HerikaServer/ext/mind_poisoning/dashboard.php returned HTTP 200, title Mind Poisoning — Interactions and Logs, Forbidden=false. This is actual installed HTTP access evidence, not a full visual, relationship write, provider or gameplay test. No server/config/modlist/code changes. Use CHIM's main UI through the same localhost origin for subsequent Plugin Page links.
+
+## Dashboard navigation repair and first live evidence — 2026-09-29
+
+User requests a code fix for direct-WSL-IP Plugin Page navigation and asks to test messages now arriving. Preserve local/authenticated-remote authorization; do not trust gateway/private ranges as authorization. Installed CHIM/modlist remain read-only. Local source changes authorized; publication/deployment not requested.
+- [x] Dashboard owner: implement one-time localhost navigation from Plugin Page without weakening access.
+- [x] Runtime owner: inspect recent installed logs/ledger read-only to identify real evaluations, skips and commit evidence.
+- [x] Lead review code/evidence and focused HTTP/integration checks; establish why the controlled game trial must wait.
+- [ ] Establish which CHIM playthrough profile belongs to the loaded disposable save before running the relationship trial. No profile switch or live write authorized/performed.
+
+### Review and live-test limits
+
+Local navigation correction changes manifest config_url to request local=1. An otherwise denied GET receives a bodyless localhost redirect using validated server port/path; the marker is removed and the follow-up still requires existing authorization. Host and forwarding headers grant no access. Lead reviewed controller, manifest, HTTP/integration tests and docs; reran both focused PHP tests successfully; git diff --check passed. These are isolated fixture tests, not deployment proof. Installed localhost endpoint previously returned 200; installed code remains unchanged. No version, compatibility pin, release asset or publication changes.
+
+Read-only runtime evidence: installed source matches v0.1.7. Six request_finished records at 2026-09-29 09:26:46–09:28:15 UTC are preflight/invalid-payload skips with model_outcome=not_called. No accepted utterance ID is logged. Bootstrap captures valid IDs before full validation, narrowing this to invalid JSON/object or absent/non-string/invalid-format ID; actual request shape is unavailable, so no speculative parser fix was made.
+
+The same configured dwemer database used by core has four playthrough profiles and zero active rows. Auto-switch/session settings are absent; core defaults auto-switch off, so a connected game does not imply an active profile. Current Lidia Sobieska (5124) to Bruce Wayne (2905) affinity is 7, with no plugin ledger, but this is not a save-attributed baseline. User confirms the disposable save is loaded and CHIM connected. Await profile association; selecting a stored profile can restore server data. No paid model calls, database writes, installed files or modlist changes were made by this investigation.
+
+User subsequently confirms they have never configured Playthrough Saves. Do not treat this as user error: the installation guide does not explicitly state the plugin's active-profile dependency. Investigate the supported current-state registration flow before recommending any switch; do not invent an unprofiled identity or weaken deduplication/save attribution.
+
+Bounded core UI review: first-time Setup captures current state and creates an active default only when the profile table is empty. Four existing rows hide that form and make its handler return without activation. New Playthrough Save captures an inactive copy; Restore activates by loading its snapshot into live tables. No registration-only action is exposed for this populated/no-active condition. Therefore hold the game trial; do not restore an unknown profile as a workaround. Supporting ordinary unprofiled CHIM needs a separately justified identity/deduplication design, not removal of the active-profile guard.
+
+## Unprofiled CHIM compatibility fix — 2026-09-29
+
+User authorizes source correction for CHIM running without Playthrough Saves. Preserve existing dirty work, installed read-only boundary and current release/pin. Lead reviews; workers implement.
+- [x] Trace existing core context identity and all plugin consumers; choose smallest truthful scope with transaction recheck and deduplication.
+- [x] Implement shared context correction and dashboard sibling path with distinct ownership after contract is agreed.
+- [x] Reproduce zero-active-profile failure and verify ordinary operation, explicit profiles, ambiguous/missing identity, duplicates and context switches with focused checks.
+- [x] Lead review every diff and verification; update documentation and record remaining live-test limits.
+
+Accepted contract: CHIM auto-switch off returns before storing/binding a playthrough identity. Player name is not a save key. Zero active profiles therefore resolves to the exact reserved `unprofiled` shared-database scope; one active retains its numeric identity; ambiguous/invalid profiles fail closed. Reuse a shared resolver for runtime and dashboard, retain locked context/player/source rechecks and existing ledger dedupe. No unique Skyrim-save isolation is claimed for unprofiled mode. Runtime owns store/core tests; influence owns logging/dashboard/tests; packaging owns three relevant docs. All installed surfaces remain read-only.
+
+Core-source refinement: `playthrough_profiles` is created by Playthrough Saves setup migrations, so an ordinary never-configured server can lack the table. A successful PostgreSQL catalog lookup confirming absence may select unprofiled scope; query/permission failures must remain errors. Apply the same rule in runtime and dashboard and exercise it in isolated PostgreSQL.
+
+### Review and verification
+
+- Shared resolver now covers both gossip preflights and the existing locked persistence recheck. The runtime profile query returns a guaranteed aggregate row, distinguishing an empty profile set from malformed/failed wrapper results. Numeric profile IDs remain bounded and canonical; player names are not fabricated from non-string values. Ambiguous profiles remain rejected.
+- Logger accepts the exact reserved scope only for playthrough_id; NPC/event IDs remain numeric. Dashboard uses the shared resolver, preserves text bounds, matches only same-scope ledgers/logs, and labels unprofiled history Shared server. Docs distinguish this unreleased fix from published v0.1.7. Lead returned assertion, malformed-identity, and catalog/search-path defects to their owners; reviewed corrections and all affected call paths.
+- Behavioral RED: final regression run against a disposable copy with HEAD's old store returned NULL instead of expected unprofiled/Hawke context. Scratch copy removed. Corrected runtime_test.php passed; lead independently reran it (two expected injected persistence-failure messages, then runtime store checks passed).
+- logging_test.php and dashboard_data_test.php passed after their original sentinel rejection failures; lead independently reran both. Render checks verify shared-server labels and numeric-ID boundaries.
+- Actual isolated PostgreSQL gate passed via dashboard_recency_test.php, including both dashboard and PostgresStoreDb queries: zero/one/multiple profiles, absent optional table, missing player, ledger isolation and existing recency caps. Disposable cluster /tmp/mp-d02-recency-20260929-influence-final was stopped and removed. This is real synthetic SQL evidence, not live CHIM/provider/game proof.
+- git diff --check passed. Updated tasks/lessons.md with optional-feature dependency lesson. Prior dashboard-navigation/installer edits and unrelated untracked files preserved. No installed CHIM/modlist/live database changes, paid provider calls, commits, release assets, versions or pins advanced.
+
+Remaining limits: unprofiled scope is one shared server timeline, not unique Skyrim-save isolation. The six observed invalid-payload ACKs remain a separate unresolved client-contract issue. Install/release and controlled game/provider testing are still pending; current installed v0.1.7 does not contain this correction.
+
+## Publish v0.1.8 PRE-ALPHA — 2026-09-29
+
+User authorizes commit, push and publication. Preserve installed environment and unrelated critique/submission drafts; compatibility reference remains unchanged.
+- [x] Prepare/review current release metadata and notes, using the existing plain MO2 ZIP builder with an explicit content-warning limitation.
+- [ ] Run focused release gates and build packages; commit exact reviewed files and create version tag.
+- [ ] Rebuild from clean tag source and compare packages; upload draft prerelease, download assets and verify hashes before public publication.
+- [ ] Publish, advance remote main, record final asset and commit evidence.
+
+Release gates before source commit: runtime, logging, dashboard-data, dashboard HTTP/integration, manifest-update helpers and all seven packaging checks passed on v0.1.8. Actual repository tar extracted with GNU tar --strip-components=1 in scratch; all 15 allowed payload files matched source. Plain MO2 ZIP contains only the versioned CHIM package, with CRC and exact embedded-DWPkg equality verified. The implementation's isolated PostgreSQL evidence remains recorded above; no repeat live test or provider call was made. Build outputs are under dist/0.1.8; clean-tag and uploaded-byte checks remain publication gates.

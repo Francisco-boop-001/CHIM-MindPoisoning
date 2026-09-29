@@ -213,6 +213,8 @@ PHP);
     dashboardIntegrationAssert(str_contains($html, '<div><dt>Proposed</dt><dd class="numeric">+2</dd></div>'), 'Rendered interaction did not show the logged proposal.');
     dashboardIntegrationAssert(str_contains($html, '<div><dt>Applied</dt><dd class="numeric">+2</dd></div>'), 'Rendered interaction did not show the confirmed applied change.');
     dashboardIntegrationAssert(dashboardIntegrationHeader($headers, 'Content-Type') === 'text/html; charset=UTF-8', 'Interaction response has the wrong content type.');
+    [$status, , $localFlagHtml] = dashboardIntegrationRequest($pageUrl . '?tab=interactions&local=1');
+    dashboardIntegrationAssert($status === 200 && str_contains($localFlagHtml, 'Interactions'), 'Real dashboard filter validation rejected the consumed local handoff flag.');
     $csp = (string)dashboardIntegrationHeader($headers, 'Content-Security-Policy');
     dashboardIntegrationAssert(str_contains($csp, "style-src 'self'") && str_contains($csp, "img-src 'self'") && str_contains($csp, "script-src 'self'") && str_contains($csp, "connect-src 'self'"), 'Page CSP did not restrict assets and refresh requests to the same origin.');
     dashboardIntegrationAssert(!str_contains($csp, "'unsafe-inline'") && !str_contains($csp, "'unsafe-eval'"), 'Page CSP enabled inline or evaluated script.');

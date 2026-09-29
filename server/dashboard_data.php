@@ -63,6 +63,8 @@ function dashboardLoad(string $serverRoot, array $filters): array
         'version' => $version,
         'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
         'notices' => [],
+        'scope_label' => null,
+        'scope_notice' => null,
         'source' => ['logs' => 'unavailable', 'database' => 'unavailable', 'limited' => false],
         'interactions' => [],
         'records' => [],
@@ -81,6 +83,14 @@ function dashboardLoad(string $serverRoot, array $filters): array
     try {
         $database = dashboardReadDatabase($serverRoot);
         $model['source']['database'] = 'available';
+        if ($database['active_playthrough'] === 'unprofiled') {
+            $model['scope_label'] = 'Shared server';
+            $model['scope_notice'] = 'No CHIM playthrough profile is active, so this history is shared on the server and is not isolated by Skyrim save.';
+        } elseif ($database['active_playthrough'] !== null) {
+            $model['scope_label'] = 'Active playthrough';
+        } else {
+            $model['scope_label'] = 'Unverified';
+        }
         if ($database['limited']) {
             $model['source']['limited'] = true;
             $model['notices'][] = 'Some catalog, ledger, or relationship data exceeded the dashboard read limits.';
@@ -227,7 +237,9 @@ function dashboardParseLogLine(string $line): ?array
         'event' => $event,
     ];
     foreach (['event_id', 'playthrough_id', 'speaker_id', 'listener_id', 'connector_id'] as $field) {
-        $id = dashboardId($record->{$field} ?? null);
+        $id = $field === 'playthrough_id'
+            ? dashboardPlaythroughId($record->{$field} ?? null)
+            : dashboardId($record->{$field} ?? null);
         if ($id !== null) {
             $clean[$field] = $id;
         }
@@ -304,6 +316,11 @@ function dashboardId(mixed $value): ?string
         $value = (string)$value;
     }
     return is_string($value) && preg_match('/\A[1-9][0-9]{0,18}\z/D', $value) === 1 ? $value : null;
+}
+
+function dashboardPlaythroughId(mixed $value): ?string
+{
+    return $value === 'unprofiled' ? 'unprofiled' : dashboardId($value);
 }
 
 function dashboardUtteranceId(mixed $value): ?string
@@ -403,14 +420,33 @@ function dashboardReadDatabase(string $serverRoot): array
             throw new RuntimeException('Database source unavailable.');
         }
         pg_free_result($timeout);
-        $profiles = dashboardPgRows(
-            $connection,
-            "SELECT profile.id::text AS id,
-                    (SELECT player.value FROM public.core_player player WHERE player.id = 'player_name' LIMIT 1) AS player_name
-             FROM chim_meta.playthrough_profiles profile WHERE profile.is_active IS TRUE ORDER BY profile.id LIMIT 2"
-        );
-        $activeId = count($profiles) === 1 ? dashboardId($profiles[0]['id'] ?? null) : null;
-        $playerName = count($profiles) === 1 ? dashboardLabel($profiles[0]['player_name'] ?? null, '') : '';
+        $profileRelation = dashboardPgRows($connection, "SELECT to_regclass('chim_meta.playthrough_profiles') IS NOT NULL AS profile_exists");
+        if ($profileRelation === [] || !array_key_exists('profile_exists', $profileRelation[0]) || !in_array($profileRelation[0]['profile_exists'], ['t', 'f'], true)) {
+            throw new RuntimeException('Database source unavailable.');
+        }
+        $profileExists = $profileRelation[0]['profile_exists'] === 't';
+        $profiles = [];
+        if ($profileExists) {
+            $profiles = dashboardPgRows(
+                $connection,
+                "SELECT profile.id::text AS id,
+                        (SELECT player.value FROM public.core_player player WHERE player.id = 'player_name' LIMIT 1) AS player_name
+                 FROM chim_meta.playthrough_profiles profile WHERE profile.is_active IS TRUE ORDER BY profile.id LIMIT 2"
+            );
+        }
+        $playerName = null;
+        if ($profiles === []) {
+            $playerRows = dashboardPgRows(
+                $connection,
+                "SELECT player.value AS player_name FROM public.core_player player WHERE player.id = 'player_name' LIMIT 1"
+            );
+            $playerName = $playerRows[0]['player_name'] ?? null;
+        } elseif (count($profiles) === 1) {
+            $playerName = $profiles[0]['player_name'] ?? null;
+        }
+        $playthrough = resolvePlaythroughContext($profiles, $playerName);
+        $activeId = is_array($playthrough) ? $playthrough['id'] : null;
+        $playerName = is_array($playthrough) ? dashboardLabel($playthrough['player_name'] ?? null, '') : '';
         $identityRows = dashboardPgRows(
             $connection,
             'SELECT id::text AS id, CASE WHEN char_length(npc_name) <= 160 THEN npc_name ELSE NULL END AS npc_name, (npc_name IS NOT NULL AND char_length(npc_name) > 160) AS name_limited FROM public.core_npc_master ORDER BY public.core_npc_master.id ASC LIMIT $1',
@@ -603,7 +639,7 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
 {
     $limited = false;
     $rows = $database['rows'] ?? [];
-    $activeId = $database['active_playthrough'] ?? null;
+    $activeId = dashboardPlaythroughId($database['active_playthrough'] ?? null);
     if (!is_array($rows) || !is_string($activeId)) {
         return dashboardLogInteractions($records, null, true, $limited);
     }
@@ -653,7 +689,7 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
                 'kind' => 'ledger', 'key' => $key, 'event_id' => (string)$eventId,
                 'utterance_id' => $utteranceId, 'playthrough_id' => $activeId,
                 'listener_id' => $row['id'], 'entry' => $entry, 'row' => $row,
-                'attribution' => 'active',
+                'attribution' => $activeId === 'unprofiled' ? 'shared' : 'active',
             ], $limited);
         }
     }
@@ -666,7 +702,7 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         if (!in_array($outcome, ['skipped', 'rejected', 'failed'], true)) {
             continue;
         }
-        $playthroughId = dashboardId($record['playthrough_id'] ?? null);
+        $playthroughId = dashboardPlaythroughId($record['playthrough_id'] ?? null);
         if ($playthroughId !== null && $playthroughId !== $activeId) {
             continue;
         }
@@ -685,7 +721,8 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
             'kind' => 'log', 'key' => $key, 'event_id' => $eventId,
             'utterance_id' => $utteranceId,
             'playthrough_id' => $playthroughId, 'listener_id' => $listenerId,
-            'record' => $record, 'attribution' => $playthroughId === null ? 'unattributed' : 'active',
+            'record' => $record,
+            'attribution' => $playthroughId === null ? 'unattributed' : ($playthroughId === 'unprofiled' ? 'shared' : 'active'),
         ], $limited);
     }
 
@@ -719,7 +756,7 @@ function dashboardIndexRecords(array $records): array
         if (!is_array($record)) {
             continue;
         }
-        $playthroughId = dashboardId($record['playthrough_id'] ?? null);
+        $playthroughId = dashboardPlaythroughId($record['playthrough_id'] ?? null);
         $eventId = dashboardId($record['event_id'] ?? null);
         $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
         $listenerId = dashboardId($record['listener_id'] ?? null);
@@ -820,7 +857,7 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
         'event_id' => $candidate['event_id'],
         'utterance_id' => $candidate['utterance_id'],
         'playthrough_id' => $candidate['playthrough_id'],
-        'attribution' => 'active',
+        'attribution' => $candidate['attribution'] ?? 'active',
         'timestamp' => $request['timestamp'] ?? $persistence['timestamp'] ?? null,
         'speaker' => $speakerKind === 'player' ? 'Player' : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)),
         'listener' => $names[$candidate['listener_id']] ?? 'NPC #' . $candidate['listener_id'],
@@ -933,7 +970,7 @@ function dashboardLogInteractions(array $records, ?string $activeId, bool $datab
         if (!is_array($record) || ($record['event'] ?? null) !== 'request_finished') {
             continue;
         }
-        $playthroughId = dashboardId($record['playthrough_id'] ?? null);
+        $playthroughId = dashboardPlaythroughId($record['playthrough_id'] ?? null);
         $outcome = $record['outcome'] ?? null;
         if ($databaseAvailable) {
             if ($activeId !== null && $playthroughId !== null && $playthroughId !== $activeId) {
@@ -944,7 +981,11 @@ function dashboardLogInteractions(array $records, ?string $activeId, bool $datab
             }
         }
         $attribution = $databaseAvailable
-            ? ($playthroughId === null ? 'unattributed' : ($activeId === null ? 'unverified' : 'active'))
+            ? ($playthroughId === null
+                ? 'unattributed'
+                : ($activeId === null
+                    ? 'unverified'
+                    : ($activeId === 'unprofiled' ? 'shared' : 'active')))
             : ($playthroughId === null ? 'unattributed' : 'unverified');
         $interactions[] = dashboardLogInteraction($record, $playthroughId, $attribution, [], [], $index, $databaseAvailable, '');
     }

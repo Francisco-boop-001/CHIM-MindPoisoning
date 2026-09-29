@@ -1,10 +1,10 @@
 # Mind Poisoning dashboard
 
-The read-only Interactions/Logs dashboard ships in the v0.1.7 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
+The read-only Interactions/Logs dashboard ships in the v0.1.8 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
 
 ## Page and access
 
-The packaged endpoint path is `ext/mind_poisoning/dashboard.php`; its stylesheet, text-free poster illustration, and refresh script (`dashboard.css`, `dashboard-art.webp`, and `dashboard.js`) are in the same directory. The title is selectable HTML text. The manifest `config_url` points to `../ext/mind_poisoning/dashboard.php` from CHIM's server-plugin UI.
+The packaged endpoint path is `ext/mind_poisoning/dashboard.php`; its stylesheet, text-free poster illustration, and refresh script (`dashboard.css`, `dashboard-art.webp`, and `dashboard.js`) are in the same directory. The title is selectable HTML text. The manifest `config_url` points to `../ext/mind_poisoning/dashboard.php?local=1` from CHIM's server-plugin UI; `local=1` requests navigation only and grants no access. The v0.1.8 package includes this handoff. The controller preserves the existing loopback or web-server authentication gate.
 
 Choose Day or Night from the labeled controls above the poster. The mode is stored in the `theme=day|night` query parameter, so ordinary tab links, filter submissions, and the log download retain it without JavaScript or browser storage. Day is the default.
 
@@ -12,7 +12,7 @@ Automatic refresh requests the current filtered dashboard after each five-second
 
 The controller permits a request when the web server supplies a nonempty `REMOTE_USER`, or when the client address is loopback (`127.0.0.1` or `::1`) and the request has no `Forwarded`, `X-Forwarded-For`, or `X-Real-IP` header. It does not add a login. A reverse proxy that reaches PHP over loopback but strips those headers can appear to be a local request; deployments with that topology must require web-server authentication on the route. Remote access must not expose the endpoint anonymously. The remote authentication wiring has not been verified in a live CHIM deployment.
 
-For a Windows browser using a CHIM server inside WSL, keep the configured port and base path but open the existing server UI through `localhost`, for example `http://localhost:8081/HerikaServer/ui/server_plugins.php`, then select **Plugin Page**. The expected dashboard path is `http://localhost:8081/HerikaServer/ext/mind_poisoning/dashboard.php`. The localhost relay was checked with an isolated responder; this is not proof of a live CHIM install or dashboard session.
+For a Windows browser using a CHIM server inside WSL, **Plugin Page** opts into a one-time handoff when its original request would be denied: the controller redirects to a fixed `localhost` origin, using the request's server-reported scheme, listening port, and script path, and removes the `local=1` marker. It preserves dashboard filters. The next request still has to pass the existing loopback or web-server authentication gate. The redirect does not trust the request Host or forwarding headers and does not allow the WSL gateway or private network. To open the server UI directly, use its existing localhost origin (for example, `http://localhost:8081/HerikaServer/ui/server_plugins.php`); a denied dashboard GET without the marker still returns 403 guidance.
 
 The page accepts GET requests only. Interactions and Logs are ordinary links with bounded GET filters. The Logs download returns filtered plugin records as JSONL; it does not return the shared CHIM log. Removing the plugin stops future changes to affinity but does not undo affinity or history already stored by CHIM.
 
@@ -22,7 +22,7 @@ The dashboard separates a model proposal, a commit-confirmed applied delta, the 
 
 The v0.1.7 dashboard recognizes explicitly marked Player-origin records, displays the speaker as **Player**, and labels `input_<rowid>` correlation values as **Input event**. It never infers Player from a missing speaker ID. Published v0.1.6 assets remain NPC-origin only.
 
-When the database source is unavailable, retained log records can still appear as unverified or unattributed history; current affinity is unavailable. The page does not infer active-profile attribution from those records. Its diagnostic details show sanitized allowlisted plugin fields, not raw speech, prompts, credentials, or arbitrary exception/provider text.
+When the database source is unavailable, retained log records can still appear as unverified or unattributed history; current affinity is unavailable. The page does not infer active-profile attribution from those records. In v0.1.8, database-backed reads with no active CHIM Playthrough Saves profile use the explicit shared `unprofiled` scope. Exactly one active profile retains numeric isolation; multiple, invalid, or ambiguous states remain unavailable. With CHIM auto-switch Off, this scope does not identify a particular Skyrim save; different saves sharing the same server database are not automatically isolated. Diagnostic details show sanitized allowlisted plugin fields, not raw speech, prompts, credentials, or arbitrary exception/provider text.
 
 ## Read limits
 

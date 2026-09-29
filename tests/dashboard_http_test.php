@@ -14,6 +14,8 @@ function dashboardRequest(string $url, string $method = 'GET', array $headers = 
         'method' => $method,
         'header' => implode("\r\n", $headers),
         'ignore_errors' => true,
+        'follow_location' => 0,
+        'max_redirects' => 0,
         'timeout' => 3,
     ]]);
     $body = file_get_contents($url, false, $context);
@@ -32,7 +34,7 @@ function dashboardHeader(array $headers, string $name): ?string
     return null;
 }
 
-function dashboardStartServer(string $routerPath, string $root, string $remoteAddress, ?string $remoteUser): array
+function dashboardStartServer(string $routerPath, string $root, string $remoteAddress, ?string $remoteUser, array $serverOverrides = []): array
 {
     $reserved = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
     if ($reserved === false) {
@@ -51,6 +53,11 @@ function dashboardStartServer(string $routerPath, string $root, string $remoteAd
         unset($environment['MP_DASHBOARD_FIXTURE_USER']);
     } else {
         $environment['MP_DASHBOARD_FIXTURE_USER'] = $remoteUser;
+    }
+    foreach (['SCRIPT_NAME', 'SERVER_PORT', 'HTTPS'] as $name) {
+        if (array_key_exists($name, $serverOverrides)) {
+            $environment['MP_DASHBOARD_FIXTURE_SERVER_' . $name] = (string)$serverOverrides[$name];
+        }
     }
     $environment['MP_DASHBOARD_FIXTURE_MARKER'] = $root . '/reader';
 
@@ -200,11 +207,17 @@ if (is_string($address)) $_SERVER['REMOTE_ADDR'] = $address;
 $user = getenv('MP_DASHBOARD_FIXTURE_USER');
 if (is_string($user) && trim($user) !== '') $_SERVER['REMOTE_USER'] = $user;
 else unset($_SERVER['REMOTE_USER']);
+foreach (['SCRIPT_NAME', 'SERVER_PORT', 'HTTPS'] as $name) {
+    $override = getenv('MP_DASHBOARD_FIXTURE_SERVER_' . $name);
+    if (is_string($override)) $_SERVER[$name] = $override;
+}
 require __DIR__ . '/ext/mind_poisoning/dashboard.php';
 PHP
 );
 
 try {
+    $manifest = json_decode((string)file_get_contents(__DIR__ . '/../server/manifest.json'), true, 16, JSON_THROW_ON_ERROR);
+    dashboardAssert(($manifest['config_url'] ?? null) === '../ext/mind_poisoning/dashboard.php?local=1', 'Plugin Page URL did not opt into the local handoff.');
     $deniedBody = "Forbidden.\n\nFor Windows WSL access, replace the host in your CHIM URL with localhost; keep the port and path, then select Plugin Page again. For remote access, configure web-server authentication to set REMOTE_USER.\n";
     foreach ([
         ['203.0.113.9', ['X-Forwarded-For: 127.0.0.1', 'Remote-User: spoofed-user', 'Host: attacker.example']],
@@ -225,6 +238,77 @@ try {
         }
     }
 
+    [$handoffProcess, $handoffPipes, $handoffUrl] = dashboardStartServer(
+        $root . '/router.php',
+        $root,
+        '172.17.224.1',
+        null,
+        ['SCRIPT_NAME' => '/HerikaServer%20Instance/ext/mind_poisoning/dashboard.php']
+    );
+    try {
+        $requestUrl = $handoffUrl . '?tab=diagnostics&q=preserve%20this&local=1';
+        [$status, $responseHeaders, $body] = dashboardRequest($requestUrl, 'GET', [
+            'Host: attacker.example:9443',
+            'X-Forwarded-For: 127.0.0.1',
+        ]);
+        dashboardAssert($status === 302 && $body === '', 'Explicit local navigation did not return a bodyless temporary redirect.');
+        $location = (string)dashboardHeader($responseHeaders, 'Location');
+        $target = parse_url($location);
+        dashboardAssert(is_array($target), 'Local handoff did not create a valid URL.');
+        dashboardAssert(($target['scheme'] ?? null) === 'http' && ($target['host'] ?? null) === 'localhost', 'Handoff trusted request Host or used an unexpected scheme.');
+        dashboardAssert(($target['port'] ?? null) === parse_url($handoffUrl, PHP_URL_PORT), 'Handoff did not preserve the server listener port.');
+        dashboardAssert(($target['path'] ?? null) === '/HerikaServer%20Instance/ext/mind_poisoning/dashboard.php', 'Handoff did not preserve the server-provided install path.');
+        parse_str((string)($target['query'] ?? ''), $targetQuery);
+        dashboardAssert(($targetQuery['tab'] ?? null) === 'diagnostics' && ($targetQuery['q'] ?? null) === 'preserve this', 'Handoff did not preserve ordinary dashboard filters.');
+        dashboardAssert(!array_key_exists('local', $targetQuery), 'One-time handoff marker was retained and could loop.');
+        dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Denied handoff request loaded or called dashboard data code.');
+
+        $followupUrl = 'http://127.0.0.1:' . parse_url($handoffUrl, PHP_URL_PORT)
+            . $target['path'] . '?' . http_build_query($targetQuery, '', '&', PHP_QUERY_RFC3986);
+        [$status, $followupHeaders, $followupBody] = dashboardRequest($followupUrl, 'GET', ['Host: localhost']);
+        dashboardAssert($status === 403 && dashboardHeader($followupHeaders, 'Location') === null, 'The untrusted gateway follow-up was authorized or redirected again.');
+
+        [$status, $responseHeaders] = dashboardRequest($handoffUrl . '?local%5B%5D=1', 'GET', ['Host: attacker.example']);
+        dashboardAssert($status === 403 && dashboardHeader($responseHeaders, 'Location') === null, 'An array-valued handoff flag triggered navigation.');
+        [$status, $responseHeaders] = dashboardRequest($handoffUrl . '?local=1', 'POST');
+        dashboardAssert($status === 403 && dashboardHeader($responseHeaders, 'Location') === null, 'A non-GET request triggered local navigation.');
+    } finally {
+        dashboardStopServer($handoffProcess, $handoffPipes);
+    }
+
+    foreach ([
+        ['SCRIPT_NAME' => '//attacker.example/dashboard.php'],
+        ['SCRIPT_NAME' => '/dashboard%0d%0aLocation:%20https://attacker.example/'],
+        ['SCRIPT_NAME' => '/dashboard%ZZ.php'],
+        ['SERVER_PORT' => '65536'],
+    ] as $overrides) {
+        [$invalidProcess, $invalidPipes, $invalidUrl] = dashboardStartServer($root . '/router.php', $root, '172.17.224.1', null, $overrides);
+        try {
+            [$status, $responseHeaders] = dashboardRequest($invalidUrl . '?local=1', 'GET', ['Host: attacker.example']);
+            dashboardAssert($status === 403 && dashboardHeader($responseHeaders, 'Location') === null, 'Invalid server path/port produced a redirect.');
+        } finally {
+            dashboardStopServer($invalidProcess, $invalidPipes);
+        }
+    }
+
+    foreach ([
+        [['HTTPS' => 'on', 'SERVER_PORT' => '443'], 'https'],
+        [['HTTPS' => 'off', 'SERVER_PORT' => '80'], 'http'],
+    ] as [$overrides, $expectedScheme]) {
+        [$defaultPortProcess, $defaultPortPipes, $defaultPortUrl] = dashboardStartServer(
+            $root . '/router.php', $root, '172.17.224.1', null, $overrides
+        );
+        try {
+            [$status, $responseHeaders] = dashboardRequest($defaultPortUrl . '?local=1');
+            $target = parse_url((string)dashboardHeader($responseHeaders, 'Location'));
+            dashboardAssert($status === 302 && is_array($target), 'Default-port handoff did not redirect.');
+            dashboardAssert(($target['scheme'] ?? null) === $expectedScheme && ($target['host'] ?? null) === 'localhost', 'Handoff did not use the server HTTPS flag and fixed host.');
+            dashboardAssert(!isset($target['port']) && ($target['path'] ?? null) === '/dashboard.php', 'Default port was not omitted or the script path changed.');
+        } finally {
+            dashboardStopServer($defaultPortProcess, $defaultPortPipes);
+        }
+    }
+
     [$localProcess, $localPipes, $localUrl] = dashboardStartServer($root . '/router.php', $root, '127.0.0.1', null);
     try {
         [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=diagnostics', 'GET', [
@@ -234,8 +318,9 @@ try {
         dashboardAssert($body === $deniedBody, 'Forwarded loopback denial did not give the fixed localhost/server-auth guidance.');
         dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Forwarded loopback request loaded or called dashboard data code.');
 
-        [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions');
+        [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions&local=1');
         dashboardAssert($status === 200 && str_contains($body, 'Dashboard fixture'), 'Loopback request without REMOTE_USER was not allowed.');
+        dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Loopback request with the handoff marker redirected.');
         dashboardAssert(str_contains((string)dashboardHeader($headers, 'Cache-Control'), 'no-store'), 'Page omitted no-store cache control.');
         dashboardAssert(dashboardHeader($headers, 'X-Content-Type-Options') === 'nosniff', 'Page omitted nosniff.');
         $csp = (string)dashboardHeader($headers, 'Content-Security-Policy');
@@ -285,8 +370,9 @@ try {
 
     [$authProcess, $authPipes, $authUrl] = dashboardStartServer($root . '/router.php', $root, '203.0.113.10', 'authenticated-fixture-user');
     try {
-        [$status, $headers, $body] = dashboardRequest($authUrl . '?tab=diagnostics&download=1');
+        [$status, $headers, $body] = dashboardRequest($authUrl . '?tab=diagnostics&download=1&local=1');
         dashboardAssert($status === 200, 'Server-authenticated remote request was not allowed.');
+        dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Authenticated remote request with the handoff marker redirected.');
         dashboardAssert(str_starts_with((string)dashboardHeader($headers, 'Content-Type'), 'application/x-ndjson'), 'Download has an unexpected content type.');
         dashboardAssert(dashboardHeader($headers, 'Content-Disposition') === 'attachment; filename="mind-poisoning-diagnostics.jsonl"', 'Download filename was not fixed.');
         dashboardAssert(substr_count(trim($body), "\n") === 0, 'Expected one bounded JSONL record.');

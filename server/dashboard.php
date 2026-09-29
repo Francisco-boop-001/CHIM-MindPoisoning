@@ -32,6 +32,52 @@ use function ChimMindPoisoning\renderDashboard;
         && !$hasForwardedAddress;
     $hasAuthenticatedUser = is_string($remoteUser) && trim($remoteUser) !== '';
     if (!$isLoopback && !$hasAuthenticatedUser) {
+        $localHandoffRequested = ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
+            && ($_GET['local'] ?? null) === '1';
+        if ($localHandoffRequested) {
+            $scriptName = $_SERVER['SCRIPT_NAME'] ?? null;
+            $serverPort = $_SERVER['SERVER_PORT'] ?? null;
+            $pathParts = is_string($scriptName) ? parse_url($scriptName) : false;
+            $decodedPath = is_string($scriptName) ? rawurldecode($scriptName) : '';
+            $validPath = is_string($scriptName)
+                && strlen($scriptName) <= 2048
+                && str_starts_with($scriptName, '/')
+                && !str_starts_with($scriptName, '//')
+                && !str_contains($scriptName, '\\')
+                && preg_match('/[\x00-\x20\x7F]/', $scriptName) !== 1
+                && strpbrk($scriptName, "\r\n?#") === false
+                && preg_match('/%(?![0-9A-Fa-f]{2})/', $scriptName) !== 1
+                && preg_match('/[\x00-\x1F\x7F]/', $decodedPath) !== 1
+                && !str_starts_with($decodedPath, '//')
+                && !str_starts_with($decodedPath, '\\\\')
+                && is_array($pathParts)
+                && ($pathParts['path'] ?? null) === $scriptName
+                && !isset($pathParts['scheme'])
+                && !isset($pathParts['host'])
+                && !isset($pathParts['query'])
+                && !isset($pathParts['fragment']);
+            $validPort = (is_string($serverPort) || is_int($serverPort))
+                && preg_match('/^[0-9]{1,5}$/D', (string)$serverPort) === 1
+                && (int)$serverPort >= 1
+                && (int)$serverPort <= 65535;
+            if ($validPath && $validPort) {
+                $httpsValue = $_SERVER['HTTPS'] ?? '';
+                $scheme = is_string($httpsValue) && in_array(strtolower($httpsValue), ['on', '1'], true)
+                    ? 'https'
+                    : 'http';
+                $port = (int)$serverPort;
+                $authority = 'localhost'
+                    . (($scheme === 'http' && $port !== 80) || ($scheme === 'https' && $port !== 443) ? ':' . $port : '');
+                $query = $_GET;
+                unset($query['local']);
+                $queryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+                if (strlen($queryString) <= 4096) {
+                    header('Location: ' . $scheme . '://' . $authority . $scriptName
+                        . ($queryString === '' ? '' : '?' . $queryString), true, 302);
+                    return;
+                }
+            }
+        }
         $sendFixed(
             403,
             'text/plain; charset=UTF-8',
@@ -54,7 +100,11 @@ use function ChimMindPoisoning\renderDashboard;
     }
 
     try {
-        $filters = dashboardFilters($_GET);
+        $filterQuery = $_GET;
+        if (($filterQuery['local'] ?? null) === '1') {
+            unset($filterQuery['local']);
+        }
+        $filters = dashboardFilters($filterQuery);
         $theme = $_GET['theme'] ?? 'day';
         if (!is_string($theme) || !in_array($theme, ['day', 'night'], true)) {
             throw new InvalidArgumentException('Invalid dashboard theme.');

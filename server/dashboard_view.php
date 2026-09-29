@@ -107,6 +107,8 @@ function renderDashboard(array $model, array $filters): void
     };
     $version = $text($model['version'] ?? null);
     $generatedAt = $text($model['generated_at'] ?? null);
+    $scopeHeading = is_string($model['scope_label'] ?? null) ? $model['scope_label'] : '';
+    $scopeNotice = is_string($model['scope_notice'] ?? null) ? $model['scope_notice'] : '';
     $notices = is_array($model['notices'] ?? null) ? $model['notices'] : [];
     $interactions = is_array($model['interactions'] ?? null) ? $model['interactions'] : [];
     $records = is_array($model['records'] ?? null) ? $model['records'] : [];
@@ -167,6 +169,9 @@ function renderDashboard(array $model, array $filters): void
     </div>
 
     <div data-dashboard-refresh-region="notices">
+    <?php if ($scopeHeading !== ''): ?>
+        <p class="notice notice--limited" role="status">Scope: <strong><?= $escape($scopeHeading) ?></strong><?php if ($scopeNotice !== ''): ?>. <?= $escape($scopeNotice) ?><?php endif; ?></p>
+    <?php endif; ?>
     <?php if (($source['limited'] ?? false) === true): ?>
         <p class="notice notice--limited" role="status">The available records are limited. Older log entries may have been truncated or rotated.</p>
     <?php endif; ?>
@@ -242,10 +247,14 @@ function renderDashboard(array $model, array $filters): void
                             $attribution = strtolower(is_string($interaction['attribution'] ?? null) ? $interaction['attribution'] : '');
                             $attributionLabel = match ($attribution) {
                                 'active' => 'Active history',
+                                'shared' => 'Shared server history',
                                 'unverified' => 'Unverified history',
                                 'unattributed' => 'Unattributed log record',
                                 default => 'Attribution unavailable',
                             };
+                            $playthroughId = is_string($interaction['playthrough_id'] ?? null) ? $interaction['playthrough_id'] : '';
+                            $scopeTerm = $playthroughId === 'unprofiled' ? 'Scope' : 'Playthrough';
+                            $scopeValue = $playthroughId === 'unprofiled' ? 'Shared server' : $playthroughId;
                             $changes = is_array($interaction['changes'] ?? null) ? $interaction['changes'] : [];
                             ?>
                             <?php if ($day !== $lastDay): ?>
@@ -264,7 +273,7 @@ function renderDashboard(array $model, array $filters): void
                                     <span>Event <code><?= $escape($text($interaction['event_id'] ?? null)) ?></code></span>
                                     <span><?= $escape($correlationLabel) ?> <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
                                     <span>Request <code><?= $escape($text($interaction['request_id'] ?? null)) ?></code></span>
-                                    <span>Playthrough <code><?= $escape($text($interaction['playthrough_id'] ?? null)) ?></code></span>
+                                    <span><?= $escape($scopeTerm) ?> <code><?= $escape($text($scopeValue)) ?></code></span>
                                     <span class="attribution-label"><?= $escape($attributionLabel) ?></span>
                                 </p>
                                 <?php if (is_string($interaction['reason'] ?? null) && $interaction['reason'] !== ''): ?>

@@ -147,6 +147,38 @@ loggingCheck(
     'The explicit NPC source kind should remain valid alongside legacy IDs.'
 );
 
+$sharedScopeRecords = [];
+$sharedScopeLog = new RequestLog(static function (string $json) use (&$sharedScopeRecords): void {
+    $sharedScopeRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$sharedScopeLog->context([
+    'playthrough_id' => 'unprofiled',
+    'event_id' => 'unprofiled',
+    'speaker_id' => 'unprofiled',
+    'listener_id' => 'unprofiled',
+]);
+$sharedScopeLog->event('shared_scope', 'info');
+loggingCheck(
+    ($sharedScopeRecords[0]['playthrough_id'] ?? null) === 'unprofiled'
+        && !isset($sharedScopeRecords[0]['event_id'])
+        && !isset($sharedScopeRecords[0]['speaker_id'])
+        && !isset($sharedScopeRecords[0]['listener_id']),
+    'Only the exact unprofiled playthrough scope may be nonnumeric; actor and event IDs remain numeric.'
+);
+$forgedScopeRecords = [];
+foreach (['Unprofiled', 'unprofiled:1', '0', '01'] as $scope) {
+    $forgedScopeLog = new RequestLog(static function (string $json) use (&$forgedScopeRecords): void {
+        $forgedScopeRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    }, false);
+    $forgedScopeLog->context(['playthrough_id' => $scope]);
+    $forgedScopeLog->event('invalid_scope', 'info');
+}
+loggingCheck(
+    count($forgedScopeRecords) === 4
+        && array_reduce($forgedScopeRecords, static fn(bool $valid, array $record): bool => $valid && !isset($record['playthrough_id']), true),
+    'Only the exact reserved unprofiled scope may bypass positive numeric playthrough IDs.'
+);
+
 $debugRecords = [];
 $debugLog = new RequestLog(static function (string $json, string $level) use (&$debugRecords): void {
     $debugRecords[] = [$json, $level];
