@@ -46,7 +46,7 @@ function renderDashboard(array $model, array $filters): void
     $levelOptions = ['debug' => 'Debug', 'info' => 'Info', 'warning' => 'Warning', 'error' => 'Error'];
     $safeLogFields = array_fill_keys([
         'schema_version', 'plugin', 'version', 'timestamp', 'request_id', 'level', 'event',
-        'event_id', 'playthrough_id', 'speaker_id', 'listener_id', 'connector_id', 'utterance_id',
+        'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'connector_id', 'utterance_id',
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
         'commit_state', 'elapsed_ms', 'model_ms', 'persistence_ms', 'payload_bytes', 'subject_count',
         'speech_bytes', 'changed_count', 'delta', 'subject', 'committed', 'cleanup_failed', 'changes',
@@ -236,6 +236,9 @@ function renderDashboard(array $model, array $filters): void
                             $timestamp = $text($interaction['timestamp'] ?? null);
                             $day = preg_match('/\A\d{4}-\d{2}-\d{2}/', $timestamp) === 1 ? substr($timestamp, 0, 10) : 'Date unavailable';
                             $eventOutcome = $text($interaction['outcome'] ?? null);
+                            $correlationLabel = is_string($interaction['utterance_id'] ?? null) && str_starts_with($interaction['utterance_id'], 'input_')
+                                ? 'Input event'
+                                : 'Utterance';
                             $attribution = strtolower(is_string($interaction['attribution'] ?? null) ? $interaction['attribution'] : '');
                             $attributionLabel = match ($attribution) {
                                 'active' => 'Active history',
@@ -259,7 +262,7 @@ function renderDashboard(array $model, array $filters): void
                                 </header>
                                 <p class="event-identifiers">
                                     <span>Event <code><?= $escape($text($interaction['event_id'] ?? null)) ?></code></span>
-                                    <span>Utterance <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
+                                    <span><?= $escape($correlationLabel) ?> <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
                                     <span>Request <code><?= $escape($text($interaction['request_id'] ?? null)) ?></code></span>
                                     <span>Playthrough <code><?= $escape($text($interaction['playthrough_id'] ?? null)) ?></code></span>
                                     <span class="attribution-label"><?= $escape($attributionLabel) ?></span>
@@ -388,6 +391,9 @@ function renderDashboard(array $model, array $filters): void
                             <?php
                             $recordLevel = $text($record['level'] ?? null);
                             $recordEvent = $text($record['event'] ?? null);
+                            $correlationLabel = is_string($record['utterance_id'] ?? null) && str_starts_with($record['utterance_id'], 'input_')
+                                ? 'Input event ID'
+                                : 'Utterance ID';
                             $safeRecord = array_intersect_key($record, $safeLogFields);
                             $recordJson = json_encode(
                                 $safeRecord,
@@ -404,7 +410,7 @@ function renderDashboard(array $model, array $filters): void
                                 </summary>
                                 <dl class="record-details">
                                     <div><dt>Request ID</dt><dd><code><?= $escape($text($record['request_id'] ?? null)) ?></code></dd></div>
-                                    <div><dt>Utterance ID</dt><dd><code><?= $escape($text($record['utterance_id'] ?? null)) ?></code></dd></div>
+                                    <div><dt><?= $escape($correlationLabel) ?></dt><dd><code><?= $escape($text($record['utterance_id'] ?? null)) ?></code></dd></div>
                                     <div><dt>Stage</dt><dd><?= $escape($text($record['stage'] ?? null)) ?></dd></div>
                                     <div><dt>Outcome</dt><dd><?= $escape($text($record['outcome'] ?? $record['model_outcome'] ?? $record['persistence_outcome'] ?? null)) ?></dd></div>
                                     <div><dt>Reason</dt><dd><code><?= $escape($text($record['reason'] ?? $record['persistence_reason'] ?? null)) ?></code></dd></div>

@@ -18,6 +18,7 @@ final class LoggingStoreDb implements StoreDb
 
     public function activePlaythrough(): ?array { return $this->inner->activePlaythrough(); }
     public function acknowledgedEvent(string $utteranceId): ?array { return $this->inner->acknowledgedEvent($utteranceId); }
+    public function playerInputEvent(array $source): ?array { return $this->inner->playerInputEvent($source); }
     public function eventById(int $eventId, string $utteranceId): ?array { return $this->inner->eventById($eventId, $utteranceId); }
     public function npcIdentities(): array { return $this->inner->npcIdentities(); }
     public function npcById(int $npcId, bool $forUpdate = false): ?array { return $this->inner->npcById($npcId, $forUpdate); }

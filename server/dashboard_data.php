@@ -232,8 +232,15 @@ function dashboardParseLogLine(string $line): ?array
             $clean[$field] = $id;
         }
     }
-    $utteranceId = $record->utterance_id ?? null;
-    if (is_string($utteranceId) && preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $utteranceId) === 1) {
+    $speakerKind = $record->speaker_kind ?? null;
+    if (in_array($speakerKind, ['npc', 'player'], true)) {
+        $clean['speaker_kind'] = $speakerKind;
+    }
+    if ($speakerKind === 'player') {
+        unset($clean['speaker_id']);
+    }
+    $utteranceId = dashboardUtteranceId($record->utterance_id ?? null);
+    if ($utteranceId !== null) {
         $clean['utterance_id'] = $utteranceId;
     }
     foreach (['stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason'] as $field) {
@@ -297,6 +304,21 @@ function dashboardId(mixed $value): ?string
         $value = (string)$value;
     }
     return is_string($value) && preg_match('/\A[1-9][0-9]{0,18}\z/D', $value) === 1 ? $value : null;
+}
+
+function dashboardUtteranceId(mixed $value): ?string
+{
+    if (!is_string($value)) {
+        return null;
+    }
+    if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $value) === 1) {
+        return $value;
+    }
+    if (preg_match('/\Ainput_([1-9][0-9]{0,18})\z/D', $value, $matches) !== 1) {
+        return null;
+    }
+    $digits = $matches[1];
+    return strlen($digits) === 19 && strcmp($digits, '9223372036854775807') > 0 ? null : $value;
 }
 
 function dashboardSubject(mixed $value): ?string
@@ -616,11 +638,11 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         }
         foreach ($ledger['events'] as $entry) {
             $eventId = $entry['event_id'] ?? null;
-            $utteranceId = $entry['utterance_id'] ?? null;
+            $utteranceId = dashboardUtteranceId($entry['utterance_id'] ?? null);
             $judgments = $entry['judgments'] ?? null;
             if (
                 !is_int($eventId) || $eventId < 1
-                || !is_string($utteranceId) || preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $utteranceId) !== 1
+                || $utteranceId === null
                 || !is_array($judgments) || !array_is_list($judgments) || count($judgments) > 8
             ) {
                 continue;
@@ -649,9 +671,9 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
             continue;
         }
         $eventId = dashboardId($record['event_id'] ?? null);
-        $utteranceId = $record['utterance_id'] ?? null;
+        $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
         $listenerId = dashboardId($record['listener_id'] ?? null);
-        if ($playthroughId !== null && $eventId !== null && is_string($utteranceId) && $listenerId !== null) {
+        if ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $listenerId !== null) {
             $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId);
             if (isset($ledgerKeys[$key])) {
                 continue;
@@ -661,7 +683,7 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         }
         dashboardKeepRecent($candidates, [
             'kind' => 'log', 'key' => $key, 'event_id' => $eventId,
-            'utterance_id' => is_string($utteranceId) ? $utteranceId : null,
+            'utterance_id' => $utteranceId,
             'playthrough_id' => $playthroughId, 'listener_id' => $listenerId,
             'record' => $record, 'attribution' => $playthroughId === null ? 'unattributed' : 'active',
         ], $limited);
@@ -699,10 +721,10 @@ function dashboardIndexRecords(array $records): array
         }
         $playthroughId = dashboardId($record['playthrough_id'] ?? null);
         $eventId = dashboardId($record['event_id'] ?? null);
-        $utteranceId = $record['utterance_id'] ?? null;
+        $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
         $listenerId = dashboardId($record['listener_id'] ?? null);
         $event = $record['event'] ?? null;
-        if ($playthroughId === null || $eventId === null || !is_string($utteranceId) || $listenerId === null || !is_string($event)) {
+        if ($playthroughId === null || $eventId === null || $utteranceId === null || $listenerId === null || !is_string($event)) {
             continue;
         }
         $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId);
@@ -792,6 +814,7 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
     }
 
     $speakerId = dashboardId($request['speaker_id'] ?? $persistence['speaker_id'] ?? null);
+    $speakerKind = $request['speaker_kind'] ?? $persistence['speaker_kind'] ?? null;
     return [
         'request_id' => $request['request_id'] ?? $persistence['request_id'] ?? null,
         'event_id' => $candidate['event_id'],
@@ -799,7 +822,7 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
         'playthrough_id' => $candidate['playthrough_id'],
         'attribution' => 'active',
         'timestamp' => $request['timestamp'] ?? $persistence['timestamp'] ?? null,
-        'speaker' => $speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId),
+        'speaker' => $speakerKind === 'player' ? 'Player' : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)),
         'listener' => $names[$candidate['listener_id']] ?? 'NPC #' . $candidate['listener_id'],
         'outcome' => $outcome,
         'reason' => $request['reason'] ?? $persistence['persistence_reason'] ?? 'ledger_recorded',
@@ -937,7 +960,7 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     $speakerId = dashboardId($record['speaker_id'] ?? null);
     $listenerId = dashboardId($record['listener_id'] ?? null);
     $eventId = dashboardId($record['event_id'] ?? null);
-    $utteranceId = is_string($record['utterance_id'] ?? null) ? $record['utterance_id'] : null;
+    $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
     $key = $playthroughId !== null && $eventId !== null && $utteranceId !== null && $listenerId !== null
         ? dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId)
         : null;
@@ -991,6 +1014,9 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
             ];
         }
     }
+    $speaker = ($record['speaker_kind'] ?? null) === 'player'
+        ? 'Player'
+        : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId));
     return [
         'request_id' => $record['request_id'] ?? null,
         'event_id' => $eventId,
@@ -998,7 +1024,7 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
         'playthrough_id' => $playthroughId,
         'attribution' => $attribution,
         'timestamp' => $record['timestamp'] ?? null,
-        'speaker' => $speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId),
+        'speaker' => $speaker,
         'listener' => $listenerId === null ? null : ($names[$listenerId] ?? 'NPC #' . $listenerId),
         'outcome' => $outcome,
         'reason' => $record['reason'] ?? $persistence['persistence_reason'] ?? null,

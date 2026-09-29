@@ -1,6 +1,6 @@
 # Mind Poisoning dashboard
 
-The read-only Interactions/Logs dashboard ships in the v0.1.6 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
+The read-only Interactions/Logs dashboard ships in the v0.1.7 PRE-ALPHA development-candidate prerelease. It shows retained plugin records and query-time relationship state; it is not a live event monitor or audit guarantee. The empty readable log is shown as an empty source rather than falsely marked truncated. Live web-server authentication and PostgreSQL behavior remain unverified.
 
 ## Page and access
 
@@ -19,6 +19,8 @@ The page accepts GET requests only. Interactions and Logs are ordinary links wit
 ## What it shows
 
 The dashboard separates a model proposal, a commit-confirmed applied delta, the historical before/after values, and the current affinity read when the dashboard query runs. An unconfirmed commit is labeled **Unconfirmed**; it is not shown as no change. An unset relationship explicitly defined as default-zero is shown as `0 (default)`. Ambiguous, invalid, and unavailable values remain distinct.
+
+The v0.1.7 dashboard recognizes explicitly marked Player-origin records, displays the speaker as **Player**, and labels `input_<rowid>` correlation values as **Input event**. It never infers Player from a missing speaker ID. Published v0.1.6 assets remain NPC-origin only.
 
 When the database source is unavailable, retained log records can still appear as unverified or unattributed history; current affinity is unavailable. The page does not infer active-profile attribution from those records. Its diagnostic details show sanitized allowlisted plugin fields, not raw speech, prompts, credentials, or arbitrary exception/provider text.
 

@@ -80,6 +80,73 @@ loggingCheck(!isset($decoded[0]['speech'], $decoded[0]['speaker_name'], $decoded
 loggingCheck(strpos($records[0][0], 'private') === false, 'raw speech and credential values must not appear.');
 loggingCheck(count(array_filter($decoded, static fn(array $record): bool => ($record['event'] ?? '') === 'request_finished')) === 1, 'finish must emit exactly one summary.');
 
+$inputIdRecords = [];
+foreach (['input_1', 'input_9223372036854775807'] as $inputId) {
+    $inputIdLog = new RequestLog(static function (string $json) use (&$inputIdRecords): void {
+        $inputIdRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    }, false);
+    $inputIdLog->context(['utterance_id' => $inputId]);
+    $inputIdLog->event('input_id_check', 'info');
+}
+loggingCheck(
+    array_column($inputIdRecords, 'utterance_id') === ['input_1', 'input_9223372036854775807'],
+    'Positive CHIM input row IDs should be retained without changing legacy utt_ validation.'
+);
+$invalidInputIdRecords = [];
+foreach (['input_0', 'input_01', 'input_9223372036854775808', 'input_123x'] as $inputId) {
+    $inputIdLog = new RequestLog(static function (string $json) use (&$invalidInputIdRecords): void {
+        $invalidInputIdRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    }, false);
+    $inputIdLog->context(['utterance_id' => $inputId]);
+    $inputIdLog->event('invalid_input_id_check', 'info');
+}
+loggingCheck(
+    count($invalidInputIdRecords) === 4
+        && array_reduce($invalidInputIdRecords, static fn(bool $valid, array $record): bool => $valid && !isset($record['utterance_id']), true),
+    'Zero, leading-zero, overflow, and malformed input IDs must be dropped.'
+);
+
+$playerSourceRecords = [];
+$playerSourceLog = new RequestLog(static function (string $json, string $level) use (&$playerSourceRecords): void {
+    $playerSourceRecords[] = [$json, $level];
+}, false);
+$playerSourceLog->context([
+    'speaker_kind' => 'player',
+    'speaker_id' => 51,
+    'speaker_name' => 'Private Player Name',
+    'listener_id' => 9,
+]);
+$playerSourceLog->event('request_finished', 'info', ['outcome' => 'skipped', 'speaker_kind' => 'npc', 'speaker_id' => 77]);
+$playerSource = json_decode($playerSourceRecords[0][0], true, 512, JSON_THROW_ON_ERROR);
+loggingCheck(
+    ($playerSource['speaker_kind'] ?? null) === 'player'
+        && !isset($playerSource['speaker_id'], $playerSource['speaker_name'])
+        && !str_contains($playerSourceRecords[0][0], 'Private Player Name'),
+    'Player source logs should retain only the explicit kind, never a speaker ID or raw name.'
+);
+
+$invalidSpeakerKindRecords = [];
+$invalidSpeakerKindLog = new RequestLog(static function (string $json, string $level) use (&$invalidSpeakerKindRecords): void {
+    $invalidSpeakerKindRecords[] = $json;
+}, false);
+$invalidSpeakerKindLog->context(['speaker_kind' => 'Player Name', 'speaker_id' => 8]);
+$invalidSpeakerKindLog->event('legacy_source', 'info');
+$invalidSpeakerKind = json_decode($invalidSpeakerKindRecords[0], true, 512, JSON_THROW_ON_ERROR);
+loggingCheck(
+    !isset($invalidSpeakerKind['speaker_kind']) && ($invalidSpeakerKind['speaker_id'] ?? null) === '8',
+    'Invalid source kinds must be dropped without inferring Player from the missing marker.'
+);
+$npcSourceRecords = [];
+$npcSourceLog = new RequestLog(static function (string $json) use (&$npcSourceRecords): void {
+    $npcSourceRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$npcSourceLog->context(['speaker_kind' => 'npc', 'speaker_id' => 8]);
+$npcSourceLog->event('npc_source', 'info');
+loggingCheck(
+    ($npcSourceRecords[0]['speaker_kind'] ?? null) === 'npc' && ($npcSourceRecords[0]['speaker_id'] ?? null) === '8',
+    'The explicit NPC source kind should remain valid alongside legacy IDs.'
+);
+
 $debugRecords = [];
 $debugLog = new RequestLog(static function (string $json, string $level) use (&$debugRecords): void {
     $debugRecords[] = [$json, $level];

@@ -87,6 +87,16 @@ $injectionKeys = array_keys($injectionSubjects);
 sort($injectionKeys);
 check($injectionKeys === ['npc:3', 'player'], 'Model-target instructions do not create subjects.');
 
+$playerEvent = $event;
+$playerEvent['speaker_kind'] = 'player';
+$playerEvent['speaker_id'] = null;
+$playerEvent['speaker_name'] = 'Hawke';
+$playerEvent['player_name'] = 'Hawke';
+$playerEvent['text'] = 'Hawke tells Lydia Bruce is generous, and Player trusts him.';
+$playerNpcs = array_merge($npcs, [['id' => 88, 'npc_name' => 'Bruce']]);
+$playerSubjects = findSubjects($playerEvent, $playerNpcs, 'Hawke');
+check($playerSubjects === ['npc:88' => ['name' => 'Bruce', 'id' => 88]], 'Player-origin gossip must exclude Player and listener while retaining arbitrary third-party NPCs.');
+
 $speaker = [
     'npc_name' => 'Aela',
     'personality' => str_repeat('x', 1200),
@@ -115,6 +125,38 @@ check($data['listener_prior_relation_to_speaker']['aff'] === 80, 'Credibility co
 check($data['candidates']['npc:3']['listener_prior_relation']['aff'] === 5, 'Candidate context should include the listener prior relation.');
 check($data['candidates']['npc:3']['speaker_bias']['aff'] === -25, 'Candidate context should include the speaker prior relation as bias.');
 check($data['candidates']['player']['speaker_bias']['aff'] === 10, 'Player relationship aliases should use the canonical Player route.');
+
+$playerListener = [
+    'npc_name' => 'Lydia',
+    'personality' => 'Careful and skeptical.',
+    'extended_data' => ['relationships' => [
+        'dragonborn' => ['aff' => 34, 'type' => 'friend'],
+        'Bruce' => ['aff' => -12, 'type' => 'neutral'],
+    ]],
+];
+$playerMessages = buildMessages($playerEvent, [], $playerListener, $playerSubjects);
+$playerData = json_decode($playerMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+check($playerData['speaker'] === ['kind' => 'player', 'id' => null, 'name' => 'Hawke', 'event_name' => 'Hawke'], 'Player speaker context must use the canonical name and null actor ID.');
+check(!array_key_exists('personality', $playerData['speaker']), 'Player speakers must not receive fabricated NPC personality.');
+check($playerData['listener_prior_relation_to_speaker']['aff'] === 34, 'Player credibility should use the listener relationship aliases.');
+check($playerData['candidates']['npc:88']['listener_prior_relation']['aff'] === -12, 'Player-origin candidate context should retain the listener prior relation.');
+check($playerData['candidates']['npc:88']['speaker_bias'] === null, 'Player speakers must not receive fabricated NPC bias.');
+
+foreach ([2, -2, 0] as $playerDelta) {
+    $playerJudgment = judgment('npc:88', $playerDelta, 'Bruce is generous');
+    $playerParsed = parseJudgments(encoded([$playerJudgment]), $playerSubjects, $playerEvent['text']);
+    check($playerParsed['npc:88']['delta'] === $playerDelta, 'Player-origin judgments must retain validated positive, negative, and zero deltas for arbitrary NPCs.');
+}
+
+$invalidPlayerEvent = $playerEvent;
+$invalidPlayerEvent['speaker_id'] = 1;
+$invalidPlayerRejected = false;
+try {
+    findSubjects($invalidPlayerEvent, $playerNpcs, 'Hawke');
+} catch (InvalidArgumentException) {
+    $invalidPlayerRejected = true;
+}
+check($invalidPlayerRejected, 'A Player speaker must not carry an NPC actor ID.');
 
 $legacyPlayerEvent = $injectionEvent;
 $legacyPlayerEvent['player_name'] = 'Dovah';

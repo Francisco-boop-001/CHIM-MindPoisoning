@@ -13,6 +13,7 @@ interface StoreDb
 {
     public function activePlaythrough(): ?array;
     public function acknowledgedEvent(string $utteranceId): ?array;
+    public function playerInputEvent(array $source): ?array;
     public function eventById(int $eventId, string $utteranceId): ?array;
     public function npcIdentities(): array;
     public function npcById(int $npcId, bool $forUpdate = false): ?array;
@@ -166,6 +167,75 @@ function normalizeEventRow(array $row): ?array
     ];
 }
 
+function playerInputTypes(): array
+{
+    return ['inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s'];
+}
+
+function normalizePlayerInputRow(array $row): ?array
+{
+    $eventId = filter_var($row['rowid'] ?? null, FILTER_VALIDATE_INT);
+    $type = $row['type'] ?? null;
+    $ts = $row['ts'] ?? null;
+    $gamets = $row['gamets'] ?? null;
+    $localts = filter_var($row['localts'] ?? null, FILTER_VALIDATE_INT);
+    $data = $row['data'] ?? null;
+    $sess = $row['sess'] ?? null;
+    $people = $row['people'] ?? null;
+    if (
+        $eventId === false || $eventId < 1
+        || !is_string($type) || !in_array($type, playerInputTypes(), true)
+        || (!is_string($ts) && !is_int($ts)) || !is_numeric($ts) || !is_finite((float)$ts)
+        || (!is_string($gamets) && !is_int($gamets) && !is_float($gamets))
+        || !is_numeric($gamets) || !is_finite((float)$gamets)
+        || $localts === false
+        || !is_string($data)
+        || $sess !== 'web'
+        || !is_string($people) || trim($people) === ''
+        || (array_key_exists('source_count', $row) && (string)$row['source_count'] !== '1')
+    ) {
+        return null;
+    }
+
+    return [
+        'event_id' => (int)$eventId,
+        'utterance_id' => 'input_' . (int)$eventId,
+        'speaker_kind' => 'player',
+        'speaker_id' => null,
+        'source_kind' => 'player_input',
+        'source_type' => $type,
+        'source_ts' => (string)$ts,
+        'source_gamets' => (string)$gamets,
+        'gamets' => (float)$gamets,
+        'source_data' => $data,
+        'source_localts' => (int)$localts,
+        'source_sess' => $sess,
+        'source_people' => $people,
+    ];
+}
+
+function playerInputSourceParameters(array $source): ?array
+{
+    $type = $source['type'] ?? null;
+    $ts = $source['ts'] ?? null;
+    $gamets = $source['gamets'] ?? null;
+    $data = $source['data'] ?? null;
+    $localts = $source['localts'] ?? null;
+    $sess = $source['sess'] ?? null;
+    if (
+        !is_string($type) || !in_array($type, playerInputTypes(), true)
+        || (!is_string($ts) && !is_int($ts)) || !is_numeric($ts) || !is_finite((float)$ts)
+        || (!is_string($gamets) && !is_int($gamets))
+        || !is_numeric($gamets) || !is_finite((float)$gamets)
+        || !is_string($data)
+        || !is_int($localts)
+        || $sess !== 'web'
+    ) {
+        return null;
+    }
+    return [$type, $ts, $gamets, $data, $localts, $sess];
+}
+
 function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, string $utteranceId, ?string &$reason = null): bool
 {
     $reason = null;
@@ -207,7 +277,12 @@ function validSubjectsAndJudgments(array $subjects, array $judgments, array $eve
             return false;
         }
         if ($token === 'player') {
-            if ($subject['name'] !== 'Player' || !array_key_exists('id', $subject) || $subject['id'] !== null) {
+            if (
+                ($event['speaker_kind'] ?? 'npc') === 'player'
+                || $subject['name'] !== 'Player'
+                || !array_key_exists('id', $subject)
+                || $subject['id'] !== null
+            ) {
                 return false;
             }
         } elseif (
@@ -246,6 +321,29 @@ function sameActorName(mixed $left, mixed $right): bool
 {
     return is_string($left) && is_string($right)
         && mb_strtolower(trim($left), 'UTF-8') === mb_strtolower(trim($right), 'UTF-8');
+}
+
+function playerInputIncludesListener(array $event, string $listenerName): bool
+{
+    $people = $event['source_people'] ?? null;
+    if (!is_string($people) || trim($people) === '' || !function_exists('parsePeoplePipeList')) {
+        return false;
+    }
+    try {
+        $names = \parsePeoplePipeList($people);
+    } catch (Throwable) {
+        return false;
+    }
+    if (!is_array($names)) {
+        return false;
+    }
+    $matches = 0;
+    foreach ($names as $name) {
+        if (sameActorName($name, $listenerName)) {
+            $matches++;
+        }
+    }
+    return $matches === 1;
 }
 
 function nextLedger(array $ledger, string $playthroughId, int $eventId, string $utteranceId, array $judgments): array
@@ -321,6 +419,8 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
     $status = 'failed';
     $reason = 'persistence-failed';
     $stage = 'validation';
+    $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
+    $playerSpeaker = $speakerKind === 'player';
     $edgeChanges = [];
     $done = static function (string $outcome, string $code) use (&$status, &$reason): string {
         $status = $outcome;
@@ -333,6 +433,7 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         'utterance_id' => $event['utterance_id'] ?? null,
         'playthrough_id' => $event['playthrough_id'] ?? null,
         'speaker_id' => $event['speaker_id'] ?? null,
+        'speaker_kind' => $event['speaker_kind'] ?? 'npc',
         'listener_id' => $event['listener_id'] ?? null,
         'cleanup_failed' => false,
     ]);
@@ -344,9 +445,27 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         if (
             !is_int($event['event_id'] ?? null) || $event['event_id'] < 1
             || !is_string($event['utterance_id'] ?? null) || $event['utterance_id'] === ''
-            || !is_int($event['speaker_id'] ?? null) || $event['speaker_id'] < 1
+            || !is_string($speakerKind) || !in_array($speakerKind, ['npc', 'player'], true)
+            || ($playerSpeaker
+                ? (
+                    !array_key_exists('speaker_id', $event) || $event['speaker_id'] !== null
+                    || !is_string($event['player_name'] ?? null) || trim($event['player_name']) === ''
+                    || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) !== trim($event['player_name'])
+                    || $event['utterance_id'] !== 'input_' . $event['event_id']
+                    || ($event['source_kind'] ?? null) !== 'player_input'
+                    || !is_string($event['source_type'] ?? null) || !in_array($event['source_type'], playerInputTypes(), true)
+                    || !is_string($event['source_ts'] ?? null) || !is_numeric($event['source_ts']) || !is_finite((float)$event['source_ts'])
+                    || !is_string($event['source_gamets'] ?? null) || !is_numeric($event['source_gamets']) || !is_finite((float)$event['source_gamets'])
+                    || !is_int($event['source_localts'] ?? null)
+                    || ($event['source_sess'] ?? null) !== 'web'
+                    || !is_string($event['source_people'] ?? null) || trim($event['source_people']) === ''
+                )
+                : (
+                    !is_int($event['speaker_id'] ?? null) || $event['speaker_id'] < 1
+                    || ($event['source_kind'] ?? null) === 'player_input'
+                ))
             || !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
-            || $event['speaker_id'] === $event['listener_id']
+            || (!$playerSpeaker && $event['speaker_id'] === $event['listener_id'])
             || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) === ''
             || !is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''
             || !is_string($event['text'] ?? null) || $event['text'] === ''
@@ -376,7 +495,7 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             return $done('stale', 'event-stale');
         }
         if (
-            array_key_exists('player', $subjects)
+            ($playerSpeaker || array_key_exists('player', $subjects))
             && is_string($event['player_name'] ?? null)
             && trim($event['player_name']) !== ''
             && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
@@ -395,9 +514,17 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             return $done('locked', 'relationship-locked');
         }
 
+        if ($playerSpeaker && !playerInputIncludesListener($currentEvent, $event['listener_name'])) {
+            return $done('stale', 'input-audience-stale');
+        }
+
         $stage = 'revalidate-actors';
         $identities = $store->npcIdentities();
-        foreach ([$event['speaker_id'] => $event['speaker_name'], $event['listener_id'] => $event['listener_name']] as $id => $name) {
+        $actors = [$event['listener_id'] => $event['listener_name']];
+        if (!$playerSpeaker) {
+            $actors[$event['speaker_id']] = $event['speaker_name'];
+        }
+        foreach ($actors as $id => $name) {
             $matches = array_values(array_filter($identities, static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $name)));
             if (count($matches) !== 1 || (int)($matches[0]['id'] ?? 0) !== (int)$id) {
                 return $done('stale', 'actor-catalog-stale');
@@ -417,16 +544,25 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
                 return $done('stale', 'subject-stale');
             }
         }
-        $stage = 'revalidate-speaker';
-        $speaker = $store->npcById($event['speaker_id']);
-        if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
-            return $done('stale', 'speaker-stale');
+        if (!$playerSpeaker) {
+            $stage = 'revalidate-speaker';
+            $speaker = $store->npcById($event['speaker_id']);
+            if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
+                return $done('stale', 'speaker-stale');
+            }
         }
 
         $stage = 'resolve-relationships';
         $relationships = $extendedData->relationships ?? new \stdClass();
         if (!$relationships instanceof \stdClass) {
             return $done('invalid', 'relationships-invalid');
+        }
+        if ($playerSpeaker) {
+            try {
+                playerRelationshipKey($relationships, (string)$event['player_name']);
+            } catch (RuntimeException) {
+                return $done('failed', 'player-alias-ambiguous');
+            }
         }
         $updatedExtendedData = clone $extendedData;
         $updatedRelationships = clone $relationships;
@@ -594,11 +730,29 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
 
 function sameEvent(array $expected, ?array $current): bool
 {
-    return is_array($current)
-        && (int)($current['event_id'] ?? 0) === $expected['event_id']
-        && ($current['utterance_id'] ?? null) === $expected['utterance_id']
-        && (float)($current['gamets'] ?? -1) === (float)$expected['gamets']
-        && ($current['source_data'] ?? null) === $expected['source_data']
+    if (!is_array($current)
+        || (int)($current['event_id'] ?? 0) !== ($expected['event_id'] ?? null)
+        || ($current['utterance_id'] ?? null) !== ($expected['utterance_id'] ?? null)
+        || (float)($current['gamets'] ?? -1) !== (float)($expected['gamets'] ?? -2)
+        || ($current['source_data'] ?? null) !== ($expected['source_data'] ?? null)) {
+        return false;
+    }
+
+    if (($expected['speaker_kind'] ?? 'npc') === 'player') {
+        foreach ([
+            'speaker_kind', 'speaker_id', 'source_kind', 'source_type', 'source_ts',
+            'source_localts', 'source_sess', 'source_people',
+        ] as $field) {
+            if (($current[$field] ?? null) !== ($expected[$field] ?? null)) {
+                return false;
+            }
+        }
+        return is_string($current['source_gamets'] ?? null)
+            && $current['source_gamets'] === ($expected['source_gamets'] ?? null);
+    }
+
+    return ($current['speaker_kind'] ?? 'npc') === 'npc'
+        && !array_key_exists('source_kind', $current)
         && in_array($current['delivery_state'] ?? null, ['emitted', 'spoken'], true);
 }
 
@@ -658,8 +812,52 @@ final class PostgresStoreDb implements StoreDb
         return normalizeEventRow($events[0]);
     }
 
+    public function playerInputEvent(array $source): ?array
+    {
+        $parameters = playerInputSourceParameters($source);
+        if ($parameters === null) {
+            return null;
+        }
+        $row = $this->one(
+            "SELECT COALESCE(jsonb_agg(to_jsonb(e) ORDER BY e.rowid), '[]'::jsonb) AS events
+             FROM (SELECT rowid, type, ts::text AS ts, gamets::text AS gamets, data, localts, sess, people
+                   FROM eventlog
+                   WHERE type = $1 AND ts = $2 AND gamets = $3 AND data = $4 AND localts = $5 AND sess = $6
+                   ORDER BY rowid LIMIT 2) e",
+            $parameters
+        );
+        try {
+            $events = json_decode((string)($row['events'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (!is_array($events) || count($events) !== 1 || !is_array($events[0])) {
+            return null;
+        }
+        return normalizePlayerInputRow($events[0]);
+    }
+
     public function eventById(int $eventId, string $utteranceId): ?array
     {
+        if (str_starts_with($utteranceId, 'input_')) {
+            if (preg_match('/\Ainput_([1-9][0-9]*)\z/', $utteranceId, $matches) !== 1 || (string)$eventId !== $matches[1]) {
+                return null;
+            }
+            $row = $this->one(
+                "SELECT e.rowid, e.type, e.ts::text AS ts, e.gamets::text AS gamets, e.data, e.localts, e.sess, e.people,
+                        (SELECT count(*) FROM eventlog exact_event
+                         WHERE exact_event.type = e.type AND exact_event.ts = e.ts
+                           AND exact_event.gamets = e.gamets AND exact_event.data = e.data
+                           AND exact_event.localts = e.localts AND exact_event.sess = e.sess) AS source_count
+                 FROM eventlog e
+                 WHERE e.rowid = $1 AND e.type IN ('inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s')
+                   AND e.sess = 'web' AND ('input_' || e.rowid::text) = $2
+                 FOR SHARE OF e",
+                [$eventId, $utteranceId]
+            );
+            return $row ? normalizePlayerInputRow($row) : null;
+        }
+
         $sql = "SELECT e.rowid, e.type, e.utterance_id, e.delivery_state, e.gamets, e.data
                 FROM eventlog e
                 WHERE e.rowid = $1 AND e.type = 'chat' AND e.utterance_id = $2

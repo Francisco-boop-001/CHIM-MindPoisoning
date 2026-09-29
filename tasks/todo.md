@@ -431,3 +431,36 @@ User authorized commit, push and publish. Keep PRE-ALPHA status and CHIM compati
 Release preparation review: metadata/docs accepted; seven package tests, Node refresh behavior, isolated PHP dashboard integration, and read-only installed Manager/installer helper checks passed. All three v0.1.6 packages built and internally verified. Clean-tag reproduction and publication verification remain pending. PRE-ALPHA status and compatibility reference unchanged.
 
 Publication review: source commit a596906, annotated tag mind_poisoning-v0.1.6. All three packages rebuilt byte-identically from clean git-archive tag source; initial rebuild output path was corrected to stay inside that source tree, as required by the existing builder. Added the missing JavaScript LF attribute before tagging to preserve reproducibility on Windows. GitHub release is public (not draft), explicitly prerelease. Downloaded all four published assets and compared exact bytes. Only after successful comparisons was main advanced from 78663d3 to a596906. See tasks/release-v0.1.6.md for asset hashes. Historical releases, compatibility reference, installed CHIM and modlist remain unchanged; user critique and pending submission drafts remain untracked.
+
+## Player-origin gossip — 2026-09-28
+
+User approved general Player-origin praise, slander and neutral gossip about resolvable third-party NPCs. Extend existing judgment/atomic persistence using a source-bound player-input path; preserve NPC speech handling, Player-listener exclusion, locks, interaction/playthrough gates, and deduplication. Installed CHIM/client/modlist remain read-only. No release/version/pin advance is part of this implementation request.
+- [x] Trace actual CHIM player input source identity, target and hook timing; audit shared prompt/store/dashboard assumptions.
+- [x] Assign small nonoverlapping implementation tasks after the event contract is established.
+- [x] Implement and run focused positive/negative player-flow checks plus affected NPC regression coverage.
+- [x] Lead review every diff and verification output, return defects to owners, record runtime limits.
+
+Scope clarification: player-origin praise, slander and neutral gossip apply generally to any resolvable third-party NPC subject; Hawke/Lidia/Bruce are examples only. Zero-change judgments remain valid. No character-specific behavior.
+
+Design ruling: CHIM main.php records the full player event at lines 1943–1959 before loading plugin postrequest.php at 2943. Core insert returns no rowid. Resolve exactly one row by complete type/ts/gamets/data/localts/sess tuple, never latest/text-only; ambiguity skips. Use distinct input_<rowid> correlation, explicit Player speaker kind/null NPC ID, real NPC listener, and transaction-time source/profile revalidation. Ordinary inputtext/inputtext_s/ginputtext/ginputtext_s only; narrator/broadcast/ambiguous target excluded. This is recorded player input, not an NPC audio ACK.
+
+Ownership: runtime = prerequest/shared evaluation, new postrequest entry and runtime/player integration tests; influence = prompt/subject handling, store adapter/persistence and focused store tests; packaging = allowlisted logging/dashboard attribution, package inclusion and current docs. Lead = plan/evidence/review only. All workers preserve shared edits and protected installed roots.
+
+### Player-origin review and evidence
+
+- General Player praise, slander and neutral gossip now reuse the existing model validation and listener-only atomic persistence. Player identity comes from the active profile; no NPC speaker is fabricated. Exact inserted input rows use `input_<rowid>` correlation. Automatic/direct routing requires one resolved NPC listener; bystanders do not become subjects from routing metadata.
+- Lead reviewed the affected hook, source binding, prompt, store, logging, dashboard, package and documentation diffs. Returned and resolved exact bigint comparison, duplicate fixture helper, early skip correlation, bootstrap Player marker and formatting issues. Runtime/store cross-review found no remaining blocking contract mismatch.
+- Lead ran `wsl -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning/tests/player_store_test.php`: exit 0, `runtime store checks passed`, `player store checks passed`. This includes the composed Player/NPC runtime fixture checks: positive/negative/zero decisions, automatic/direct routing, source ambiguity, listener/Player identity and alias checks, locks, replay dedupe, pre/post-model Off, speech-only prompt content, and safe bootstrap logging. Expected snapshot/alias failure-injection messages appeared. This invocation explicitly skipped the optional PostgreSQL socket check.
+- Store owner separately executed the actual new queries on PostgreSQL 15 in a private disposable `/tmp/mp-player-store-*` cluster with TCP disabled. Unique/duplicate tuple lookup, row revalidation and adjacent bigint timestamps above 2^53 passed. The cluster was stopped and removed. This verifies synthetic queries, not a live CHIM transaction or concurrency.
+- Focused influence, logging, dashboard-data and store-logging checks passed. Lead ran `py -m unittest discover -s tests -p test_package.py -k current_webp_artwork_and_postrequest_hook`: 1 test passed, exact new hook payload included in DWPkg, repository tar and nested MO2 wrapper. PHP hook syntax and `git diff --check` passed.
+- No installed CHIM, database, mod files or modlist changed. Live provider, client delivery, game behavior and clean-server installation remain unverified. Source is uncommitted/unpublished; published v0.1.6 and compatibility reference remain unchanged. No release artifacts were replaced.
+## Publish Player-origin gossip v0.1.7 — 2026-09-28
+
+User authorized commit, push and publish. Preserve PRE-ALPHA status, compatibility reference, installed CHIM and unrelated critique/submission work.
+- [x] Prepare and review v0.1.7 metadata and release notes.
+- [x] Run focused release gates and build the three packages.
+- [ ] Commit/tag approved source and reproduce packages from clean tagged source.
+- [ ] Publish prerelease, download and compare all asset bytes, then advance main.
+- [ ] Record publication evidence and remote state.
+
+Release preparation review: metadata accepted; composed Player/NPC, influence, logging, dashboard-data, store-logging, all seven package tests and manifest-update helper checks passed. All three v0.1.7 packages built and verified. The legacy package-manager harness initially rejected real release inputs because it requires a synthetic v0.1.0 ZIP fixture; generated the specified fixture and its 15-file scratch installation/tamper-preservation checks passed. This is not a live installation check. Tag reproduction/publication remain pending.

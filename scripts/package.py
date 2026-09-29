@@ -32,6 +32,7 @@ SERVER_FILES = (
     "logging.php",
     "manifest.json",
     "model.php",
+    "postrequest.php",
     "prerequest.php",
     "store.php",
 )

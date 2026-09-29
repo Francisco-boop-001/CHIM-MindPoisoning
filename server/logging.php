@@ -6,7 +6,7 @@ namespace ChimMindPoisoning;
 final class RequestLog
 {
     private const CONTEXT_FIELDS = [
-        'event_id', 'utterance_id', 'playthrough_id', 'speaker_id', 'listener_id',
+        'event_id', 'utterance_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id',
     ];
     private const CODE_FIELDS = [
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
@@ -72,7 +72,17 @@ final class RequestLog
                 'level' => $level,
                 'event' => $event,
             ];
-            $record = array_merge($record, self::sanitizeFields(array_merge($this->context, $fields), $this->diagnostic, $level));
+            $safeFields = self::sanitizeFields(array_merge($this->context, $fields), $this->diagnostic, $level);
+            $contextSpeakerKind = $this->context['speaker_kind'] ?? null;
+            if (in_array($contextSpeakerKind, ['npc', 'player'], true)) {
+                $safeFields['speaker_kind'] = $contextSpeakerKind;
+            } else {
+                unset($safeFields['speaker_kind']);
+            }
+            if ($contextSpeakerKind === 'player') {
+                unset($safeFields['speaker_id']);
+            }
+            $record = array_merge($record, $safeFields);
             $this->write($record, $level);
         } catch (\Throwable) {
         }
@@ -203,6 +213,21 @@ final class RequestLog
             : null;
     }
 
+    private static function sanitizeUtteranceId(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $value) === 1) {
+            return $value;
+        }
+        if (preg_match('/\Ainput_([1-9][0-9]{0,18})\z/D', $value, $matches) !== 1) {
+            return null;
+        }
+        $digits = $matches[1];
+        return strlen($digits) === 19 && strcmp($digits, '9223372036854775807') > 0 ? null : $value;
+    }
+
     private static function sanitizeSubject(mixed $value): ?string
     {
         if ($value === 'player') {
@@ -282,7 +307,10 @@ final class RequestLog
     {
         if (in_array($key, self::CONTEXT_FIELDS, true)) {
             if ($key === 'utterance_id') {
-                return is_string($value) && preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $value) === 1 ? $value : null;
+                return self::sanitizeUtteranceId($value);
+            }
+            if ($key === 'speaker_kind') {
+                return in_array($value, ['npc', 'player'], true) ? $value : null;
             }
             return self::sanitizeId($value);
         }
@@ -318,6 +346,9 @@ final class RequestLog
             if ($filtered !== null) {
                 $clean[$key] = $filtered;
             }
+        }
+        if (($clean['speaker_kind'] ?? null) === 'player') {
+            unset($clean['speaker_id']);
         }
         return $clean;
     }

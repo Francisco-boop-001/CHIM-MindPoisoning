@@ -11,8 +11,10 @@ use function ChimMindPoisoning\dashboardLogInteraction;
 use function ChimMindPoisoning\dashboardNormalizedOutcome;
 use function ChimMindPoisoning\dashboardParseLogLine;
 use function ChimMindPoisoning\dashboardRecordMatches;
+use function ChimMindPoisoning\renderDashboard;
 
 require_once __DIR__ . '/../server/dashboard_data.php';
+require_once __DIR__ . '/../server/dashboard_view.php';
 
 function dashboardDataAssert(bool $condition, string $message): void
 {
@@ -66,6 +68,10 @@ $wireRecord->unknown_provider_field = ['secret' => 'must not escape'];
 $wireLine = '[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($wireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 $parsed = dashboardParseLogLine($wireLine);
 dashboardDataAssert(is_array($parsed) && $parsed['event'] === 'request_finished', 'Native Logger envelope rejected a RequestLog record.');
+dashboardDataAssert(
+    !array_key_exists('speaker_kind', $parsed) && ($parsed['speaker_id'] ?? null) === '8',
+    'Legacy NPC records without speaker_kind must retain their existing ID-based attribution.'
+);
 foreach (['raw_speech', 'unknown_provider_field', 'model_reason'] as $forbiddenField) {
     dashboardDataAssert(!array_key_exists($forbiddenField, $parsed), 'Private or unknown log field escaped sanitization: ' . $forbiddenField);
 }
@@ -78,6 +84,40 @@ dashboardDataAssert(
 $wireRecord->commit_state = 'unconfirmed';
 $unconfirmed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($wireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 dashboardDataAssert(is_array($unconfirmed) && dashboardNormalizedOutcome($unconfirmed) === 'unconfirmed', 'Unconfirmed commit state was not normalized.');
+
+$playerWireRecord = clone $wireRecord;
+$playerWireRecord->utterance_id = 'input_42';
+$playerWireRecord->speaker_kind = 'player';
+$playerWireRecord->speaker_name = 'Private Player Name';
+unset($playerWireRecord->speaker_id);
+$playerParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($playerWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($playerParsed)
+        && ($playerParsed['speaker_kind'] ?? null) === 'player'
+        && ($playerParsed['utterance_id'] ?? null) === 'input_42'
+        && !isset($playerParsed['speaker_id'], $playerParsed['speaker_name']),
+    'Explicit player logs should retain the safe kind and input row ID without a speaker ID.'
+);
+$invalidPlayerWireRecord = clone $playerWireRecord;
+$invalidPlayerWireRecord->speaker_kind = 'Player One';
+$invalidPlayerParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($invalidPlayerWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($invalidPlayerParsed) && !array_key_exists('speaker_kind', $invalidPlayerParsed) && !isset($invalidPlayerParsed['speaker_id']),
+    'Invalid player markers must be discarded rather than inferred from a missing ID.'
+);
+$npcWireRecord = clone $wireRecord;
+$npcWireRecord->speaker_kind = 'npc';
+$npcParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($npcWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($npcParsed) && ($npcParsed['speaker_kind'] ?? null) === 'npc' && ($npcParsed['speaker_id'] ?? null) === '8',
+    'The explicit NPC source kind should be retained with its numeric ID.'
+);
+foreach (['input_0', 'input_01', 'input_9223372036854775808'] as $invalidInputId) {
+    $invalidIdWireRecord = clone $playerWireRecord;
+    $invalidIdWireRecord->utterance_id = $invalidInputId;
+    $invalidIdParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($invalidIdWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    dashboardDataAssert(is_array($invalidIdParsed) && !isset($invalidIdParsed['utterance_id']), 'Invalid CHIM input ID escaped log parsing.');
+}
 
 $player = ['id' => '7', 'extended_data' => (object)['relationships' => new stdClass()]];
 $missing = dashboardCurrent($player, 'npc:9', 'Subject', '', ['Subject' => 1]);
@@ -166,10 +206,80 @@ $interactions = dashboardBuildInteractions($database, $records, $limited);
 dashboardDataAssert(count($interactions) === 1 && !$limited, 'Active ledger did not produce exactly one bounded interaction.');
 dashboardDataAssert(
     $interactions[0]['outcome'] === 'committed'
+        && $interactions[0]['speaker'] === 'Speaker'
         && $interactions[0]['changes'][0]['before'] === 0
         && $interactions[0]['changes'][0]['after'] === 2
         && $interactions[0]['changes'][0]['applied'] === 2,
-    'Confirmed persistence values did not correlate to the active playthrough.'
+    'Legacy NPC speaker and confirmed persistence values did not correlate to the active playthrough.'
+);
+
+$playerDatabase = $database;
+$playerDatabase['rows'][0]['plugin_extended_data']->mind_poisoning->events = [[
+    'event_id' => 43,
+    'utterance_id' => 'input_123',
+    'judgments' => [['subject' => 'npc:9', 'delta' => 2]],
+]];
+$playerBaseRecord = [
+    'request_id' => 'req_player_input',
+    'event_id' => '43',
+    'utterance_id' => 'input_123',
+    'playthrough_id' => $active,
+    'speaker_kind' => 'player',
+    'listener_id' => '7',
+    'timestamp' => '2026-09-27T16:00:00Z',
+];
+$playerRecords = [
+    $playerBaseRecord + [
+        'event' => 'persistence_finished',
+        'commit_state' => 'confirmed',
+        'committed' => true,
+        'changed_count' => 1,
+        'persistence_outcome' => 'committed',
+        'changes' => [['subject' => 'npc:9', 'delta' => 2, 'before' => 0, 'after' => 2]],
+    ],
+    $playerBaseRecord + ['event' => 'request_finished', 'outcome' => 'committed', 'reason' => 'committed'],
+];
+$limited = false;
+$playerInteractions = dashboardBuildInteractions($playerDatabase, $playerRecords, $limited);
+dashboardDataAssert(
+    count($playerInteractions) === 1
+        && $playerInteractions[0]['speaker'] === 'Player'
+        && $playerInteractions[0]['utterance_id'] === 'input_123',
+    'An input-row player record should correlate with its ledger event and display Player without a speaker ID.'
+);
+$legacyInteraction = dashboardLogInteraction($parsed, $active, 'active', ['8' => 'Speaker'], [], [], true, 'Player One');
+$playerLogInteraction = dashboardLogInteraction($playerParsed, $active, 'active', [], [], [], true, 'Player One');
+$unknownSpeakerInteraction = dashboardLogInteraction($invalidPlayerParsed, $active, 'active', [], [], [], true, 'Player One');
+dashboardDataAssert(
+    $legacyInteraction['speaker'] === 'Speaker'
+        && $playerLogInteraction['speaker'] === 'Player'
+        && $unknownSpeakerInteraction['speaker'] === null,
+    'Only an explicit player marker may label a speaker as Player; legacy ID and unknown cases must remain distinct.'
+);
+
+$dashboardModel = [
+    'version' => '0.1.6',
+    'generated_at' => '2026-09-27T16:00:00Z',
+    'notices' => [],
+    'source' => ['logs' => 'available', 'database' => 'unavailable', 'limited' => false],
+    'interactions' => $playerInteractions,
+    'records' => [$playerParsed],
+];
+ob_start();
+renderDashboard($dashboardModel, ['tab' => 'diagnostics']);
+$diagnosticHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($diagnosticHtml)
+        && str_contains($diagnosticHtml, '&quot;speaker_kind&quot;: &quot;player&quot;')
+        && !str_contains($diagnosticHtml, 'speaker_name'),
+    'Diagnostics should expose the sanitized speaker kind without adding name fields.'
+);
+ob_start();
+renderDashboard($dashboardModel, ['tab' => 'interactions']);
+$interactionHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($interactionHtml) && str_contains($interactionHtml, 'Input event <code>input_123</code>'),
+    'Input row correlation IDs should be labeled Input event in the dashboard.'
 );
 $databaseWithoutSubjectName = $database;
 unset($databaseWithoutSubjectName['identities']['9']);

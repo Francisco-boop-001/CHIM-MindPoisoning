@@ -11,6 +11,7 @@ use function ChimMindPoisoning\assertIdleTransactionStatus;
 use function ChimMindPoisoning\assertPgSqlConnection;
 use function ChimMindPoisoning\eventAlreadyProcessed;
 use function ChimMindPoisoning\handleSpeechAck;
+use function ChimMindPoisoning\handlePlayerInput;
 use function ChimMindPoisoning\nextLedger;
 use function ChimMindPoisoning\normalizeEventRow;
 use function ChimMindPoisoning\persistJudgments;
@@ -113,6 +114,140 @@ function talkTargetsIncludeName($targetNames, $candidateName): bool
     return false;
 }
 
+/* Core routing/parser fixture copied from chat_helper_functions.php at cf5030f.
+ * Present-actor and mood normalization are inert stubs because these cases do not use them.
+ */
+if (!function_exists('parsePeoplePipeList')) {
+    function parsePeoplePipeList($peoplePipe): array
+    {
+        $peoplePipe = trim((string)$peoplePipe);
+        if ($peoplePipe === '') {
+            return [];
+        }
+
+        $tokens = explode('|', $peoplePipe);
+        $cleanPeople = [];
+        foreach ($tokens as $token) {
+            $token = trim((string)$token);
+            if ($token === '') {
+                continue;
+            }
+            if (!in_array($token, $cleanPeople, true)) {
+                $cleanPeople[] = $token;
+            }
+        }
+
+        return $cleanPeople;
+    }
+}
+
+if (!function_exists('chimNormalizePresentActors')) {
+    function chimNormalizePresentActors($actors): array
+    {
+        return [];
+    }
+}
+
+if (!function_exists('chimNormalizePlayerMood')) {
+    function chimNormalizePlayerMood($mood): string
+    {
+        return '';
+    }
+}
+
+if (!function_exists('chimNormalizeCustomPlayerMood')) {
+    function chimNormalizeCustomPlayerMood($mood): string
+    {
+        return '';
+    }
+}
+
+if (!function_exists('normalizePeoplePipeList')) {
+    function normalizePeoplePipeList($peopleNames): string
+    {
+        if (!is_array($peopleNames) || $peopleNames === []) {
+            return '';
+        }
+        $cleanPeople = [];
+        foreach ($peopleNames as $name) {
+            $name = trim(trim((string)$name), '|');
+            if ($name !== '' && !in_array($name, $cleanPeople, true)) {
+                $cleanPeople[] = $name;
+            }
+        }
+        return $cleanPeople === [] ? '' : '|' . implode('|', $cleanPeople) . '|';
+    }
+}
+
+if (!function_exists('chimDecodePlayerRoutingSnapshotField')) {
+    function chimDecodePlayerRoutingSnapshotField($rawField): array
+    {
+    $result = [
+        'listener' => '',
+        'target_mode' => '',
+        'audience' => '',
+        'present_actors' => [],
+        'chat_shortcut_routed' => false,
+        'execution_mode' => '',
+        'player_mood' => '',
+        'player_mood_custom' => '',
+    ];
+    $rawField = trim((string)$rawField);
+    if ($rawField === '') {
+        return $result;
+    }
+
+    $decoded = base64_decode($rawField, true);
+    if ($decoded === false || $decoded === '') {
+        return $result;
+    }
+
+    $payload = json_decode($decoded, true);
+    if (!is_array($payload)) {
+        return $result;
+    }
+
+    if (in_array($payload['source'] ?? '', ['plugin_player_routing_v2', 'plugin_spatial_input_v1'], true)) {
+        $listener = $payload['listener'] ?? '';
+        if (is_string($listener) && strlen($listener) <= 256 && !preg_match('/[\x00-\x1F|]/', $listener)) {
+            $result['listener'] = trim($listener);
+        }
+        $targetMode = $payload['target_mode'] ?? '';
+        if (in_array($targetMode, ['automatic', 'direct', 'everyone', 'narrator'], true)) {
+            $result['target_mode'] = $targetMode;
+        }
+    }
+
+    if (!empty($payload['people']) && is_string($payload['people'])) {
+        $result['audience'] = normalizePeoplePipeList(parsePeoplePipeList($payload['people']));
+    } elseif (!empty($payload['companions']) && is_array($payload['companions'])) {
+        $result['audience'] = normalizePeoplePipeList($payload['companions']);
+    }
+
+    $result['present_actors'] = chimNormalizePresentActors($payload['present_actors'] ?? []);
+    $result['chat_shortcut_routed'] =
+        ($payload['source'] ?? '') === 'plugin_player_routing_v2'
+        && ($payload['chat_shortcut_routed'] ?? false) === true;
+    if (($payload['source'] ?? '') === 'plugin_player_routing_v2') {
+        $mode = is_string($payload['execution_mode'] ?? null) ? strtoupper(trim($payload['execution_mode'])) : '';
+        if (in_array($mode, [
+            'STANDARD', 'WHISPER', 'CLOSE', 'SHOUT', 'NARRATOR', 'DIRECTOR', 'CHEATMODE',
+            'HYPNOSIS', 'AUTOCHAT', 'INJECTION_LOG', 'INJECTION_CHAT',
+        ], true)) {
+            $result['execution_mode'] = $mode;
+        }
+        $playerMood = chimNormalizePlayerMood($payload['player_mood'] ?? '');
+        if ($playerMood !== '') {
+            $result['player_mood'] = $playerMood;
+            if ($playerMood === 'custom') {
+                $result['player_mood_custom'] = chimNormalizeCustomPlayerMood($payload['player_mood_custom'] ?? '');
+            }
+        }
+    }
+    return $result;
+}
+}
+
 function check(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -183,6 +318,28 @@ final class MemoryStoreDb implements StoreDb
         return null;
     }
 
+    public function playerInputEvent(array $source): ?array
+    {
+        $fields = ['type', 'ts', 'gamets', 'data', 'localts', 'sess'];
+        $matches = [];
+        foreach ($this->events as $event) {
+            $match = true;
+            foreach ($fields as $field) {
+                if (($event[$field] ?? null) !== ($source[$field] ?? null)) {
+                    $match = false;
+                    break;
+                }
+            }
+            if ($match) {
+                $matches[] = $event;
+            }
+        }
+        if (count($matches) !== 1) {
+            return null;
+        }
+        return ChimMindPoisoning\normalizePlayerInputRow($matches[0]);
+    }
+
     public function npcIdentities(): array
     {
         return array_map(
@@ -194,7 +351,19 @@ final class MemoryStoreDb implements StoreDb
     public function eventById(int $eventId, string $utteranceId): ?array
     {
         $event = $this->events[$eventId] ?? null;
-        return is_array($event) && ($event['utterance_id'] ?? null) === $utteranceId ? $event : null;
+        if (!is_array($event)) {
+            return null;
+        }
+        if (str_starts_with($utteranceId, 'input_')) {
+            if (preg_match('/\Ainput_([1-9][0-9]*)\z/', $utteranceId, $matches) !== 1
+                || (int)$matches[1] !== $eventId
+                || (int)($event['rowid'] ?? $event['event_id'] ?? 0) !== $eventId) {
+                return null;
+            }
+            $normalized = $this->playerInputEvent($event);
+            return is_array($normalized) && $normalized['event_id'] === $eventId ? $normalized : null;
+        }
+        return ($event['utterance_id'] ?? null) === $utteranceId ? $event : null;
     }
 
     public function npcById(int $npcId, bool $forUpdate = false): ?array
@@ -331,6 +500,208 @@ function baseFixture(): array
     ];
     return [$event, $subjects, $judgments, $db];
 }
+
+function playerInputFixture(MemoryStoreDb $db, array $options = []): array
+{
+    $db->npcs[44] ??= ['id' => 44, 'npc_name' => 'Inigo'];
+    $type = $options['type'] ?? 'inputtext';
+    $people = $options['people'] ?? '|Lydia|Inigo|';
+    $route = $options['route'] ?? [
+        'source' => 'plugin_player_routing_v2',
+        'listener' => 'Lydia',
+        'target_mode' => 'automatic',
+    ];
+    $text = $options['tts_text'] ?? $db->playerName . ': I believe Jarl Balgruuf kept his promise.';
+    $data = $options['data'] ?? $text . ' (talking to Inigo)';
+    $insert = [
+        'rowid' => $options['rowid'] ?? 884,
+        'type' => $type,
+        'ts' => '1740000000',
+        'gamets' => '10',
+        'data' => $data,
+        'localts' => 1740000000,
+        'sess' => 'web',
+        'people' => $people,
+    ];
+    $db->events[$insert['rowid']] = $insert;
+    $GLOBALS['PLAYER_TTS_SOURCE_TEXT'] = $text;
+    $routeField = base64_encode(json_encode($route, JSON_THROW_ON_ERROR));
+    $gameRequest = [$type, $insert['ts'], $insert['gamets'], $data, $routeField];
+    return [$gameRequest, $insert];
+}
+
+// Exercise the player path through the same extracted CHIM route decoder and store contract.
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$playerMessages = null;
+$playerRecords = [];
+$playerStatus = handlePlayerInput(
+    $playerRequest,
+    $playerInsert,
+    $db,
+    static function (array $messages) use (&$playerMessages): string {
+        $playerMessages = $messages;
+        return validModelResponse([
+            ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'The listener hears a credible defense.', 'evidence' => 'kept his promise'],
+        ]);
+    },
+    captureRequestLog($playerRecords)
+);
+same('committed', $playerStatus, 'A routed Player input about a third NPC should use the existing persistence path.');
+same(1, count($db->history), 'A committed Player-input judgment should keep the normal history snapshot.');
+same(100, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'The Player input judgment should update the listener’s third-party affinity.');
+$playerPayload = json_decode($playerMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+same('player', $playerPayload['speaker']['kind'] ?? null, 'The Player must be represented as a player speaker, not an NPC.');
+check(array_key_exists('id', $playerPayload['speaker']) && $playerPayload['speaker']['id'] === null, 'The Player speaker must not receive a fabricated NPC id.');
+same('Dragonborn', $playerPayload['speaker']['name'] ?? null, 'The current profile name should be the Player speaker identity.');
+same('I believe Jarl Balgruuf kept his promise.', $playerPayload['utterance']['text'] ?? null, 'Only the core TTS speech should be judged; routing suffix text is excluded.');
+check(isset($playerPayload['candidates']['npc:33']), 'The named third-party NPC should be the only catalog candidate from the spoken text.');
+check(!isset($playerPayload['candidates']['npc:44']), 'A bystander named only in the source suffix must not become a subject.');
+same(null, $playerPayload['candidates']['npc:33']['speaker_bias'] ?? null, 'A Player speaker must not inherit an invented NPC bias.');
+$playerSummary = lastRequestSummary($playerRecords);
+same('884', (string)($playerSummary['event_id'] ?? ''), 'The successful Player summary should use its event row id.');
+same('input_884', $playerSummary['utterance_id'] ?? null, 'The successful Player summary should use its synthetic source-row id.');
+same(strlen($playerRequest[3]), (int)($playerSummary['payload_bytes'] ?? -1), 'The Player input log should retain a payload byte count.');
+same(strlen('I believe Jarl Balgruuf kept his promise.'), (int)($playerSummary['speech_bytes'] ?? -1), 'The Player input log should count only the TTS speech body.');
+check(!str_contains(json_encode($playerRecords, JSON_THROW_ON_ERROR), 'kept his promise'), 'Logs must not expose Player speech or model evidence.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+foreach ([
+    [-2, 97, 'Dragonborn: Jarl Balgruuf betrayed me.', 'betrayed me', ['route' => ['source' => 'plugin_player_routing_v2', 'listener' => 'Lydia', 'target_mode' => 'direct']]],
+    [0, 99, 'Dragonborn: Jarl Balgruuf said nothing.', 'said nothing', []],
+] as [$delta, $expectedAffinity, $speech, $evidence, $options]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $options['tts_text'] = $speech;
+    [$playerRequest, $playerInsert] = playerInputFixture($db, $options);
+    $calls = 0;
+    same('committed', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls, $delta, $evidence): string {
+        $calls++;
+        return validModelResponse([
+            ['subject' => 'npc:33', 'delta' => $delta, 'reason' => 'The listener hears the Player.', 'evidence' => $evidence],
+        ]);
+    }), 'Negative and zero Player judgments should use normal persistence and dedupe.');
+    same(1, $calls, 'Each eligible Player utterance should make one model call.');
+    same($expectedAffinity, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'The Player judgment delta should apply within affinity bounds.');
+    same(1, count($db->history), 'Negative and zero Player judgments should preserve the normal listener snapshot.');
+    check(isset($db->npcs[22]['plugin_extended_data']->mind_poisoning->events[0]), 'A zero judgment should still record the processed Player event.');
+    unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+}
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$calls = 0;
+$playerResponse = static function (array $messages) use (&$calls): string {
+    $calls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible statement', 'evidence' => 'kept his promise'],
+    ]);
+};
+same('committed', handlePlayerInput($playerRequest, $playerInsert, $db, $playerResponse), 'The first routed Player event should commit.');
+same('duplicate', handlePlayerInput($playerRequest, $playerInsert, $db, $playerResponse), 'The same source row should be deduplicated.');
+same(1, $calls, 'An exact Player input replay must stop before a second model call.');
+same(1, count($db->history), 'A duplicate Player event must not create another snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+foreach ([
+    ['wrong listener', ['route' => ['source' => 'plugin_player_routing_v2', 'listener' => 'Teldryn', 'target_mode' => 'automatic']], 'listener-unmatched'],
+    ['broadcast routing', ['route' => ['source' => 'plugin_player_routing_v2', 'listener' => 'Lydia', 'target_mode' => 'everyone']], 'listener-unmatched'],
+    ['audience missing listener', ['people' => '|Inigo|'], 'listener-unmatched'],
+    ['ambiguous audience alias', ['people' => '|Lydia|LYDIA|Inigo|'], 'listener-unmatched'],
+    ['Player identity mismatch', ['tts_text' => 'Someone Else: I believe Jarl Balgruuf kept his promise.'], 'player-identity-mismatch'],
+] as [$case, $options, $expectedStatus]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    [$playerRequest, $playerInsert] = playerInputFixture($db, $options);
+    $calls = 0;
+    $records = [];
+    same($expectedStatus, handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
+        $calls++;
+        return '{}';
+    }, captureRequestLog($records)), "$case must fail closed before model evaluation.");
+    same(0, $calls, "$case must not make a model request.");
+    same([], $db->history, "$case must not create a listener history snapshot.");
+    $summary = lastRequestSummary($records);
+    same('884', (string)($summary['event_id'] ?? ''), "$case should retain opaque source-row correlation after exact source match.");
+    same('input_884', $summary['utterance_id'] ?? null, "$case should retain synthetic input correlation without actor names.");
+    same(strlen($playerRequest[3]), (int)($summary['payload_bytes'] ?? -1), "$case should retain only the bounded payload byte count.");
+    unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+}
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$db->events[885] = $db->events[884];
+$calls = 0;
+same('event-unmatched', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
+    $calls++;
+    return '{}';
+}), 'An ambiguous exact source tuple must not be assigned to either row.');
+same(0, $calls, 'An ambiguous source tuple must not spend model work.');
+same([], $db->history, 'An ambiguous source tuple must not create a listener snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 4, 'type' => 'friend'];
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 2, 'type' => 'neutral'];
+$calls = 0;
+same('listener-invalid', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
+    $calls++;
+    return '{}';
+}), 'Ambiguous Player relationship aliases must fail before paid model work.');
+same(0, $calls, 'The Player relationship alias gate must precede the model request.');
+same([], $db->history, 'Ambiguous Player relationship aliases must not snapshot or rewrite relationships.');
+same(4, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'The legacy Player alias must remain unchanged.');
+same(2, $db->npcs[22]['extended_data']->relationships->Player->aff, 'The canonical Player edge must remain unchanged.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$db->npcs[22]['extended_data']->relationships_locked = 'false';
+$lockedRecords = [];
+$calls = 0;
+same('locked', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
+    $calls++;
+    return '{}';
+}, captureRequestLog($lockedRecords)), 'The Player path must honor the core listener relationship lock.');
+same(0, $calls, 'A locked listener must stop before model work.');
+same('884', (string)(lastRequestSummary($lockedRecords)['event_id'] ?? ''), 'A locked skip should retain exact source-row correlation.');
+same([], $db->history, 'A locked Player input must not create a history snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$beforePlayerOff = unserialize(serialize($db->npcs[22]));
+$offDuringPlayerModel = static function (array $messages): string {
+    $GLOBALS['runtime_test_interaction_allowed'] = false;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 2, 'reason' => 'Credible statement', 'evidence' => 'kept his promise'],
+    ]);
+};
+$offDuringPlayerRecords = [];
+same('interaction-off', handlePlayerInput($playerRequest, $playerInsert, $db, $offDuringPlayerModel, captureRequestLog($offDuringPlayerRecords)), 'A CHIM Off transition during Player model work must stop before persistence.');
+same('post_model_gate', lastRequestSummary($offDuringPlayerRecords)['stage'] ?? null, 'The mid-request Off transition should be attributed to the post-model gate.');
+check(ChimMindPoisoning\sameJsonValue($beforePlayerOff, $db->npcs[22]), 'A mid-request Player Off transition must not mutate the listener.');
+same([], $db->history, 'A mid-request Player Off transition must not create a history snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+resetAckLoggingInteraction(enabled: false);
+[$event, $subjects, $judgments, $db] = baseFixture();
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$calls = 0;
+same('interaction-off', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
+    $calls++;
+    return '{}';
+}), 'Player input should obey CHIM interaction Off.');
+same(0, $calls, 'Interaction Off must prevent a Player-input model request.');
+same([], $db->history, 'Interaction Off must not create a Player-input history snapshot.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
 
 check(
     ChimMindPoisoning\sameJsonValue(['second' => 2, 'first' => 1], json_decode('{"first":1,"second":2}', false, 512, JSON_THROW_ON_ERROR)),
@@ -1082,6 +1453,24 @@ check($bootstrapJsonStart !== false, 'The bootstrap failure should emit a struct
 $bootstrapSummary = json_decode(substr($bootstrapFailureError, $bootstrapJsonStart), true, 512, JSON_THROW_ON_ERROR);
 same('runtime_bootstrap_failed', $bootstrapSummary['reason'] ?? null, 'Store-construction failure should have a stable safe reason.');
 same('utt_0123456789abcdef', $bootstrapSummary['utterance_id'] ?? null, 'Bootstrap failures should retain a safely validated ACK correlation ID.');
+
+$playerBootstrapSource = '$gameRequest = ["inputtext", "1740000000", "10", "Dragonborn: I met Jarl Balgruuf.", ""]; require '
+    . var_export(__DIR__ . '/../server/postrequest.php', true) . ';';
+$playerBootstrapProcess = proc_open([PHP_BINARY, '-r', $playerBootstrapSource], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $playerBootstrapPipes);
+check(is_resource($playerBootstrapProcess), 'The Player postrequest bootstrap subprocess should start.');
+fclose($playerBootstrapPipes[0]);
+$playerBootstrapOutput = stream_get_contents($playerBootstrapPipes[1]);
+fclose($playerBootstrapPipes[1]);
+$playerBootstrapError = stream_get_contents($playerBootstrapPipes[2]);
+fclose($playerBootstrapPipes[2]);
+$playerBootstrapExit = proc_close($playerBootstrapProcess);
+same(0, $playerBootstrapExit, 'A Player postrequest bootstrap failure should be contained.');
+same('', $playerBootstrapOutput, 'A Player postrequest bootstrap failure must not write to the game response.');
+$playerBootstrapJsonStart = strpos($playerBootstrapError, '{');
+check($playerBootstrapJsonStart !== false, 'The Player bootstrap failure should emit a structured summary.');
+$playerBootstrapSummary = json_decode(substr($playerBootstrapError, $playerBootstrapJsonStart), true, 512, JSON_THROW_ON_ERROR);
+same('runtime_bootstrap_failed', $playerBootstrapSummary['reason'] ?? null, 'A Player bootstrap failure should use its safe fixed reason.');
+same('player', $playerBootstrapSummary['speaker_kind'] ?? null, 'A Player bootstrap failure should retain its speaker kind.');
 
 unset($GLOBALS['runtime_test_interaction_allowed'], $GLOBALS['runtime_test_interaction_generation'], $GLOBALS['runtime_test_relationship_enabled'], $GLOBALS['RELLLM_CONNECTOR']);
 unset($_SERVER['HTTP_X_CHIM_GENERATION'], $_SERVER['HTTP_X_CHIM_PASSIVE']);
