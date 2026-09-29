@@ -586,3 +586,69 @@ User authorizes commit, push and publication. Preserve installed environment and
 Release gates before source commit: runtime, logging, dashboard-data, dashboard HTTP/integration, manifest-update helpers and all seven packaging checks passed on v0.1.8. Actual repository tar extracted with GNU tar --strip-components=1 in scratch; all 15 allowed payload files matched source. Plain MO2 ZIP contains only the versioned CHIM package, with CRC and exact embedded-DWPkg equality verified. The implementation's isolated PostgreSQL evidence remains recorded above; no repeat live test or provider call was made. Build outputs are under dist/0.1.8; clean-tag and uploaded-byte checks remain publication gates.
 
 Publication review: source commit dd3597412c868c6488f73e396de1d7b8404cd73e, annotated tag mind_poisoning-v0.1.8. All three packages rebuilt byte-identically from clean tag export. All four draft assets were downloaded and compared byte-for-byte; checksum entries verified. GitHub release is public, not draft, and marked prerelease; public asset digests match. Remote main advanced only after publication. See release-v0.1.8.md for hashes. No installed environment changes; unrelated critique and submission drafts remain untracked and uncommitted. Compatibility reference unchanged; live-game/provider testing and invalid-payload ACK diagnosis remain open.
+
+## Focused v0.1.8 bug hunt — 2026-09-29
+
+Starting tree: bbf55fc, tracked files clean; critique/submission drafts remain untracked. Existing release and SQL evidence reviewed. No deployment/publication/version change authorized in this run.
+- [x] Runtime owner: inspect resolver, transactional rechecks and dedupe for remaining demonstrable defects.
+- [x] Dashboard owner: inspect navigation, scope correlation, sanitizers and rendering trust boundaries.
+- [x] Hook owner: inspect actual Player/NPC integration flow without repeating inconclusive raw-ACK searches.
+- [x] Reproduce justified findings, assign minimal owned fixes, review diffs and focused verification; record unknowns separately from confirmed defects.
+
+Interim review: runtime found no confirmed defect in the shared resolver, malformed query handling, locked rechecks or dedupe. A possible profile-switch race was rejected because the core SQL constructor holds the shared runtime lease and switching takes exclusive switch/work locks; no new test was warranted. Hook review confirmed main.php dispatches postrequest hooks and inserts the required event snapshot fields, while ScriptQueue and the core speech handler both use utterance_id. No source-contract mismatch was demonstrated. Six invalid-payload observations still lack original request bodies; no speculative parser change was made.
+
+### Final review
+
+No new confirmed defect found in this bounded pass. Dashboard handoff retains fixed localhost authority and authorization on the subsequent request. A numeric-validator suspicion (19-digit values above signed BIGINT) did not produce a real correlation defect: core row IDs and stored event IDs are bounded by PostgreSQL/PHP integer handling, and Player input IDs enforce the range. No validator churn was justified.
+
+Lead reviewed all three findings against existing caller/lock/test evidence. No product code or tests changed; existing fresh v0.1.8 release/SQL checks were not rerun without a remaining testable risk. Only this task record changed. Installed CHIM, live data and modlist untouched; release/version/compatibility pin unchanged. Live provider/game acceptance and the unavailable original invalid-payload requests remain unresolved, not certified by this review.
+
+## Maintainability reassessment — 2026-09-29
+
+- [x] Check request/storage flow for demonstrated maintenance costs rather than file length.
+- [x] Check dashboard/log validation duplication against distinct trust boundaries.
+- [x] Review findings; make only justified corrections and verify any changed behavior.
+
+
+### Review
+Two retained reviewers and lead inspection found no demonstrated maintenance cost justifying a refactor. Player and NPC paths already share evaluation and persistence; preflight and locked rechecks serve different moments. Persistence keeps transaction sequencing and cleanup visible. Logger emission and dashboard parsing have different input/output contracts, including omission of debug reasoning from dashboard records. File length and overlapping validators were insufficient grounds for the earlier technical-debt implication. No product or test changes; tests were not rerun for a source review. Release, pin and installed environment unchanged.
+
+## Adversarial pattern and CHIM extension audit — 2026-09-29
+- [x] Inspect plugin patterns and corresponding CHIM extension contracts read-only.
+- [x] Challenge candidate gaps with assumptions, counterexamples and failure paths.
+- [x] Review evidence and report ranked surviving findings; no implementation authorized.
+
+Review: three reviewers and lead source inspection completed. See pattern-gap-audit-2026-09-29.md for findings, assumptions, counterarguments and failure paths. Confirmed diagnostic granularity gap; conditional persistence wait risk; synchronous evaluation and independent-pause design candidates; upstream writer/catalog constraints. No code changes, live writes, provider calls or test reruns. Inherited DB timeout settings and live effects remain unknown. Release and pin unchanged.
+
+## Implement accepted audit recommendations — 2026-09-29
+
+Scope: bounded diagnostic subreasons, transaction-local wait bounds, independent plugin pause. Prior audit and user acceptance provide design authority. Background worker remains a separate planned architecture task; upstream writer/catalog changes and speculative in-flight claims are excluded. Preserve installed CHIM/modlist and all prior dirty/untracked work; no release/version/pin advancement.
+- [x] Hook owner: precise content-free ACK rejection reasons and targeted regressions (prerequest.php, runtime_test.php).
+- [x] Storage owner: inspect inherited limits, implement safe transaction-local bounds and isolated contention proof (store.php, dedicated test).
+- [x] Control investigator: choose smallest CHIM-compatible independent pause; no overlapping product edits.
+- [x] Hook owner after diagnostics: implement approved pause mechanism and in-flight recheck tests.
+- [x] Documentation owner: instructions and limits matching reviewed implementation.
+- [x] Lead: inspect every diff/caller/failure path, return defects, examine focused checks and record final review.
+
+
+Review checkpoint: ACK diagnostics RED/GREEN evidence reviewed; preserve skipped status and warning severity, including distinct utterance-ID codes. Pause design selected operator-owned bounded JSON at CHIM data/mind_poisoning.json, absent enabled, invalid/unreadable fail closed, reread at preflight/post-model; no dashboard mutation endpoint. Database test returned for production-path cleanup proof rather than manually cleaning up in the test.
+
+
+Storage review: lead inspected owned-BEGIN placement, native connection use, strict-limit preservation and rollback/release paths. Isolated PG15 test exercised production persistJudgments under row contention and passed settings restoration, no-write/no-commit and released-lock assertions; cluster stopped/removed. Stage-specific errors retained because current sync pg_query failure has no structured SQLSTATE; no localized error parsing added. See store-timeout-report.md.
+
+### Final implementation review
+Three retained gpt-6-luna/max agents owned hook/tests, storage/test, and control investigation/docs; lead wrote no product code. Independent hook review and lead inspection preserved valid source correlation, existing statuses, warning severity, privacy allowlists and transaction sequencing. Returned defects were corrected by their owners: warning severity/outcome drift, manual-cleanup-only contention test, unnecessary existing data/main symlink rejection, duplicate JSON keys, and operator-command read permissions. Duplicate-key RED reached a fixture commit; the fixed literal one-boolean format rejected both orders before model/persistence, and scoped independent re-review was clean.
+
+Verification: final runtime_test.php GREEN covers both source paths and pause changes after model evaluation; touched PHP lint passed. Isolated PostgreSQL 15 verified disabled/stricter/looser timeout settings, real statement cancellation, production rollback/no writes/no commit under row contention, session restoration and advisory release; scratch cluster removed. Source/doc diff checks passed. No broad suite repetition, installed CHIM writes, live provider calls or Skyrim proof. See ack-diagnostics-report.md, store-timeout-report.md, pause-runtime-report.md and pause-control-report.md for commands/evidence.
+
+Limits: pause is an operator file, checked preflight/post-model, not an atomic cancel or dashboard button. Timeouts bound individual database operations, not total request time, and retain stage-specific failure reasons. Background processing remains separate; upstream writer/catalog issues and conditional in-flight dedupe remain deferred as in the accepted audit. Published v0.1.8, compatibility reference cf5030f15781637498be86debe26fcf102f5690d, release assets and installed environment are unchanged. Changes remain uncommitted/unpublished; prior dirty notes and untracked critique/submission material preserved.
+
+## Prepare v0.1.9 PRE-ALPHA release — 2026-09-29
+
+- [x] Bump only the manifest version and prepare current README/release notes; preserve the CHIM compatibility reference.
+- [x] Run release gates and build the repository archive, CHIM sync package, plain MO2 ZIP, and SHA256SUMS.txt.
+- [ ] Rebuild from the clean tag and verify all package bytes/checksums.
+- [ ] Publish the verified tag/assets before advancing main.
+- [ ] Record commit, tag, asset hashes, and publication evidence.
+
+Release review: runtime and logging fixtures, touched PHP lint, installed manifest-update helper checks, and seven packaging tests passed. GNU tar strip-one extraction matched all 15 allowlisted payload files. The prior isolated PostgreSQL timeout/rollback proof was reviewed, not repeated. Lead reviewed code and release metadata; compatibility reference unchanged. Clean-tag rebuild and publication verification remain pending below.

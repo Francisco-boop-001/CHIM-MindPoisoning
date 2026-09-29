@@ -156,6 +156,96 @@ function speechAckInteractionStatus(?string &$reason = null): string
     }
 }
 
+/** Read the optional operator pause file without executing or caching it. */
+function mindPoisoningPauseStatus(?string &$reason = null): string
+{
+    $reason = null;
+    $invalid = static function () use (&$reason): string {
+        $reason = 'pause_control_invalid';
+        return 'control-invalid';
+    };
+
+    $enginePath = $GLOBALS['ENGINE_PATH'] ?? null;
+    $driveAbsolute = is_string($enginePath)
+        && preg_match('~\A[A-Za-z]:[\\\\/]~D', $enginePath) === 1;
+    if (
+        !is_string($enginePath)
+        || $enginePath === ''
+        || str_contains($enginePath, "\0")
+        || (
+            !str_starts_with($enginePath, '/')
+            && !str_starts_with($enginePath, str_repeat(chr(92), 2))
+            && !$driveAbsolute
+        )
+    ) {
+        return $invalid();
+    }
+
+    $engineRoot = realpath($enginePath);
+    if ($engineRoot === false || !is_dir($engineRoot) || !is_readable($engineRoot)) {
+        return $invalid();
+    }
+    $mainPath = $engineRoot . DIRECTORY_SEPARATOR . 'main.php';
+    if (!is_file($mainPath)) {
+        return $invalid();
+    }
+
+    $dataPath = $engineRoot . DIRECTORY_SEPARATOR . 'data';
+    clearstatcache(true, $dataPath);
+    if (!file_exists($dataPath) && !is_link($dataPath)) {
+        return 'enabled';
+    }
+    if (!is_dir($dataPath) || !is_readable($dataPath)) {
+        return $invalid();
+    }
+    $dataRoot = realpath($dataPath);
+    if ($dataRoot === false || !is_dir($dataRoot) || !is_readable($dataRoot)) {
+        return $invalid();
+    }
+
+    $controlPath = $dataRoot . DIRECTORY_SEPARATOR . 'mind_poisoning.json';
+    clearstatcache(true, $controlPath);
+    if (!file_exists($controlPath) && !is_link($controlPath)) {
+        return 'enabled';
+    }
+    if (is_link($controlPath) || !is_file($controlPath) || !is_readable($controlPath)) {
+        return $invalid();
+    }
+
+    $handle = @fopen($controlPath, 'rb');
+    if ($handle === false) {
+        return $invalid();
+    }
+    try {
+        $stat = fstat($handle);
+        $contents = stream_get_contents($handle, 1025);
+    } catch (Throwable) {
+        $contents = false;
+        $stat = false;
+    } finally {
+        fclose($handle);
+    }
+    if (
+        !is_array($stat)
+        || (($stat['mode'] ?? 0) & 0170000) !== 0100000
+        || !is_string($contents)
+        || strlen($contents) > 1024
+    ) {
+        return $invalid();
+    }
+
+    // json_decode collapses duplicate keys; accept only the documented one-boolean object.
+    $controlMatch = [];
+    if (preg_match('~\A[ \t\r\n]*\{[ \t\r\n]*"enabled"[ \t\r\n]*:[ \t\r\n]*(true|false)[ \t\r\n]*\}[ \t\r\n]*\z~', $contents, $controlMatch) !== 1) {
+        return $invalid();
+    }
+    if ($controlMatch[1] === 'false') {
+        $reason = 'plugin_paused';
+        return 'plugin-paused';
+    }
+    return 'enabled';
+}
+
 /**
  * Evaluate one exact _speech acknowledgement. The optional callable is a test seam;
  * production uses the configured requestJudgments adapter.
@@ -237,6 +327,12 @@ function evaluateInfluenceRequest(
         if ($interactionStatus !== 'ok') {
             $logFields['reason'] = $interactionReason;
             return $interactionStatus;
+        }
+        $pauseReason = null;
+        $pauseStatus = mindPoisoningPauseStatus($pauseReason);
+        if ($pauseStatus !== 'enabled') {
+            $logFields['reason'] = $pauseReason;
+            return $pauseStatus;
         }
         if (!function_exists('chimIsGlobalLlmConnectorEnabled') || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
             return 'disabled';
@@ -406,28 +502,68 @@ function evaluateInfluenceRequest(
             ];
         } else {
             $raw = $gameRequest[3] ?? null;
-            if (!is_string($raw) || strlen($raw) > 16384) {
+            if (!is_string($raw)) {
+                $logFields['reason'] = 'payload_raw_type_invalid';
                 return 'oversized';
             }
+            if (strlen($raw) > 16384) {
+                $logFields['reason'] = 'payload_raw_oversized';
+                return 'oversized';
+            }
+            if (preg_match('//u', $raw) !== 1) {
+                $logFields['reason'] = 'payload_invalid_utf8';
+                return 'invalid-payload';
+            }
             try {
-                $payload = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+                $decodedPayload = json_decode($raw, false, 32, JSON_THROW_ON_ERROR);
             } catch (JsonException) {
+                $logFields['reason'] = 'payload_json_invalid';
                 return 'invalid-payload';
             }
-            if (!is_array($payload) || array_is_list($payload)) {
+            if (!$decodedPayload instanceof \stdClass) {
+                $logFields['reason'] = 'payload_root_invalid';
                 return 'invalid-payload';
             }
-            $speakerInput = $payload['speaker'] ?? null;
-            $listenerInput = $payload['listener'] ?? null;
-            $speech = $payload['speech'] ?? null;
-            $utteranceId = $payload['utterance_id'] ?? null;
-            if (
-                !is_string($speakerInput) || !is_string($listenerInput) || !is_string($speech) || !is_string($utteranceId)
-                || strlen($speakerInput) > 256 || strlen($listenerInput) > 256 || strlen($speech) > 12000
-                || trim($speakerInput) === '' || trim($listenerInput) === '' || trim($speech) === ''
-                || preg_match('//u', $speakerInput) !== 1 || preg_match('//u', $listenerInput) !== 1 || preg_match('//u', $speech) !== 1
-                || preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/', $utteranceId) !== 1
-            ) {
+            $payload = get_object_vars($decodedPayload);
+            $requiredFields = ['speaker', 'listener', 'speech'];
+            foreach ($requiredFields as $field) {
+                if (!array_key_exists($field, $payload)) {
+                    $logFields['reason'] = 'payload_field_missing';
+                    return 'invalid-payload';
+                }
+            }
+            if (!array_key_exists('utterance_id', $payload)) {
+                $logFields['reason'] = 'payload_utterance_id_missing';
+                return 'invalid-payload';
+            }
+            foreach ($requiredFields as $field) {
+                if (!is_string($payload[$field])) {
+                    $logFields['reason'] = 'payload_field_type_invalid';
+                    return 'invalid-payload';
+                }
+            }
+            if (!is_string($payload['utterance_id'])) {
+                $logFields['reason'] = 'payload_utterance_id_type_invalid';
+                return 'invalid-payload';
+            }
+            $speakerInput = $payload['speaker'];
+            $listenerInput = $payload['listener'];
+            $speech = $payload['speech'];
+            $utteranceId = $payload['utterance_id'];
+            if (strlen($speakerInput) > 256 || strlen($listenerInput) > 256 || strlen($speech) > 12000) {
+                $logFields['reason'] = 'payload_field_oversized';
+                return 'invalid-payload';
+            }
+            if (trim($speakerInput) === '' || trim($listenerInput) === '' || trim($speech) === '') {
+                $logFields['reason'] = 'payload_field_empty';
+                return 'invalid-payload';
+            }
+            if (preg_match('//u', $speakerInput) !== 1 || preg_match('//u', $listenerInput) !== 1 || preg_match('//u', $speech) !== 1) {
+                $logFields['reason'] = 'payload_invalid_utf8';
+                return 'invalid-payload';
+            }
+            if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/', $utteranceId) !== 1) {
+                $logFields['reason'] = 'payload_utterance_id_invalid';
                 return 'invalid-payload';
             }
             $speakerInput = trim($speakerInput);
@@ -621,6 +757,13 @@ function evaluateInfluenceRequest(
             $logFields['stage'] = 'post_model_gate';
             $logFields['reason'] = $interactionReason;
             return $interactionStatus;
+        }
+        $logFields['stage'] = 'post_model_gate';
+        $pauseReason = null;
+        $pauseStatus = mindPoisoningPauseStatus($pauseReason);
+        if ($pauseStatus !== 'enabled') {
+            $logFields['reason'] = $pauseReason;
+            return $pauseStatus;
         }
         $logFields['stage'] = 'persistence';
         $persistenceStarted = hrtime(true);

@@ -32,3 +32,5 @@
 - Separate CHIM's supported regular-mod/file-sync distribution from MO2's generic content classifier. A checker warning does not invalidate the author's supported distribution route. Explain the boundary and investigate installer compatibility before proposing a different installation system.
 
 - Do not make optional CHIM Playthrough Saves an implicit plugin prerequisite. Verify ordinary unprofiled operation as well as active-profile mode; keep shared-database scope distinct from a unique Skyrim save, and apply the same identity contract to persistence, logs and dashboard readers.
+
+- Do not label file length or repeated validation as technical debt without demonstrating a maintenance cost. Trace callers, trust boundaries and transaction timing first; propose extraction only when it reduces real coupling or rule drift without hiding safety-critical sequencing.

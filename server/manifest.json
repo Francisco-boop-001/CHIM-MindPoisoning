@@ -1,6 +1,6 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-Plugins",
   "description": "Conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, with a read-only history dashboard.",

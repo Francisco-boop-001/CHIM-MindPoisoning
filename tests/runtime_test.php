@@ -574,6 +574,27 @@ function playerInputFixture(MemoryStoreDb $db, array $options = []): array
     return [$gameRequest, $insert];
 }
 
+$pauseTestRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mind_poisoning_runtime_' . bin2hex(random_bytes(8));
+$pauseTestData = $pauseTestRoot . DIRECTORY_SEPARATOR . 'data';
+$pauseControlPath = $pauseTestData . DIRECTORY_SEPARATOR . 'mind_poisoning.json';
+check(mkdir($pauseTestData, 0700, true), 'The pause-control fixture data directory should be created.');
+check(file_put_contents($pauseTestRoot . DIRECTORY_SEPARATOR . 'main.php', "<?php\n") !== false, 'The temporary CHIM root marker should be created.');
+$GLOBALS['ENGINE_PATH'] = $pauseTestRoot . DIRECTORY_SEPARATOR;
+register_shutdown_function(static function () use ($pauseTestRoot, $pauseTestData, $pauseControlPath): void {
+    if (is_dir($pauseControlPath)) {
+        @rmdir($pauseControlPath);
+    } elseif (is_file($pauseControlPath) || is_link($pauseControlPath)) {
+        @unlink($pauseControlPath);
+    }
+    @unlink($pauseTestRoot . DIRECTORY_SEPARATOR . 'main.php');
+    if (is_link($pauseTestData)) {
+        @unlink($pauseTestData);
+    } else {
+        @rmdir($pauseTestData);
+    }
+    @rmdir($pauseTestRoot);
+});
+
 // Exercise the player path through the same extracted CHIM route decoder and store contract.
 resetAckLoggingInteraction();
 [$event, $subjects, $judgments, $db] = baseFixture();
@@ -1319,22 +1340,48 @@ same('interaction-off', handleSpeechAck($ack, $db, $loggingResponse, captureRequ
 same('interaction_state_invalid', lastRequestSummary($invalidStateRecords)['reason'] ?? null, 'Malformed interaction state must not be mislabeled as Off.');
 
 resetAckLoggingInteraction();
-[$event, $subjects, $judgments, $db] = baseFixture();
+$validAckFields = [
+    'speaker' => 'Jarl Balgruuf',
+    'listener' => 'Mira',
+    'speech' => 'ACK_PRIVATE_CONTENT',
+    'utterance_id' => 'utt_0123456789abcdef',
+];
+$missingUtteranceIdAck = $validAckFields;
+unset($missingUtteranceIdAck['utterance_id']);
+$invalidUtf8Ack = '{"speaker":"Jarl Balgruuf","listener":"Mira","speech":"' . "\xFF" . '","utterance_id":"utt_0123456789abcdef"}';
+$malformedAckCases = [
+    ['invalid-json', '{"speech":"ACK_PRIVATE_CONTENT"', 'invalid-payload', 'payload_json_invalid'],
+    ['invalid-root', '[]', 'invalid-payload', 'payload_root_invalid'],
+    ['missing-field', json_encode(['speaker' => 'Jarl Balgruuf'], JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_missing'],
+    ['wrong-field-type', json_encode(array_replace($validAckFields, ['speech' => ['ACK_PRIVATE_CONTENT']]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_type_invalid'],
+    ['oversized-field', json_encode(array_replace($validAckFields, ['speech' => str_repeat('x', 12001)]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_oversized'],
+    ['empty-field', json_encode(array_replace($validAckFields, ['speech' => '  ']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_empty'],
+    ['invalid-utf8', $invalidUtf8Ack, 'invalid-payload', 'payload_invalid_utf8'],
+    ['missing-utterance-id', json_encode($missingUtteranceIdAck, JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_missing'],
+    ['wrong-utterance-id-type', json_encode(array_replace($validAckFields, ['utterance_id' => 42]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
+    ['invalid-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => 'invalid-id']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
+    ['oversized-payload', str_repeat('x', 16385), 'oversized', 'payload_raw_oversized'],
+    ['non-string-payload', null, 'oversized', 'payload_raw_type_invalid'],
+];
 $invalidPayloadCalls = 0;
-$invalidPayloadRecords = [];
-same('invalid-payload', handleSpeechAck(['_speech', 0, 10, 'not-json'], $db, static function (array $messages) use (&$invalidPayloadCalls): string {
-    $invalidPayloadCalls++;
-    return '{}';
-}, captureRequestLog($invalidPayloadRecords)), 'Malformed payload status must remain unchanged.');
-same(0, $invalidPayloadCalls, 'Malformed payloads must stop before paid model work.');
-same('invalid-payload', lastRequestSummary($invalidPayloadRecords)['reason'] ?? null, 'Malformed payloads need a precise safe reason.');
-$oversizedRecords = [];
-same('oversized', handleSpeechAck(['_speech', 0, 10, str_repeat('x', 16385)], $db, static function (array $messages) use (&$invalidPayloadCalls): string {
-    $invalidPayloadCalls++;
-    return '{}';
-}, captureRequestLog($oversizedRecords)), 'Oversized payload status must remain unchanged.');
-same(0, $invalidPayloadCalls, 'Oversized payloads must stop before paid model work.');
-same(16385, lastRequestSummary($oversizedRecords)['payload_bytes'] ?? null, 'Oversized payload logging should retain only its byte count.');
+foreach ($malformedAckCases as [$label, $rawPayload, $expectedStatus, $expectedReason]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $malformedRecords = [];
+    same($expectedStatus, handleSpeechAck(['_speech', 0, 10, $rawPayload], $db, static function (array $messages) use (&$invalidPayloadCalls): string {
+        $invalidPayloadCalls++;
+        return '{}';
+    }, captureRequestLog($malformedRecords)), "$label must preserve its existing hook status.");
+    $malformedSummary = lastRequestSummary($malformedRecords);
+    same($expectedReason, $malformedSummary['reason'] ?? null, "$label should log a fixed safe reason code.");
+    same('skipped', $malformedSummary['outcome'] ?? null, "$label should preserve the existing skipped summary outcome.");
+    same('warning', $malformedSummary['level'] ?? null, "$label should remain a warning in the request summary.");
+    same('not_called', $malformedSummary['model_outcome'] ?? null, "$label must stop before model work.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "$label must not change affinity.");
+    same([], $db->history, "$label must not create a snapshot.");
+    check(!str_contains(json_encode($malformedRecords, JSON_THROW_ON_ERROR), 'ACK_PRIVATE_CONTENT'), "$label must not log payload text.");
+}
+same(0, $invalidPayloadCalls, 'Malformed and oversized payloads must stop before paid model work.');
 
 resetAckLoggingInteraction();
 [$event, $subjects, $judgments, $db] = baseFixture();
@@ -1633,6 +1680,182 @@ foreach (['npc', 'player'] as $unprofiledPath) {
     check(ChimMindPoisoning\sameJsonValue($beforeContextSwitch, $db->npcs[22]), 'A profile context switch must not mutate listener state.');
     same([], $db->history, 'A profile context switch must not create a history snapshot.');
 }
+
+check(!file_exists($pauseControlPath), 'The pause fixture should start with no operator control file.');
+$absentPauseReason = null;
+same('enabled', ChimMindPoisoning\mindPoisoningPauseStatus($absentPauseReason), 'An absent pause file must preserve existing installs as enabled.');
+same(null, $absentPauseReason, 'An absent pause file should not invent a diagnostic reason.');
+check(file_put_contents($pauseControlPath, '{"enabled":false}') !== false, 'The disabled pause control should be written.');
+foreach (['npc', 'player'] as $pausedPath) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $modelCalls = 0;
+    $records = [];
+    if ($pausedPath === 'npc') {
+        $status = handleSpeechAck($ack, $db, static function (array $messages) use (&$modelCalls): string {
+            $modelCalls++;
+            return '{}';
+        }, captureRequestLog($records));
+    } else {
+        [$playerRequest, $playerInsert] = playerInputFixture($db);
+        $status = handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$modelCalls): string {
+            $modelCalls++;
+            return '{}';
+        }, captureRequestLog($records));
+        unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+    }
+    same('plugin-paused', $status, "The operator pause must stop the {$pausedPath} path before model work.");
+    $summary = lastRequestSummary($records);
+    same('plugin_paused', $summary['reason'] ?? null, "The {$pausedPath} pause reason must be stable.");
+    same('not_called', $summary['model_outcome'] ?? null, "The {$pausedPath} pause must record no model call.");
+    same(0, $modelCalls, "The {$pausedPath} pause must not call the model.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "The {$pausedPath} pause must not change affinity.");
+    same([], $db->history, "The {$pausedPath} pause must not snapshot history.");
+    check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), "The {$pausedPath} pause must not write a ledger.");
+    check(!str_contains(json_encode($records, JSON_THROW_ON_ERROR), $pauseControlPath), 'Pause-control paths must not enter logs.');
+}
+
+check(file_put_contents($pauseControlPath, " \r\n { \t\"enabled\" \r\n : \t true \n}\n") !== false, 'A whitespace-formatted enabled pause control should be written.');
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$enabledControlCalls = 0;
+$enabledControlStatus = handleSpeechAck($ack, $db, static function (array $messages) use (&$enabledControlCalls): string {
+    $enabledControlCalls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => 0, 'reason' => 'Neutral reaction', 'evidence' => 'The Dragonborn is brave.'],
+    ]);
+});
+same('committed', $enabledControlStatus, 'An explicit enabled control must preserve the valid ACK route.');
+same(1, $enabledControlCalls, 'An enabled control should make the normal single model request.');
+same(1, count($db->history), 'An enabled control should preserve normal persistence.');
+
+foreach ([['npc', true], ['player', true], ['npc', false]] as [$pausedAfterModelPath, $enabledBeforeModel]) {
+    if ($enabledBeforeModel) {
+        check(file_put_contents($pauseControlPath, '{"enabled":true}') !== false, 'The control should be enabled before model evaluation.');
+    } else {
+        @unlink($pauseControlPath);
+        check(!file_exists($pauseControlPath), 'An ordinary no-control install should start enabled before model evaluation.');
+    }
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $modelCalls = 0;
+    $records = [];
+    $pauseDuringModel = static function (array $messages) use (&$modelCalls, $pauseControlPath, $pausedAfterModelPath): string {
+        $modelCalls++;
+        check(file_put_contents($pauseControlPath, '{"enabled":false}') !== false, 'The model callback should pause the plugin.');
+        $rows = [['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible report', 'evidence' => $pausedAfterModelPath === 'player' ? 'kept his promise' : 'I trust Jarl Balgruuf.']];
+        if ($pausedAfterModelPath === 'npc') {
+            $rows[] = ['subject' => 'player', 'delta' => 0, 'reason' => 'Neutral reaction', 'evidence' => 'The Dragonborn is brave.'];
+        }
+        return validModelResponse($rows);
+    };
+    if ($pausedAfterModelPath === 'npc') {
+        $status = handleSpeechAck($ack, $db, $pauseDuringModel, captureRequestLog($records));
+    } else {
+        [$playerRequest, $playerInsert] = playerInputFixture($db);
+        $status = handlePlayerInput($playerRequest, $playerInsert, $db, $pauseDuringModel, captureRequestLog($records));
+        unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+    }
+    $pauseSource = $enabledBeforeModel ? 'enabled' : 'absent';
+    same('plugin-paused', $status, "A pause during model work from {$pauseSource} control state must block {$pausedAfterModelPath} persistence.");
+    same('plugin_paused', lastRequestSummary($records)['reason'] ?? null, "The post-model {$pausedAfterModelPath} pause should be logged safely.");
+    same(1, $modelCalls, "The post-model {$pausedAfterModelPath} case should make one model call.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "The post-model {$pausedAfterModelPath} pause must leave affinity unchanged.");
+    same([], $db->history, "The post-model {$pausedAfterModelPath} pause must not create history.");
+    check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), "The post-model {$pausedAfterModelPath} pause must not write a ledger.");
+}
+
+check(file_put_contents($pauseControlPath, '{"enabled":"false","secret":"PAUSE_PRIVATE_CONTENT"}') !== false, 'The malformed control should be written.');
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$invalidControlCalls = 0;
+$invalidControlRecords = [];
+same('control-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$invalidControlCalls): string {
+    $invalidControlCalls++;
+    return '{}';
+}, captureRequestLog($invalidControlRecords)), 'A known malformed control must fail closed.');
+same('pause_control_invalid', lastRequestSummary($invalidControlRecords)['reason'] ?? null, 'Malformed control must have a fixed safe reason.');
+same('warning', lastRequestSummary($invalidControlRecords)['level'] ?? null, 'Malformed control must be visible as a warning.');
+check(!str_contains(json_encode($invalidControlRecords, JSON_THROW_ON_ERROR), 'PAUSE_PRIVATE_CONTENT'), 'Pause-control contents must never enter logs.');
+same(0, $invalidControlCalls, 'Malformed control must stop before model work.');
+same([], $db->history, 'Malformed control must not create history.');
+
+foreach ([
+    '{"enabled":false,"enabled":true}',
+    '{"enabled":true,"enabled":false}',
+] as $duplicateControl) {
+    check(file_put_contents($pauseControlPath, $duplicateControl) !== false, 'A duplicate-key control should be written.');
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $duplicateControlCalls = 0;
+    $duplicateControlRecords = [];
+    same('control-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$duplicateControlCalls): string {
+        $duplicateControlCalls++;
+        return validModelResponse([
+            ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
+            ['subject' => 'player', 'delta' => 0, 'reason' => 'Neutral reaction', 'evidence' => 'The Dragonborn is brave.'],
+        ]);
+    }, captureRequestLog($duplicateControlRecords)), 'Duplicate enabled keys must fail closed in either value order.');
+    same('pause_control_invalid', lastRequestSummary($duplicateControlRecords)['reason'] ?? null, 'Duplicate enabled keys must use the fixed safe reason.');
+    same(0, $duplicateControlCalls, 'Duplicate enabled keys must stop before model work.');
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'Duplicate enabled keys must not change affinity.');
+    same([], $db->history, 'Duplicate enabled keys must not create history.');
+    check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), 'Duplicate enabled keys must not write a ledger.');
+}
+
+@unlink($pauseControlPath);
+check(mkdir($pauseControlPath), 'The unreadable non-file control fixture should be created.');
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$unreadableControlCalls = 0;
+same('control-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$unreadableControlCalls): string {
+    $unreadableControlCalls++;
+    return '{}';
+}), 'A non-file control at the known path must fail closed.');
+same(0, $unreadableControlCalls, 'An unreadable/non-file control must stop before model work.');
+@rmdir($pauseControlPath);
+
+$invalidRoot = $pauseTestRoot . DIRECTORY_SEPARATOR . 'invalid-root';
+check(mkdir($invalidRoot . DIRECTORY_SEPARATOR . 'data', 0700, true), 'The invalid-root fixture should be created.');
+check(file_put_contents($invalidRoot . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'mind_poisoning.json', '{"enabled":false}') !== false, 'The invalid-root control should be written.');
+$validEnginePath = $GLOBALS['ENGINE_PATH'];
+$GLOBALS['ENGINE_PATH'] = $invalidRoot . DIRECTORY_SEPARATOR;
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$invalidRootCalls = 0;
+same('control-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$invalidRootCalls): string {
+    $invalidRootCalls++;
+    return '{}';
+}), 'An explicit ENGINE_PATH without the CHIM root marker must not be treated as no control file.');
+same(0, $invalidRootCalls, 'An invalid ENGINE_PATH must stop before model work.');
+$GLOBALS['ENGINE_PATH'] = $validEnginePath;
+@unlink($invalidRoot . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'mind_poisoning.json');
+@rmdir($invalidRoot . DIRECTORY_SEPARATOR . 'data');
+@rmdir($invalidRoot);
+
+$linkedDataRoot = $pauseTestRoot . DIRECTORY_SEPARATOR . 'linked-data';
+check(mkdir($linkedDataRoot, 0700), 'The symlink target data directory should be created.');
+check(rmdir($pauseTestData), 'The original empty data directory should be removed.');
+check(symlink($linkedDataRoot, $pauseTestData), 'A valid CHIM data-directory symlink should be created.');
+$linkedDataReason = null;
+same('enabled', ChimMindPoisoning\mindPoisoningPauseStatus($linkedDataReason), 'A valid linked data directory with no control file must preserve default-enabled behavior.');
+same(null, $linkedDataReason, 'A valid linked data directory should not invent a diagnostic reason.');
+check(unlink($pauseTestData), 'The temporary data symlink should be removed.');
+check(mkdir($pauseTestData, 0700), 'The original temporary data directory should be restored.');
+check(rmdir($linkedDataRoot), 'The temporary linked data target should be removed.');
+
+$emptyRoot = $pauseTestRoot . DIRECTORY_SEPARATOR . 'empty-root';
+check(mkdir($emptyRoot, 0700), 'The empty CHIM root fixture should be created.');
+check(symlink($pauseTestRoot . DIRECTORY_SEPARATOR . 'main.php', $emptyRoot . DIRECTORY_SEPARATOR . 'main.php'), 'A valid main.php symlink should be created.');
+$validEnginePath = $GLOBALS['ENGINE_PATH'];
+$GLOBALS['ENGINE_PATH'] = $emptyRoot . DIRECTORY_SEPARATOR;
+$emptyRootReason = null;
+same('enabled', ChimMindPoisoning\mindPoisoningPauseStatus($emptyRootReason), 'A valid CHIM root without a data directory must remain enabled.');
+same(null, $emptyRootReason, 'A missing data directory should not invent a diagnostic reason.');
+$GLOBALS['ENGINE_PATH'] = $validEnginePath;
+@unlink($emptyRoot . DIRECTORY_SEPARATOR . 'main.php');
+@rmdir($emptyRoot);
 
 unset($GLOBALS['runtime_test_interaction_allowed'], $GLOBALS['runtime_test_interaction_generation'], $GLOBALS['runtime_test_relationship_enabled'], $GLOBALS['RELLLM_CONNECTOR']);
 unset($_SERVER['HTTP_X_CHIM_GENERATION'], $_SERVER['HTTP_X_CHIM_PASSIVE']);

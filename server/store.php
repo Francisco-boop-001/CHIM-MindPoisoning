@@ -976,6 +976,7 @@ final class PostgresStoreDb implements StoreDb
         }
         $this->ownsTransaction = true;
         $this->assertTransactionConnection();
+        $this->setTransactionTimeouts();
         return true;
     }
 
@@ -1221,6 +1222,41 @@ final class PostgresStoreDb implements StoreDb
         $status = pg_transaction_status($this->connection);
         if ($status !== PGSQL_TRANSACTION_INTRANS && $status !== PGSQL_TRANSACTION_INERROR) {
             throw new RuntimeException('Mind Poisoning lost its transaction boundary.');
+        }
+    }
+
+    private function setTransactionTimeouts(): void
+    {
+        $result = $this->nativeQuery(
+            "SELECT set_config(
+                        'lock_timeout',
+                        CASE
+                            WHEN current_setting('lock_timeout')::interval = interval '0'
+                              OR current_setting('lock_timeout')::interval > interval '1 second'
+                            THEN '1000ms'
+                            ELSE current_setting('lock_timeout')
+                        END,
+                        true
+                    ) AS lock_timeout,
+                    set_config(
+                        'statement_timeout',
+                        CASE
+                            WHEN current_setting('statement_timeout')::interval = interval '0'
+                              OR current_setting('statement_timeout')::interval > interval '3 seconds'
+                            THEN '3000ms'
+                            ELSE current_setting('statement_timeout')
+                        END,
+                        true
+                    ) AS statement_timeout",
+            []
+        );
+        try {
+            $row = pg_fetch_assoc($result);
+            if (!is_array($row) || !isset($row['lock_timeout'], $row['statement_timeout'])) {
+                throw new RuntimeException('Could not apply listener transaction timeouts.');
+            }
+        } finally {
+            pg_free_result($result);
         }
     }
 }

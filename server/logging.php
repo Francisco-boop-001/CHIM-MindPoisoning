@@ -193,6 +193,10 @@ final class RequestLog
         $warnings = [
             'malformed', 'invalid-payload', 'oversized', 'model-invalid', 'connector-invalid', 'rejected',
             'model_response_invalid', 'judgment_validation_failed',
+            'payload_json_invalid', 'payload_root_invalid', 'payload_field_missing', 'payload_field_type_invalid',
+            'payload_field_oversized', 'payload_field_empty', 'payload_invalid_utf8', 'payload_utterance_id_missing',
+            'payload_utterance_id_type_invalid', 'payload_utterance_id_invalid', 'payload_raw_oversized', 'payload_raw_type_invalid',
+            'pause_control_invalid',
         ];
         if (in_array($outcome, $warnings, true) || in_array($reason, $warnings, true)) {
             return 'warning';
