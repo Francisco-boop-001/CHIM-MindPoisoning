@@ -579,8 +579,10 @@ Remaining limits: unprofiled scope is one shared server timeline, not unique Sky
 
 User authorizes commit, push and publication. Preserve installed environment and unrelated critique/submission drafts; compatibility reference remains unchanged.
 - [x] Prepare/review current release metadata and notes, using the existing plain MO2 ZIP builder with an explicit content-warning limitation.
-- [ ] Run focused release gates and build packages; commit exact reviewed files and create version tag.
-- [ ] Rebuild from clean tag source and compare packages; upload draft prerelease, download assets and verify hashes before public publication.
-- [ ] Publish, advance remote main, record final asset and commit evidence.
+- [x] Run focused release gates and build packages; commit exact reviewed files and create version tag.
+- [x] Rebuild from clean tag source and compare packages; upload draft prerelease, download assets and verify hashes before public publication.
+- [x] Publish, advance remote main, record final asset and commit evidence.
 
 Release gates before source commit: runtime, logging, dashboard-data, dashboard HTTP/integration, manifest-update helpers and all seven packaging checks passed on v0.1.8. Actual repository tar extracted with GNU tar --strip-components=1 in scratch; all 15 allowed payload files matched source. Plain MO2 ZIP contains only the versioned CHIM package, with CRC and exact embedded-DWPkg equality verified. The implementation's isolated PostgreSQL evidence remains recorded above; no repeat live test or provider call was made. Build outputs are under dist/0.1.8; clean-tag and uploaded-byte checks remain publication gates.
+
+Publication review: source commit dd3597412c868c6488f73e396de1d7b8404cd73e, annotated tag mind_poisoning-v0.1.8. All three packages rebuilt byte-identically from clean tag export. All four draft assets were downloaded and compared byte-for-byte; checksum entries verified. GitHub release is public, not draft, and marked prerelease; public asset digests match. Remote main advanced only after publication. See release-v0.1.8.md for hashes. No installed environment changes; unrelated critique and submission drafts remain untracked and uncommitted. Compatibility reference unchanged; live-game/provider testing and invalid-payload ACK diagnosis remain open.
