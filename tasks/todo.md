@@ -459,8 +459,10 @@ Ownership: runtime = prerequest/shared evaluation, new postrequest entry and run
 User authorized commit, push and publish. Preserve PRE-ALPHA status, compatibility reference, installed CHIM and unrelated critique/submission work.
 - [x] Prepare and review v0.1.7 metadata and release notes.
 - [x] Run focused release gates and build the three packages.
-- [ ] Commit/tag approved source and reproduce packages from clean tagged source.
-- [ ] Publish prerelease, download and compare all asset bytes, then advance main.
-- [ ] Record publication evidence and remote state.
+- [x] Commit/tag approved source and reproduce packages from clean tagged source.
+- [x] Publish prerelease, download and compare all asset bytes, then advance main.
+- [x] Record publication evidence and remote state.
 
 Release preparation review: metadata accepted; composed Player/NPC, influence, logging, dashboard-data, store-logging, all seven package tests and manifest-update helper checks passed. All three v0.1.7 packages built and verified. The legacy package-manager harness initially rejected real release inputs because it requires a synthetic v0.1.0 ZIP fixture; generated the specified fixture and its 15-file scratch installation/tamper-preservation checks passed. This is not a live installation check. Tag reproduction/publication remain pending.
+
+Publication review: f2179f0 tagged mind_poisoning-v0.1.7; all three clean-tag packages matched, all four uploaded assets downloaded and matched before draft publication. Public prerelease metadata and SHA-256 digests confirmed; main advanced only after publication. Evidence: tasks/release-v0.1.7.md. Compatibility reference and installed environment unchanged.
