@@ -338,6 +338,7 @@ final class MemoryStoreDb implements StoreDb
     public array $npcs = [];
     public array $events = [];
     public array $history = [];
+    public array $reflectionRows = [];
     public string $profileId = '1';
     public string $playerName = 'Dragonborn';
     public bool $busy = false;
@@ -415,6 +416,19 @@ final class MemoryStoreDb implements StoreDb
     public function npcById(int $npcId, bool $forUpdate = false): ?array
     {
         return $this->npcs[$npcId] ?? null;
+    }
+
+    public function reflectionHistory(string $actorName, int $beforeEventId): array
+    {
+        $rows = array_values(array_filter($this->reflectionRows, static function (array $row) use ($actorName, $beforeEventId): bool {
+            if ((int)($row['event_id'] ?? 0) >= $beforeEventId || ($row['delivery_state'] ?? null) !== 'spoken') {
+                return false;
+            }
+            $members = array_map('trim', explode('|', (string)($row['people'] ?? '')));
+            return count(array_filter($members, static fn(string $name): bool => strcasecmp($name, $actorName) === 0)) === 1;
+        }));
+        usort($rows, static fn(array $a, array $b): int => (int)$b['event_id'] <=> (int)$a['event_id']);
+        return array_slice($rows, 0, 16);
     }
 
     public function beginForListener(int $listenerId): bool
@@ -597,6 +611,10 @@ register_shutdown_function(static function () use ($pauseTestRoot, $pauseTestDat
     }
     @rmdir($pauseTestRoot);
 });
+
+if (defined('CHIM_MIND_POISONING_TEST_FIXTURES_ONLY') && CHIM_MIND_POISONING_TEST_FIXTURES_ONLY === true) {
+    return;
+}
 
 // Exercise the player path through the same extracted CHIM route decoder and store contract.
 resetAckLoggingInteraction();

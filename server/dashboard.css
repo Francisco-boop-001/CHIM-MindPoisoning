@@ -185,6 +185,15 @@ button:hover {
     text-transform: uppercase;
 }
 
+.poster-world {
+    margin: -0.15rem 0 0.55rem;
+    color: var(--muted);
+    font-size: clamp(0.95rem, 1.4vw, 1.1rem);
+    font-style: italic;
+    line-height: 1.2;
+    text-align: center;
+}
+
 .title-rust {
     color: var(--rust);
 }

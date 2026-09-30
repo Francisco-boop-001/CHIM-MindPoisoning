@@ -8,6 +8,7 @@ use function ChimMindPoisoning\dashboardFilters;
 use function ChimMindPoisoning\dashboardIndexRecords;
 use function ChimMindPoisoning\dashboardLoad;
 use function ChimMindPoisoning\dashboardLogInteraction;
+use function ChimMindPoisoning\dashboardLogInteractions;
 use function ChimMindPoisoning\dashboardNormalizedOutcome;
 use function ChimMindPoisoning\dashboardParseLogLine;
 use function ChimMindPoisoning\dashboardRecordMatches;
@@ -131,6 +132,40 @@ dashboardDataAssert(
     is_array($npcParsed) && ($npcParsed['speaker_kind'] ?? null) === 'npc' && ($npcParsed['speaker_id'] ?? null) === '8',
     'The explicit NPC source kind should be retained with its numeric ID.'
 );
+$reflectionWireRecord = clone $wireRecord;
+$reflectionWireRecord->speaker_id = 11;
+$reflectionWireRecord->speaker_kind = 'npc';
+$reflectionWireRecord->source_kind = 'reflection';
+$reflectionWireRecord->opinion_owner_id = 11;
+$reflectionWireRecord->speech_hash = str_repeat('a', 64);
+$reflectionWireRecord->reflection_basis = str_repeat('b', 64);
+unset($reflectionWireRecord->listener_id);
+$reflectionParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($reflectionWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($reflectionParsed)
+        && ($reflectionParsed['source_kind'] ?? null) === 'reflection'
+        && ($reflectionParsed['opinion_owner_id'] ?? null) === '11'
+        && !array_key_exists('listener_id', $reflectionParsed)
+        && !array_key_exists('speech_hash', $reflectionParsed)
+        && !array_key_exists('reflection_basis', $reflectionParsed),
+    'Reflection owner/provenance should survive log sanitization without leaking private hashes or inventing a listener.'
+);
+$earlyReflectionWireRecord = clone $reflectionWireRecord;
+$earlyReflectionWireRecord->listener_id = 7;
+unset($earlyReflectionWireRecord->speaker_id, $earlyReflectionWireRecord->speaker_kind, $earlyReflectionWireRecord->opinion_owner_id);
+$earlyReflectionParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($earlyReflectionWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($earlyReflectionParsed)
+        && ($earlyReflectionParsed['source_kind'] ?? null) === 'reflection'
+        && !array_key_exists('opinion_owner_id', $earlyReflectionParsed)
+        && !array_key_exists('speaker_id', $earlyReflectionParsed)
+        && !array_key_exists('listener_id', $earlyReflectionParsed),
+    'A preflight reflection record without identity should remain ownerless reflection data, never a listener-attributed row.'
+);
+$mismatchedReflectionWireRecord = clone $reflectionWireRecord;
+$mismatchedReflectionWireRecord->opinion_owner_id = 12;
+$mismatchedReflectionParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($mismatchedReflectionWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert($mismatchedReflectionParsed === null, 'A reflection log with a different opinion owner and speaker degraded into another attribution.');
 foreach (['input_0', 'input_01', 'input_9223372036854775808'] as $invalidInputId) {
     $invalidIdWireRecord = clone $playerWireRecord;
     $invalidIdWireRecord->utterance_id = $invalidInputId;
@@ -226,10 +261,104 @@ dashboardDataAssert(count($interactions) === 1 && !$limited, 'Active ledger did 
 dashboardDataAssert(
     $interactions[0]['outcome'] === 'committed'
         && $interactions[0]['speaker'] === 'Speaker'
+        && $interactions[0]['listener'] === 'Listener'
         && $interactions[0]['changes'][0]['before'] === 0
         && $interactions[0]['changes'][0]['after'] === 2
         && $interactions[0]['changes'][0]['applied'] === 2,
     'Legacy NPC speaker and confirmed persistence values did not correlate to the active playthrough.'
+);
+
+$reflectionEvent = [
+    'event_id' => 44,
+    'utterance_id' => 'utt_reflect01',
+    'source_kind' => 'reflection',
+    'judgments' => [['subject' => 'npc:9', 'delta' => 2, 'reason' => 'changed view', 'evidence' => 'earlier shared event']],
+];
+$reflectionDatabase = [
+    'active_playthrough' => $active,
+    'player_name' => 'Player One',
+    'identities' => ['9' => 'Subject', '11' => 'Reflector'],
+    'rows' => [[
+        'id' => '11',
+        'extended_data' => (object)['relationships' => (object)['Subject' => (object)['aff' => 6]]],
+        'plugin_extended_data' => (object)['mind_poisoning' => (object)[
+            'playthrough_id' => $active,
+            'floor_event_id' => 0,
+            'events' => [$reflectionEvent],
+            'reflection_state' => (object)['basis' => str_repeat('a', 64), 'subjects' => ['npc:9']],
+        ]],
+    ]],
+];
+$reflectionRecordBase = [
+    'timestamp' => '2026-09-27T16:01:00Z',
+    'event_id' => '44',
+    'utterance_id' => 'utt_reflect01',
+    'playthrough_id' => $active,
+    'speaker_id' => '11',
+    'speaker_kind' => 'npc',
+    'source_kind' => 'reflection',
+    'opinion_owner_id' => '11',
+];
+$reflectionRecords = [
+    $reflectionRecordBase + [
+        'request_id' => 'req_reflection',
+        'event' => 'persistence_finished',
+        'persistence_outcome' => 'committed',
+        'persistence_reason' => 'committed',
+        'commit_state' => 'confirmed',
+        'committed' => true,
+        'changed_count' => 1,
+        'persistence_ms' => 4.0,
+        'changes' => [['subject' => 'npc:9', 'delta' => 2, 'before' => 4, 'after' => 6]],
+    ],
+    $reflectionRecordBase + [
+        'request_id' => 'req_reflection',
+        'event' => 'request_finished',
+        'outcome' => 'committed',
+        'reason' => 'committed',
+        'model_ms' => 80.0,
+    ],
+];
+$reflectionLimited = false;
+$reflectionInteractions = dashboardBuildInteractions($reflectionDatabase, $reflectionRecords, $reflectionLimited);
+dashboardDataAssert(
+    count($reflectionInteractions) === 1
+        && $reflectionInteractions[0]['source_kind'] === 'reflection'
+        && $reflectionInteractions[0]['speaker'] === 'Reflector'
+        && $reflectionInteractions[0]['opinion_owner'] === 'Reflector'
+        && $reflectionInteractions[0]['listener'] === null
+        && $reflectionInteractions[0]['changes'][0]['before'] === 4
+        && $reflectionInteractions[0]['changes'][0]['after'] === 6
+        && $reflectionInteractions[0]['changes'][0]['current'] === 6,
+    'Reflection ledger and persistence logs did not join under the actual opinion owner.'
+);
+$logOnlyReflectionRecords = [
+    $reflectionRecordBase + [
+        'request_id' => 'req_reflection_log_only',
+        'event' => 'persistence_finished',
+        'commit_state' => 'confirmed',
+        'committed' => true,
+        'changed_count' => 1,
+        'changes' => [['subject' => 'npc:9', 'delta' => 2, 'before' => 4, 'after' => 6]],
+    ],
+    $reflectionRecordBase + [
+        'request_id' => 'req_reflection_log_only',
+        'event' => 'request_finished',
+        'outcome' => 'committed',
+        'reason' => 'committed',
+    ],
+];
+$logOnlyLimited = false;
+$logOnlyReflection = dashboardLogInteractions($logOnlyReflectionRecords, null, false, $logOnlyLimited);
+dashboardDataAssert(
+    count($logOnlyReflection) === 1
+        && $logOnlyReflection[0]['attribution'] === 'unverified'
+        && $logOnlyReflection[0]['source_kind'] === 'reflection'
+        && $logOnlyReflection[0]['speaker'] === 'NPC #11'
+        && $logOnlyReflection[0]['opinion_owner'] === 'NPC #11'
+        && $logOnlyReflection[0]['listener'] === null
+        && $logOnlyReflection[0]['changes'][0]['before'] === 4,
+    'Log-only reflection attribution should identify the owner without manufacturing a listener.'
 );
 
 $sharedDatabase = $database;
@@ -329,12 +458,28 @@ dashboardDataAssert(
         && !str_contains($diagnosticHtml, 'speaker_name'),
     'Diagnostics should expose the sanitized speaker kind without adding name fields.'
 );
+$reflectionDashboardModel = $dashboardModel;
+$reflectionDashboardModel['records'] = [$reflectionParsed];
+ob_start();
+renderDashboard($reflectionDashboardModel, ['tab' => 'diagnostics']);
+$reflectionDiagnosticHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($reflectionDiagnosticHtml)
+        && str_contains($reflectionDiagnosticHtml, '&quot;source_kind&quot;: &quot;reflection&quot;')
+        && str_contains($reflectionDiagnosticHtml, '&quot;opinion_owner_id&quot;: &quot;11&quot;')
+        && !str_contains($reflectionDiagnosticHtml, 'speech_hash')
+        && !str_contains($reflectionDiagnosticHtml, 'reflection_basis'),
+    'Diagnostic rendering should retain safe reflection attribution and suppress private correlation hashes.'
+);
 ob_start();
 renderDashboard($dashboardModel, ['tab' => 'interactions']);
 $interactionHtml = ob_get_clean();
 dashboardDataAssert(
-    is_string($interactionHtml) && str_contains($interactionHtml, 'Input event <code>input_123</code>'),
-    'Input row correlation IDs should be labeled Input event in the dashboard.'
+    is_string($interactionHtml)
+        && str_contains($interactionHtml, 'Input event <code>input_123</code>')
+        && str_contains($interactionHtml, 'Player<span class="exchange-arrow"')
+        && str_contains($interactionHtml, 'Listener'),
+    'Input row correlation IDs or pair speaker/listener presentation changed in the dashboard.'
 );
 $sharedViewModel = $dashboardModel;
 $sharedViewModel['scope_label'] = 'Shared server';
@@ -351,6 +496,29 @@ dashboardDataAssert(
         && str_contains($sharedHtml, 'Shared server history')
         && !str_contains($sharedHtml, 'Playthrough <code>unprofiled</code>'),
     'The dashboard described the no-profile context as a unique playthrough instead of a shared server scope.'
+);
+$reflectionViewModel = $dashboardModel;
+$reflectionViewModel['interactions'] = $reflectionInteractions;
+ob_start();
+renderDashboard($reflectionViewModel, ['tab' => 'interactions']);
+$reflectionHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($reflectionHtml)
+        && str_contains($reflectionHtml, 'Reflector')
+        && str_contains($reflectionHtml, 'Solo reflection')
+        && !str_contains($reflectionHtml, 'Reflector<span class="exchange-arrow"'),
+    'Reflection should name its actor and mode without rendering an NPC-to-self conversation.'
+);
+$unknownReflectionModel = $reflectionViewModel;
+$unknownReflectionModel['interactions'] = [dashboardLogInteraction($earlyReflectionParsed, $active, 'unverified', [], [], [], false, '')];
+ob_start();
+renderDashboard($unknownReflectionModel, ['tab' => 'interactions']);
+$unknownReflectionHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($unknownReflectionHtml)
+        && str_contains($unknownReflectionHtml, 'Unknown NPC · Solo reflection')
+        && !str_contains($unknownReflectionHtml, 'exchange-arrow'),
+    'Ownerless preflight diagnostics should remain a solo reflection with an explicit unknown actor label.'
 );
 $databaseWithoutSubjectName = $database;
 unset($databaseWithoutSubjectName['identities']['9']);

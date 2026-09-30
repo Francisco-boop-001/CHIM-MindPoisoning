@@ -1,15 +1,15 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-Plugins",
-  "description": "Conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, with a read-only history dashboard.",
+  "description": "PRE-ALPHA: Conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, plus opt-in actor-owned reflection of an exactly registered NPC line and a read-only history dashboard.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",
   "channels": {
     "candidate": {
-      "label": "Development candidate",
+      "label": "PRE-ALPHA development candidate",
       "branch": "main",
       "package_source": "release",
       "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-Plugins/main/server/manifest.json",

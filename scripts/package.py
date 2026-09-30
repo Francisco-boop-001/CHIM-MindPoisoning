@@ -22,6 +22,7 @@ SCHEMA_VERSION = 4
 SERVER_FILES = (
     "AGENTS.md",
     "README.md",
+    "controls.php",
     "dashboard-art.webp",
     "dashboard.css",
     "dashboard.js",
@@ -34,6 +35,7 @@ SERVER_FILES = (
     "model.php",
     "postrequest.php",
     "prerequest.php",
+    "reflection.php",
     "store.php",
 )
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")

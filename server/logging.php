@@ -6,7 +6,7 @@ namespace ChimMindPoisoning;
 final class RequestLog
 {
     private const CONTEXT_FIELDS = [
-        'event_id', 'utterance_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id',
+        'event_id', 'utterance_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind',
     ];
     private const CODE_FIELDS = [
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
@@ -315,6 +315,9 @@ final class RequestLog
             }
             if ($key === 'speaker_kind') {
                 return in_array($value, ['npc', 'player'], true) ? $value : null;
+            }
+            if ($key === 'source_kind') {
+                return $value === 'reflection' ? $value : null;
             }
             if ($key === 'playthrough_id' && $value === 'unprofiled') {
                 return $value;

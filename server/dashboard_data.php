@@ -244,9 +244,25 @@ function dashboardParseLogLine(string $line): ?array
             $clean[$field] = $id;
         }
     }
+    $sourceKind = $record->source_kind ?? null;
     $speakerKind = $record->speaker_kind ?? null;
     if (in_array($speakerKind, ['npc', 'player'], true)) {
         $clean['speaker_kind'] = $speakerKind;
+    }
+    if ($sourceKind === 'reflection') {
+        if ($speakerKind !== null && $speakerKind !== 'npc') {
+            return null;
+        }
+        $speakerId = dashboardId($record->speaker_id ?? null);
+        $opinionOwnerId = dashboardId($record->opinion_owner_id ?? null);
+        if ($opinionOwnerId !== null && $speakerId !== null && $opinionOwnerId !== $speakerId) {
+            return null;
+        }
+        $clean['source_kind'] = 'reflection';
+        unset($clean['listener_id']);
+        if ($speakerKind === 'npc' && $opinionOwnerId !== null && $opinionOwnerId === $speakerId) {
+            $clean['opinion_owner_id'] = $opinionOwnerId;
+        }
     }
     if ($speakerKind === 'player') {
         unset($clean['speaker_id']);
@@ -645,10 +661,10 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
     }
     $names = is_array($database['identities'] ?? null) ? $database['identities'] : [];
     $nameCounts = [];
-    $listeners = [];
+    $owners = [];
     foreach ($rows as $row) {
         if (is_array($row) && is_string($row['id'] ?? null)) {
-            $listeners[$row['id']] = $row;
+            $owners[$row['id']] = $row;
         }
     }
     foreach ($names as $name) {
@@ -683,12 +699,16 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
             ) {
                 continue;
             }
-            $key = dashboardInteractionKey($activeId, (string)$eventId, $utteranceId, $row['id']);
+            $sourceKind = ($entry['source_kind'] ?? null) === 'reflection' ? 'reflection' : null;
+            $ownerId = $row['id'];
+            $key = dashboardInteractionKey($activeId, (string)$eventId, $utteranceId, $ownerId);
             $ledgerKeys[$key] = true;
             dashboardKeepRecent($candidates, [
                 'kind' => 'ledger', 'key' => $key, 'event_id' => (string)$eventId,
                 'utterance_id' => $utteranceId, 'playthrough_id' => $activeId,
-                'listener_id' => $row['id'], 'entry' => $entry, 'row' => $row,
+                'listener_id' => $sourceKind === 'reflection' ? null : $ownerId,
+                'opinion_owner_id' => $sourceKind === 'reflection' ? $ownerId : null,
+                'source_kind' => $sourceKind, 'entry' => $entry, 'row' => $row,
                 'attribution' => $activeId === 'unprofiled' ? 'shared' : 'active',
             ], $limited);
         }
@@ -708,9 +728,10 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         }
         $eventId = dashboardId($record['event_id'] ?? null);
         $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
-        $listenerId = dashboardId($record['listener_id'] ?? null);
-        if ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $listenerId !== null) {
-            $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId);
+        $sourceKind = ($record['source_kind'] ?? null) === 'reflection' ? 'reflection' : null;
+        $ownerId = dashboardOpinionOwnerId($record);
+        if ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null) {
+            $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $ownerId);
             if (isset($ledgerKeys[$key])) {
                 continue;
             }
@@ -720,7 +741,10 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         dashboardKeepRecent($candidates, [
             'kind' => 'log', 'key' => $key, 'event_id' => $eventId,
             'utterance_id' => $utteranceId,
-            'playthrough_id' => $playthroughId, 'listener_id' => $listenerId,
+            'playthrough_id' => $playthroughId,
+            'listener_id' => $sourceKind === 'reflection' ? null : $ownerId,
+            'opinion_owner_id' => $sourceKind === 'reflection' ? $ownerId : null,
+            'source_kind' => $sourceKind,
             'record' => $record,
             'attribution' => $playthroughId === null ? 'unattributed' : ($playthroughId === 'unprofiled' ? 'shared' : 'active'),
         ], $limited);
@@ -735,18 +759,29 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         if ($candidate['kind'] === 'log') {
             $interactions[] = dashboardLogInteraction(
                 $candidate['record'], $candidate['playthrough_id'], $candidate['attribution'],
-                $names, $listeners, $recordIndex, true, (string)($database['player_name'] ?? '')
+                $names, $owners, $recordIndex, true, (string)($database['player_name'] ?? '')
             );
         } else {
-            $interactions[] = dashboardLedgerInteraction($candidate, $recordIndex, $names, $listeners, $nameCounts, $database['player_name'] ?? '');
+            $interactions[] = dashboardLedgerInteraction($candidate, $recordIndex, $names, $owners, $nameCounts, $database['player_name'] ?? '');
         }
     }
     return $interactions;
 }
 
-function dashboardInteractionKey(string $playthroughId, string $eventId, string $utteranceId, string $listenerId): string
+function dashboardInteractionKey(string $playthroughId, string $eventId, string $utteranceId, string $opinionOwnerId): string
 {
-    return implode("\x1f", [$playthroughId, $eventId, $utteranceId, $listenerId]);
+    return implode("\x1f", [$playthroughId, $eventId, $utteranceId, $opinionOwnerId]);
+}
+
+function dashboardOpinionOwnerId(array $record): ?string
+{
+    if (($record['source_kind'] ?? null) === 'reflection') {
+        $ownerId = dashboardId($record['opinion_owner_id'] ?? null);
+        return ($record['speaker_kind'] ?? null) === 'npc' && $ownerId !== null && $ownerId === dashboardId($record['speaker_id'] ?? null)
+            ? $ownerId
+            : null;
+    }
+    return dashboardId($record['listener_id'] ?? null);
 }
 
 function dashboardIndexRecords(array $records): array
@@ -759,12 +794,12 @@ function dashboardIndexRecords(array $records): array
         $playthroughId = dashboardPlaythroughId($record['playthrough_id'] ?? null);
         $eventId = dashboardId($record['event_id'] ?? null);
         $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
-        $listenerId = dashboardId($record['listener_id'] ?? null);
+        $opinionOwnerId = dashboardOpinionOwnerId($record);
         $event = $record['event'] ?? null;
-        if ($playthroughId === null || $eventId === null || $utteranceId === null || $listenerId === null || !is_string($event)) {
+        if ($playthroughId === null || $eventId === null || $utteranceId === null || $opinionOwnerId === null || !is_string($event)) {
             continue;
         }
-        $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId);
+        $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $opinionOwnerId);
         $index[$key][$event][] = $record;
     }
     return $index;
@@ -799,13 +834,20 @@ function dashboardCandidateOrder(array $left, array $right): int
     return strcmp((string)($right['record']['timestamp'] ?? ''), (string)($left['record']['timestamp'] ?? ''));
 }
 
-function dashboardLedgerInteraction(array $candidate, array $recordIndex, array $names, array $listeners, array $nameCounts, string $playerName): array
+function dashboardLedgerInteraction(array $candidate, array $recordIndex, array $names, array $owners, array $nameCounts, string $playerName): array
 {
     $group = $recordIndex[$candidate['key']] ?? [];
     [$persistence, $commitState] = dashboardPersistenceForGroup($group);
     $request = dashboardRequestForGroup($group, $persistence);
     $entry = $candidate['entry'];
     $row = $candidate['row'];
+    $reflection = ($candidate['source_kind'] ?? null) === 'reflection';
+    $ownerId = dashboardId($candidate['opinion_owner_id'] ?? null);
+    $relationshipOwnerId = $reflection ? $ownerId : dashboardId($candidate['listener_id'] ?? null);
+    $opinionOwner = $reflection && $ownerId !== null
+        ? ($names[$ownerId] ?? 'NPC #' . $ownerId)
+        : null;
+    $relationshipOwner = $relationshipOwnerId === null ? $row : ($owners[$relationshipOwnerId] ?? $row);
     $changes = [];
     $allZero = true;
     foreach ($entry['judgments'] as $judgment) {
@@ -826,10 +868,9 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
         $before = $loggedChange['before'] ?? null;
         $after = $loggedChange['after'] ?? null;
         $confirmed = $loggedChange !== null && $before !== null && $after !== null;
-        $listener = $listeners[$candidate['listener_id']] ?? $row;
         $current = $subject !== 'player' && !isset($names[$subjectId])
             ? ['value' => null, 'state' => 'unavailable']
-            : dashboardCurrent($listener, $subject, $label, $playerName, $nameCounts);
+            : dashboardCurrent($relationshipOwner, $subject, $label, $playerName, $nameCounts);
         $changes[] = [
             'subject' => $subject,
             'label' => $label,
@@ -852,21 +893,29 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
 
     $speakerId = dashboardId($request['speaker_id'] ?? $persistence['speaker_id'] ?? null);
     $speakerKind = $request['speaker_kind'] ?? $persistence['speaker_kind'] ?? null;
-    return [
+    $speaker = $reflection
+        ? $opinionOwner
+        : ($speakerKind === 'player' ? 'Player' : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)));
+    $interaction = [
         'request_id' => $request['request_id'] ?? $persistence['request_id'] ?? null,
         'event_id' => $candidate['event_id'],
         'utterance_id' => $candidate['utterance_id'],
         'playthrough_id' => $candidate['playthrough_id'],
         'attribution' => $candidate['attribution'] ?? 'active',
         'timestamp' => $request['timestamp'] ?? $persistence['timestamp'] ?? null,
-        'speaker' => $speakerKind === 'player' ? 'Player' : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)),
-        'listener' => $names[$candidate['listener_id']] ?? 'NPC #' . $candidate['listener_id'],
+        'speaker' => $speaker,
+        'listener' => $reflection ? null : ($names[$candidate['listener_id']] ?? 'NPC #' . $candidate['listener_id']),
         'outcome' => $outcome,
         'reason' => $request['reason'] ?? $persistence['persistence_reason'] ?? 'ledger_recorded',
         'model_ms' => $request['model_ms'] ?? null,
         'persistence_ms' => $request['persistence_ms'] ?? $persistence['persistence_ms'] ?? null,
         'changes' => $changes,
     ];
+    if ($reflection) {
+        $interaction['source_kind'] = 'reflection';
+        $interaction['opinion_owner'] = $opinionOwner;
+    }
+    return $interaction;
 }
 
 function dashboardPersistenceForGroup(array $group): array
@@ -996,14 +1045,17 @@ function dashboardLogInteractions(array $records, ?string $activeId, bool $datab
     return array_slice($interactions, 0, DASHBOARD_INTERACTIONS);
 }
 
-function dashboardLogInteraction(array $record, ?string $playthroughId, string $attribution, array $names, array $listeners, array $recordIndex, bool $databaseAvailable, string $playerName): array
+function dashboardLogInteraction(array $record, ?string $playthroughId, string $attribution, array $names, array $owners, array $recordIndex, bool $databaseAvailable, string $playerName): array
 {
     $speakerId = dashboardId($record['speaker_id'] ?? null);
     $listenerId = dashboardId($record['listener_id'] ?? null);
+    $reflection = ($record['source_kind'] ?? null) === 'reflection';
+    $opinionOwnerId = $reflection ? dashboardId($record['opinion_owner_id'] ?? null) : null;
+    $ownerId = dashboardOpinionOwnerId($record);
     $eventId = dashboardId($record['event_id'] ?? null);
     $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
-    $key = $playthroughId !== null && $eventId !== null && $utteranceId !== null && $listenerId !== null
-        ? dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $listenerId)
+    $key = $playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null
+        ? dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $ownerId)
         : null;
     $group = $key === null ? [] : ($recordIndex[$key] ?? []);
     $group = array_map(
@@ -1040,8 +1092,8 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
             $subjectId = $subject === 'player' ? null : substr($subject, 4);
             $label = $subject === 'player' ? dashboardLabel($playerName, 'Player') : ($names[$subjectId] ?? 'NPC #' . $subjectId);
             $subjectKnown = $subject === 'player' ? $playerName !== '' : isset($names[$subjectId]);
-            $current = $databaseAvailable && isset($listeners[$listenerId]) && $subjectKnown
-                ? dashboardCurrent($listeners[$listenerId], $subject, $label, $playerName, $nameCounts)
+            $current = $databaseAvailable && $ownerId !== null && isset($owners[$ownerId]) && $subjectKnown
+                ? dashboardCurrent($owners[$ownerId], $subject, $label, $playerName, $nameCounts)
                 : ['value' => null, 'state' => 'unavailable'];
             $changes[] = [
                 'subject' => $subject,
@@ -1057,8 +1109,13 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     }
     $speaker = ($record['speaker_kind'] ?? null) === 'player'
         ? 'Player'
-        : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId));
-    return [
+        : ($reflection && $opinionOwnerId !== null
+            ? ($names[$opinionOwnerId] ?? 'NPC #' . $opinionOwnerId)
+            : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)));
+    $opinionOwner = $reflection && $opinionOwnerId !== null
+        ? ($names[$opinionOwnerId] ?? 'NPC #' . $opinionOwnerId)
+        : null;
+    $interaction = [
         'request_id' => $record['request_id'] ?? null,
         'event_id' => $eventId,
         'utterance_id' => $utteranceId,
@@ -1066,13 +1123,18 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
         'attribution' => $attribution,
         'timestamp' => $record['timestamp'] ?? null,
         'speaker' => $speaker,
-        'listener' => $listenerId === null ? null : ($names[$listenerId] ?? 'NPC #' . $listenerId),
+        'listener' => $reflection ? null : ($listenerId === null ? null : ($names[$listenerId] ?? 'NPC #' . $listenerId)),
         'outcome' => $outcome,
         'reason' => $record['reason'] ?? $persistence['persistence_reason'] ?? null,
         'model_ms' => $record['model_ms'] ?? null,
         'persistence_ms' => $record['persistence_ms'] ?? $persistence['persistence_ms'] ?? null,
         'changes' => $changes,
     ];
+    if ($reflection) {
+        $interaction['source_kind'] = 'reflection';
+        $interaction['opinion_owner'] = $opinionOwner;
+    }
+    return $interaction;
 }
 
 function dashboardRecordMatches(array $record, array $filters): bool

@@ -708,3 +708,11 @@ Review: lead reviewed the full product/test diff and affected logging/dashboard 
 - [x] Verify public release and record evidence; preserve installed environment.
 
 Review: v0.1.11 published as PRE-ALPHA after clean-tag and downloaded-asset equality checks. Main advanced only after publication. See release-v0.1.11.md. Compatibility reference and installed environment unchanged.
+
+## Drama-Llama dashboard art and title — 2026-09-30
+
+- [x] Inspect the supplied illustration against the existing poster layout and preserve the main Mind Poisoning heading.
+- [x] Add the Drama-Llama subtitle and integrate the source PNG/runtime WebP without changing dimensions.
+- [x] Render the synthetic desktop/night and mobile/day previews; review subtitle contrast and llama visibility.
+
+Review: PHP lint and existing dashboard preview self-test passed using WSL PHP 8.2.29. Headless Edge captures of the synthetic fixture at 1440px/night and 390px/day showed the subtitle, central scene and background llama; both had no document overflow and loaded the 1536×1024 artwork. Evidence: drama-llama-desktop-night.png and drama-llama-mobile-day.png. Runtime WebP is 547,258 bytes. The temporary preview process was stopped. No release, deployment, compatibility pin, CHIM installation, database or modlist changes.

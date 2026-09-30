@@ -17,6 +17,7 @@ interface StoreDb
     public function eventById(int $eventId, string $utteranceId): ?array;
     public function npcIdentities(): array;
     public function npcById(int $npcId, bool $forUpdate = false): ?array;
+    public function reflectionHistory(string $actorName, int $beforeEventId): array;
     public function beginForListener(int $listenerId): bool;
     public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool;
     public function backupAndVerify(int $npcId, array $expected): bool;
@@ -107,14 +108,65 @@ function storedLedgerNamespace(object $pluginExtendedData): ?array
     ) {
         return null;
     }
+    if (array_key_exists('reflection_state', $ledger)) {
+        $state = $ledger['reflection_state'];
+        if (
+            !is_array($state)
+            || array_keys($state) !== ['basis', 'subjects']
+            || !is_string($state['basis'] ?? null)
+            || preg_match('/\A[a-f0-9]{64}\z/D', $state['basis']) !== 1
+            || !is_array($state['subjects'] ?? null) || !array_is_list($state['subjects'])
+            || count($state['subjects']) > 32
+        ) {
+            return null;
+        }
+        $seen = [];
+        foreach ($state['subjects'] as $subject) {
+            if (
+                !is_string($subject)
+                || ($subject !== 'player' && preg_match('/\Anpc:[1-9][0-9]*\z/D', $subject) !== 1)
+                || isset($seen[$subject])
+            ) {
+                return null;
+            }
+            $seen[$subject] = true;
+        }
+    }
+    $hasReflectionEvents = false;
     foreach ($ledger['events'] as $entry) {
         if (
             !is_array($entry)
             || !is_int($entry['event_id'] ?? null) || $entry['event_id'] < 1
             || !is_string($entry['utterance_id'] ?? null) || $entry['utterance_id'] === ''
+            || (array_key_exists('source_kind', $entry) && $entry['source_kind'] !== 'reflection')
+            || (($entry['source_kind'] ?? null) === 'reflection' && !is_array($entry['judgments'] ?? null))
         ) {
             return null;
         }
+        if (($entry['source_kind'] ?? null) === 'reflection') {
+            $hasReflectionEvents = true;
+            if (!array_is_list($entry['judgments']) || count($entry['judgments']) > 8) {
+                return null;
+            }
+            foreach ($entry['judgments'] as $judgment) {
+                $judgmentKeys = is_array($judgment) ? array_keys($judgment) : [];
+                sort($judgmentKeys, SORT_STRING);
+                if (
+                    !is_array($judgment)
+                    || $judgmentKeys !== ['delta', 'evidence', 'reason', 'subject']
+                    || !is_string($judgment['subject'] ?? null)
+                    || ($judgment['subject'] !== 'player' && preg_match('/\Anpc:[1-9][0-9]*\z/D', $judgment['subject']) !== 1)
+                    || !is_int($judgment['delta'] ?? null) || $judgment['delta'] < -5 || $judgment['delta'] > 5
+                    || !is_string($judgment['reason'] ?? null) || strlen($judgment['reason']) > 120
+                    || !is_string($judgment['evidence'] ?? null) || strlen($judgment['evidence']) > 120
+                ) {
+                    return null;
+                }
+            }
+        }
+    }
+    if ($hasReflectionEvents && !array_key_exists('reflection_state', $ledger)) {
+        return null;
     }
     return $ledger;
 }
@@ -290,6 +342,50 @@ function eventAlreadyProcessed(array $npc, string $playthroughId, int $eventId, 
     return false;
 }
 
+function reflectionBasisProcessed(array $owner, string $playthroughId, string $basis, string $subject): bool
+{
+    if (!is_string($basis) || preg_match('/\A[a-f0-9]{64}\z/D', $basis) !== 1) {
+        return true;
+    }
+    $plugins = $owner['plugin_extended_data'] ?? null;
+    $ledger = $plugins instanceof \stdClass ? storedLedgerNamespace($plugins) : null;
+    if ($ledger === null) {
+        return true;
+    }
+    if ($ledger === [] || $ledger['playthrough_id'] !== $playthroughId) {
+        return false;
+    }
+    $state = $ledger['reflection_state'] ?? null;
+    if ($state === null || $state['basis'] !== $basis) {
+        return false;
+    }
+    return in_array($subject, $state['subjects'], true) || count($state['subjects']) >= 32;
+}
+
+function nextReflectionState(array $ledger, string $basis, array $subjects): array
+{
+    if (preg_match('/\A[a-f0-9]{64}\z/D', $basis) !== 1 || count($subjects) > 8) {
+        throw new RuntimeException('Reflection basis is invalid.');
+    }
+    $previous = $ledger['reflection_state'] ?? null;
+    $tokens = is_array($previous) && ($previous['basis'] ?? null) === $basis
+        ? ($previous['subjects'] ?? [])
+        : [];
+    foreach ($subjects as $subject) {
+        if (!is_string($subject) || ($subject !== 'player' && preg_match('/\Anpc:[1-9][0-9]*\z/D', $subject) !== 1)) {
+            throw new RuntimeException('Reflection subject is invalid.');
+        }
+        if (!in_array($subject, $tokens, true)) {
+            $tokens[] = $subject;
+        }
+    }
+    if (count($tokens) > 32) {
+        throw new RuntimeException('Reflection basis subject limit was reached.');
+    }
+    sort($tokens, SORT_STRING);
+    return ['basis' => $basis, 'subjects' => array_values($tokens)];
+}
+
 function validSubjectsAndJudgments(array $subjects, array $judgments, array $event): bool
 {
     if (count($subjects) > 8 || count($subjects) !== count($judgments)) {
@@ -369,7 +465,14 @@ function playerInputIncludesListener(array $event, string $listenerName): bool
     return $matches === 1;
 }
 
-function nextLedger(array $ledger, string $playthroughId, int $eventId, string $utteranceId, array $judgments): array
+function nextLedger(
+    array $ledger,
+    string $playthroughId,
+    int $eventId,
+    string $utteranceId,
+    array $judgments,
+    ?array $reflectionState = null
+): array
 {
     if (($ledger['playthrough_id'] ?? null) !== $playthroughId) {
         $ledger = ['playthrough_id' => $playthroughId, 'floor_event_id' => 0, 'events' => []];
@@ -400,7 +503,11 @@ function nextLedger(array $ledger, string $playthroughId, int $eventId, string $
             'evidence' => mb_strcut($judgment['evidence'], 0, 120, 'UTF-8'),
         ];
     }
-    $events[] = ['event_id' => $eventId, 'utterance_id' => $utteranceId, 'judgments' => $details];
+    $entry = ['event_id' => $eventId, 'utterance_id' => $utteranceId, 'judgments' => $details];
+    if ($reflectionState !== null) {
+        $entry['source_kind'] = 'reflection';
+    }
+    $events[] = $entry;
     usort($events, static fn(array $left, array $right): int => $left['event_id'] <=> $right['event_id']);
     if (count($events) > 128) {
         $removed = array_splice($events, 0, count($events) - 128);
@@ -408,7 +515,13 @@ function nextLedger(array $ledger, string $playthroughId, int $eventId, string $
             $floor = max($floor, $entry['event_id']);
         }
     }
-    return ['playthrough_id' => $playthroughId, 'floor_event_id' => $floor, 'events' => array_values($events)];
+    $result = ['playthrough_id' => $playthroughId, 'floor_event_id' => $floor, 'events' => array_values($events)];
+    if ($reflectionState !== null) {
+        $result['reflection_state'] = $reflectionState;
+    } elseif (is_array($ledger['reflection_state'] ?? null)) {
+        $result['reflection_state'] = $ledger['reflection_state'];
+    }
+    return $result;
 }
 
 function playerRelationshipKey(object $relationships, string $playerName): ?string
@@ -430,7 +543,15 @@ function playerRelationshipKey(object $relationships, string $playerName): ?stri
     return $matches[0] ?? null;
 }
 
-function persistJudgments(array $event, array $subjects, array $judgments, StoreDb $store, ?RequestLog $requestLog = null): string
+function persistJudgments(
+    array $event,
+    array $subjects,
+    array $judgments,
+    StoreDb $store,
+    ?RequestLog $requestLog = null,
+    ?callable $revalidateReflection = null,
+    ?array $registration = null
+): string
 {
     $startedAt = hrtime(true);
     $committed = false;
@@ -443,7 +564,9 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
     $reason = 'persistence-failed';
     $stage = 'validation';
     $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
+    $reflection = ($event['source_kind'] ?? null) === 'reflection';
     $playerSpeaker = $speakerKind === 'player';
+    $ownerId = $reflection ? ($event['opinion_owner_id'] ?? null) : ($event['listener_id'] ?? null);
     $edgeChanges = [];
     $done = static function (string $outcome, string $code) use (&$status, &$reason): string {
         $status = $outcome;
@@ -458,6 +581,8 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         'speaker_id' => $event['speaker_id'] ?? null,
         'speaker_kind' => $event['speaker_kind'] ?? 'npc',
         'listener_id' => $event['listener_id'] ?? null,
+        'opinion_owner_id' => $reflection ? $ownerId : null,
+        'source_kind' => $reflection ? 'reflection' : null,
         'cleanup_failed' => false,
     ]);
 
@@ -487,10 +612,27 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
                     !is_int($event['speaker_id'] ?? null) || $event['speaker_id'] < 1
                     || ($event['source_kind'] ?? null) === 'player_input'
                 ))
-            || !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
-            || (!$playerSpeaker && $event['speaker_id'] === $event['listener_id'])
+            || ($reflection
+                ? (
+                    $speakerKind !== 'npc' || $playerSpeaker
+                    || !is_int($event['opinion_owner_id'] ?? null) || $event['opinion_owner_id'] < 1
+                    || $event['speaker_id'] !== $event['opinion_owner_id']
+                    || array_key_exists('listener_id', $event) && $event['listener_id'] !== null
+                    || !is_string($event['reflection_basis'] ?? null)
+                    || preg_match('/\A[a-f0-9]{64}\z/D', $event['reflection_basis']) !== 1
+                    || !is_string($event['speech_hash'] ?? null)
+                    || preg_match('/\A[a-f0-9]{64}\z/D', $event['speech_hash']) !== 1
+                    || !is_string($event['text'] ?? null)
+                    || !hash_equals($event['speech_hash'], hash('sha256', $event['text']))
+                    || !is_callable($revalidateReflection)
+                    || !is_array($registration)
+                )
+                : (
+                    !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
+                    || (!$playerSpeaker && $event['speaker_id'] === $event['listener_id'])
+                ))
             || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) === ''
-            || !is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''
+            || (!$reflection && (!is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''))
             || !is_string($event['text'] ?? null) || $event['text'] === ''
             || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
             || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
@@ -500,13 +642,16 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             return $done('invalid', 'invalid-event');
         }
 
+        if (!is_int($ownerId) || $ownerId < 1) {
+            return $done('invalid', 'invalid-opinion-owner');
+        }
         $cleanupRequired = true;
         $stage = 'begin-listener';
-        if (!$store->beginForListener($event['listener_id'])) {
+        if (!$store->beginForListener($ownerId)) {
             return $done('busy', 'listener-busy');
         }
         $stage = 'revalidate-event';
-        $listener = $store->npcById($event['listener_id'], true);
+        $listener = $store->npcById($ownerId, true);
         $active = $store->activePlaythrough();
         $currentEvent = $store->eventById($event['event_id'], $event['utterance_id']);
         if (
@@ -517,15 +662,51 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         ) {
             return $done('stale', 'event-stale');
         }
+        if ($reflection) {
+            try {
+                if (!$revalidateReflection($registration, 'transaction')) {
+                    return $done('stale', 'reflection-registration-stale');
+                }
+            } catch (Throwable) {
+                return $done('stale', 'reflection-registration-stale');
+            }
+            $basisReason = null;
+            $currentHistory = null;
+            $currentBasis = reflectionBasisForEvent($listener, $store, $event, $currentHistory, $basisReason);
+            if (!is_string($currentBasis) || !hash_equals($event['reflection_basis'], $currentBasis)) {
+                return $done('stale', $basisReason ?? 'reflection-basis-stale');
+            }
+            $pending = [];
+            foreach ($subjects as $token => $_subject) {
+                if (!reflectionBasisProcessed($listener, $event['playthrough_id'], $currentBasis, $token)) {
+                    $pending[$token] = true;
+                }
+            }
+            if ($pending === []) {
+                return $done('duplicate', 'reflection-basis-duplicate');
+            }
+            foreach (array_keys($judgments) as $token) {
+                if (!isset($pending[$token])) {
+                    unset($judgments[$token], $subjects[$token]);
+                }
+            }
+            if ($subjects === [] || !validSubjectsAndJudgments($subjects, $judgments, $event)) {
+                return $done('invalid', 'reflection-subjects-invalid');
+            }
+        }
         if (
-            ($playerSpeaker || array_key_exists('player', $subjects))
+            ($reflection || $playerSpeaker || array_key_exists('player', $subjects))
             && is_string($event['player_name'] ?? null)
             && trim($event['player_name']) !== ''
             && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
         ) {
             return $done('stale', 'player-identity-stale');
         }
-        if (!sameActorName($listener['npc_name'] ?? null, $event['listener_name'])) {
+        if (
+            $reflection
+            ? !sameActorName($listener['npc_name'] ?? null, $event['speaker_name'])
+            : !sameActorName($listener['npc_name'] ?? null, $event['listener_name'])
+        ) {
             return $done('stale', 'listener-identity-stale');
         }
         $extendedData = $listener['extended_data'] ?? null;
@@ -543,8 +724,10 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
 
         $stage = 'revalidate-actors';
         $identities = $store->npcIdentities();
-        $actors = [$event['listener_id'] => $event['listener_name']];
-        if (!$playerSpeaker) {
+        $actors = $reflection
+            ? [$event['opinion_owner_id'] => $event['speaker_name']]
+            : [$event['listener_id'] => $event['listener_name']];
+        if (!$playerSpeaker && !$reflection) {
             $actors[$event['speaker_id']] = $event['speaker_name'];
         }
         foreach ($actors as $id => $name) {
@@ -567,7 +750,7 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
                 return $done('stale', 'subject-stale');
             }
         }
-        if (!$playerSpeaker) {
+        if (!$playerSpeaker && !$reflection) {
             $stage = 'revalidate-speaker';
             $speaker = $store->npcById($event['speaker_id']);
             if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
@@ -581,6 +764,13 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             return $done('invalid', 'relationships-invalid');
         }
         if ($playerSpeaker) {
+            try {
+                playerRelationshipKey($relationships, (string)$event['player_name']);
+            } catch (RuntimeException) {
+                return $done('failed', 'player-alias-ambiguous');
+            }
+        }
+        if ($reflection && array_key_exists('player', $subjects)) {
             try {
                 playerRelationshipKey($relationships, (string)$event['player_name']);
             } catch (RuntimeException) {
@@ -643,7 +833,21 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             }
         }
         $stage = 'update-ledger';
-        $nextLedger = nextLedger($pluginNamespace, $event['playthrough_id'], $event['event_id'], $event['utterance_id'], $judgments);
+        $reflectionState = null;
+        if ($reflection) {
+            $reflectionBaseLedger = $pluginNamespace !== [] && $pluginNamespace['playthrough_id'] !== $event['playthrough_id']
+                ? []
+                : $pluginNamespace;
+            $reflectionState = nextReflectionState($reflectionBaseLedger, $event['reflection_basis'], array_keys($subjects));
+        }
+        $nextLedger = nextLedger(
+            $pluginNamespace,
+            $event['playthrough_id'],
+            $event['event_id'],
+            $event['utterance_id'],
+            $judgments,
+            $reflectionState
+        );
         $updatedPluginExtendedData = clone $pluginExtendedData;
         $updatedPluginExtendedData->mind_poisoning = (object)$nextLedger;
         $stage = 'validate-timeline';
@@ -654,11 +858,11 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
         $snapshotGamets = max((float)($currentGamets ?? 0), (float)$event['gamets']);
 
         $stage = 'write-listener';
-        if (!$store->writeNpc($event['listener_id'], $edgeUpdates, (object)$nextLedger, $snapshotGamets)) {
+        if (!$store->writeNpc($ownerId, $edgeUpdates, (object)$nextLedger, $snapshotGamets)) {
             return $done('failed', 'listener-write-failed');
         }
         $stage = 'verify-listener';
-        $written = $store->npcById($event['listener_id']);
+        $written = $store->npcById($ownerId);
         if (
             !is_array($written)
             || !sameJsonValue($written['extended_data'] ?? null, $updatedExtendedData)
@@ -673,8 +877,24 @@ function persistJudgments(array $event, array $subjects, array $judgments, Store
             'gamets_last_updated' => $snapshotGamets,
         ];
         $stage = 'verify-snapshot';
-        if (!$store->backupAndVerify($event['listener_id'], $expected)) {
+        if (!$store->backupAndVerify($ownerId, $expected)) {
             return $done('failed', 'snapshot-verification-failed');
+        }
+        if ($reflection) {
+            $gateReason = null;
+            if (speechAckInteractionStatus($gateReason) !== 'ok') {
+                return $done('stale', 'reflection-' . ($gateReason ?? 'interaction-stale'));
+            }
+            if (mindPoisoningPauseStatus($gateReason) !== 'enabled') {
+                return $done('paused', $gateReason ?? 'plugin-paused');
+            }
+            try {
+                if (!$revalidateReflection($registration, 'transaction')) {
+                    return $done('stale', 'reflection-registration-stale');
+                }
+            } catch (Throwable) {
+                return $done('stale', 'reflection-registration-stale');
+            }
         }
         $stage = 'commit';
         $commitAttempted = true;
@@ -774,6 +994,19 @@ function sameEvent(array $expected, ?array $current): bool
             && $current['source_gamets'] === ($expected['source_gamets'] ?? null);
     }
 
+    if (($expected['source_kind'] ?? null) === 'reflection') {
+        $parts = function_exists(__NAMESPACE__ . '\\reflectionSourceParts')
+            ? reflectionSourceParts((string)($current['source_data'] ?? ''))
+            : null;
+        return ($current['speaker_kind'] ?? 'npc') === 'npc'
+            && in_array($current['delivery_state'] ?? null, ['emitted', 'spoken'], true)
+            && is_array($parts)
+            && sameActorName($parts['speaker'] ?? null, $expected['speaker_name'] ?? null)
+            && is_string($expected['text'] ?? null)
+            && is_string($expected['speech_hash'] ?? null)
+            && hash_equals($expected['speech_hash'], hash('sha256', $expected['text']));
+    }
+
     return ($current['speaker_kind'] ?? 'npc') === 'npc'
         && !array_key_exists('source_kind', $current)
         && in_array($current['delivery_state'] ?? null, ['emitted', 'spoken'], true);
@@ -861,6 +1094,61 @@ final class PostgresStoreDb implements StoreDb
             return null;
         }
         return normalizeEventRow($events[0]);
+    }
+
+    public function reflectionHistory(string $actorName, int $beforeEventId): array
+    {
+        if (trim($actorName) === '' || strlen($actorName) > 256 || preg_match('//u', $actorName) !== 1 || $beforeEventId < 1) {
+            return [];
+        }
+        // ponytail: the broad sentinel exclusion is conservative, but keeps reflection rows out before LIMIT.
+        $query = "SELECT rowid AS event_id, utterance_id, gamets::text AS gamets,
+                         data AS source_data, delivery_state, people
+                  FROM eventlog e
+                  WHERE e.type = 'chat' AND e.rowid < $1 AND e.delivery_state = 'spoken'
+                    AND (SELECT count(*) FROM eventlog exact_event
+                         WHERE exact_event.type = 'chat' AND exact_event.utterance_id = e.utterance_id) = 1
+                    AND (
+                        SELECT count(*) FROM unnest(string_to_array(COALESCE(e.people, ''), '|')) AS member(name)
+                        WHERE lower(btrim(member.name)) = lower(btrim($2))
+                    ) = 1
+                    AND e.data !~* 'explicit_disable_rechat'
+                    AND char_length(e.data) <= 4096
+                  ORDER BY e.rowid DESC LIMIT 16";
+        $rows = $this->readRows($query, [$beforeEventId, trim($actorName)]);
+        if (count($rows) > 16) {
+            throw new RuntimeException('Reflection history exceeded its bounded row limit.');
+        }
+        $normalized = [];
+        $bytes = 0;
+        foreach ($rows as $row) {
+            $eventId = filter_var($row['event_id'] ?? null, FILTER_VALIDATE_INT);
+            $utteranceId = $row['utterance_id'] ?? null;
+            $sourceData = $row['source_data'] ?? null;
+            $people = $row['people'] ?? null;
+            if (
+                $eventId === false || $eventId < 1 || $eventId >= $beforeEventId
+                || !is_string($utteranceId) || preg_match('/\\Autt_[A-Za-z0-9_-]{8,128}\\z/D', $utteranceId) !== 1
+                || ($row['delivery_state'] ?? null) !== 'spoken'
+                || !is_string($sourceData) || strlen($sourceData) > 4096 || preg_match('//u', $sourceData) !== 1
+                || !is_string($people) || strlen($people) > 2048 || preg_match('//u', $people) !== 1
+                || !is_numeric($row['gamets'] ?? null) || !is_finite((float)$row['gamets'])
+            ) {
+                throw new RuntimeException('Reflection history returned an invalid row.');
+            }
+            $bytes += strlen($sourceData) + strlen($people);
+            if ($bytes > 65536) {
+                throw new RuntimeException('Reflection history exceeded its bounded byte limit.');
+            }
+            $normalized[] = [
+                'event_id' => (int)$eventId,
+                'utterance_id' => $utteranceId,
+                'source_data' => $sourceData,
+                'delivery_state' => 'spoken',
+                'people' => $people,
+            ];
+        }
+        return $normalized;
     }
 
     public function playerInputEvent(array $source): ?array
@@ -1150,6 +1438,33 @@ final class PostgresStoreDb implements StoreDb
         }
         $rows = $this->db->fetchAll($query);
         return is_array($rows) ? $rows : [];
+    }
+
+    private function readRows(string $query, array $params): array
+    {
+        if ($this->ownsTransaction) {
+            $result = $this->nativeQuery($query, $params);
+        } else {
+            $this->captureConnection();
+            assertIdleTransactionStatus(pg_transaction_status($this->connection));
+            $result = @pg_query_params($this->connection, $query, $params);
+            $this->assertConnectionIdentity();
+            if ($result === false) {
+                throw new RuntimeException('Could not read bounded reflection history.');
+            }
+        }
+        try {
+            $rows = [];
+            while ($row = pg_fetch_assoc($result)) {
+                $rows[] = $row;
+                if (count($rows) > 16) {
+                    throw new RuntimeException('Reflection history exceeded its bounded row limit.');
+                }
+            }
+            return $rows;
+        } finally {
+            pg_free_result($result);
+        }
     }
 
     private function one(string $query, array $params = []): array

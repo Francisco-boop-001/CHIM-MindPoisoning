@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+if (!defined('CHIM_MIND_POISONING_TEST_FIXTURES_ONLY')) {
+    define('CHIM_MIND_POISONING_TEST_FIXTURES_ONLY', true);
+}
 require_once __DIR__ . '/runtime_test.php';
 require_once __DIR__ . '/../server/logging.php';
 
@@ -22,6 +25,7 @@ final class LoggingStoreDb implements StoreDb
     public function eventById(int $eventId, string $utteranceId): ?array { return $this->inner->eventById($eventId, $utteranceId); }
     public function npcIdentities(): array { return $this->inner->npcIdentities(); }
     public function npcById(int $npcId, bool $forUpdate = false): ?array { return $this->inner->npcById($npcId, $forUpdate); }
+    public function reflectionHistory(string $actorName, int $beforeEventId): array { return $this->inner->reflectionHistory($actorName, $beforeEventId); }
     public function beginForListener(int $listenerId): bool { return $this->inner->beginForListener($listenerId); }
     public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool
     {

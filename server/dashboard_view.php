@@ -46,7 +46,7 @@ function renderDashboard(array $model, array $filters): void
     $levelOptions = ['debug' => 'Debug', 'info' => 'Info', 'warning' => 'Warning', 'error' => 'Error'];
     $safeLogFields = array_fill_keys([
         'schema_version', 'plugin', 'version', 'timestamp', 'request_id', 'level', 'event',
-        'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'connector_id', 'utterance_id',
+        'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind', 'connector_id', 'utterance_id',
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
         'commit_state', 'elapsed_ms', 'model_ms', 'persistence_ms', 'payload_bytes', 'subject_count',
         'speech_bytes', 'changed_count', 'delta', 'subject', 'committed', 'cleanup_failed', 'changes',
@@ -119,7 +119,7 @@ function renderDashboard(array $model, array $filters): void
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mind Poisoning — Interactions and Logs</title>
+    <title>Mind Poisoning — Part of the Drama-Llama world — Interactions and Logs</title>
     <link rel="stylesheet" href="dashboard.css">
     <script defer src="dashboard.js"></script>
 </head>
@@ -141,8 +141,9 @@ function renderDashboard(array $model, array $filters): void
             </nav>
         </div>
         <h1 class="poster-title" id="dashboard-title"><span>MIND</span><span class="title-rust">POISONING</span></h1>
+        <p class="poster-world">Part of the Drama-Llama world</p>
         <figure class="poster-illustration">
-            <img src="dashboard-art.webp" width="1536" height="1024" alt="Two travelers whisper together at a snowy mountain pass while one listens with a guarded expression." fetchpriority="high" decoding="async">
+            <img src="dashboard-art.webp" width="1536" height="1024" alt="Two travelers whisper together on a snowy mountain pass while a small llama watches from the distant right slope." fetchpriority="high" decoding="async">
             <figcaption>Someone had something to say about you.</figcaption>
         </figure>
         <div class="poster-imprint">
@@ -265,7 +266,11 @@ function renderDashboard(array $model, array $filters): void
                                 <header class="interaction-header">
                                     <div>
                                         <p class="interaction-time"><?= $escape($timestamp) ?></p>
-                                        <h4><?= $escape($text($interaction['speaker'] ?? null)) ?><span class="exchange-arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><?= $escape($text($interaction['listener'] ?? null)) ?></h4>
+                                        <?php if (($interaction['source_kind'] ?? null) === 'reflection'): ?>
+                                            <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Solo reflection</h4>
+                                        <?php else: ?>
+                                            <h4><?= $escape($text($interaction['speaker'] ?? null)) ?><span class="exchange-arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><?= $escape($text($interaction['listener'] ?? null)) ?></h4>
+                                        <?php endif; ?>
                                     </div>
                                     <span class="status <?= $escape($outcomeClass($eventOutcome)) ?>"><?= $escape($outcomeLabel($eventOutcome)) ?></span>
                                 </header>
