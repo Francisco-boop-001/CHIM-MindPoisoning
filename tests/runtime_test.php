@@ -344,11 +344,13 @@ final class MemoryStoreDb implements StoreDb
     public bool $failSnapshot = false;
     public bool $failRelease = false;
     public int $beginCalls = 0;
+    public int $activePlaythroughCalls = 0;
     private bool $transaction = false;
     private ?array $before = null;
 
     public function activePlaythrough(): ?array
     {
+        $this->activePlaythroughCalls++;
         return ['id' => $this->profileId, 'player_name' => $this->playerName];
     }
 
@@ -548,6 +550,7 @@ function baseFixture(): array
 function playerInputFixture(MemoryStoreDb $db, array $options = []): array
 {
     $db->npcs[44] ??= ['id' => 44, 'npc_name' => 'Inigo'];
+    $GLOBALS['CHIM_EXECUTION_MODE'] = $options['effective_mode'] ?? 'STANDARD';
     $type = $options['type'] ?? 'inputtext';
     $people = $options['people'] ?? '|Lydia|Inigo|';
     $route = $options['route'] ?? [
@@ -631,6 +634,78 @@ same(strlen($playerRequest[3]), (int)($playerSummary['payload_bytes'] ?? -1), 'T
 same(strlen('I believe Jarl Balgruuf kept his promise.'), (int)($playerSummary['speech_bytes'] ?? -1), 'The Player input log should count only the TTS speech body.');
 check(!str_contains(json_encode($playerRecords, JSON_THROW_ON_ERROR), 'kept his promise'), 'Logs must not expose Player speech or model evidence.');
 unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+foreach ([
+    ['WHISPER', 'STANDARD'],
+    ['CLOSE', 'NARRATOR'],
+] as [$effectiveMode, $snapshotMode]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $route = [
+        'source' => 'plugin_player_routing_v2',
+        'listener' => 'Lydia',
+        'target_mode' => 'direct',
+        'execution_mode' => $snapshotMode,
+    ];
+    [$playerRequest, $playerInsert] = playerInputFixture($db, [
+        'effective_mode' => $effectiveMode,
+        'route' => $route,
+    ]);
+    same('committed', handlePlayerInput($playerRequest, $playerInsert, $db, static fn(array $messages): string => validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'A supported speech mode.', 'evidence' => 'kept his promise'],
+    ])), "Effective {$effectiveMode} mode should allow Player speech regardless of the routing snapshot mode.");
+    same(1, count($db->history), "Effective {$effectiveMode} mode should use normal persistence.");
+    unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+}
+
+foreach ([
+    ['reported INJECTION_CHAT', 'INJECTION_CHAT', false],
+    ['injection log', 'INJECTION_LOG', false],
+    ['hypnosis', 'HYPNOSIS', false],
+    ['director', 'DIRECTOR', false],
+    ['cheat mode', 'CHEATMODE', false],
+    ['rewritten auto-chat', 'AUTOCHAT', false],
+    ['narrator', 'NARRATOR', false],
+    ['unknown raw mode', 'UNRECOGNIZED_MODE_SECRET', false],
+    ['missing mode', null, true],
+    ['wrong-type mode', ['STANDARD'], false],
+] as [$label, $effectiveMode, $unsetMode]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    [$playerRequest, $playerInsert] = playerInputFixture($db, [
+        'route' => [
+            'source' => 'plugin_player_routing_v2',
+            'listener' => 'Lydia',
+            'target_mode' => 'automatic',
+            'execution_mode' => 'STANDARD',
+        ],
+    ]);
+    if ($unsetMode) {
+        unset($GLOBALS['CHIM_EXECUTION_MODE']);
+    } else {
+        $GLOBALS['CHIM_EXECUTION_MODE'] = $effectiveMode;
+    }
+    $GLOBALS['PLAYER_TTS_SOURCE_TEXT'] = 'malformed wrapped text';
+    $modelCalls = 0;
+    $records = [];
+    $beforeListener = serialize($db->npcs[22]);
+    same('player-input-not-speech', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$modelCalls): string {
+        $modelCalls++;
+        return '{}';
+    }, captureRequestLog($records)), "$label must skip before parsing Player text.");
+    $summary = lastRequestSummary($records);
+    same('skipped', $summary['outcome'] ?? null, "$label must remain an informational skip.");
+    same('info', $summary['level'] ?? null, "$label must not become a warning.");
+    same('player-input-not-speech', $summary['reason'] ?? null, "$label must use the fixed skip reason.");
+    same('not_called', $summary['model_outcome'] ?? null, "$label must stop before model evaluation.");
+    same(0, $modelCalls, "$label must not call the model.");
+    same(0, $db->activePlaythroughCalls, "$label must stop before profile or source correlation.");
+    same($beforeListener, serialize($db->npcs[22]), "$label must not change listener state.");
+    same([], $db->history, "$label must not create history.");
+    check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), "$label must not write a ledger.");
+    check(!str_contains(json_encode($records, JSON_THROW_ON_ERROR), 'UNRECOGNIZED_MODE_SECRET'), 'Raw execution modes must not enter logs.');
+    unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+}
 
 foreach ([
     [-2, 97, 'Dragonborn: Jarl Balgruuf betrayed me.', 'betrayed me', ['route' => ['source' => 'plugin_player_routing_v2', 'listener' => 'Lydia', 'target_mode' => 'direct']]],
@@ -949,6 +1024,48 @@ same(1, count($db->history), 'Composed hook should snapshot the changed listener
 same('duplicate', handleSpeechAck($ack, $db, $model), 'An acknowledged utterance should be deduped before another model call.');
 same(1, $modelCalls, 'Preflight dedupe must avoid a second model call.');
 same(1, count($db->history), 'Preflight duplicate must not create a second snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$crTerminatedAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'] . "\r",
+], JSON_THROW_ON_ERROR)];
+$crModelCalls = 0;
+$crRecords = [];
+$crModel = static function (array $messages) use (&$crModelCalls): string {
+    $crModelCalls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'A tracked line.', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => 0, 'reason' => 'No Player change.', 'evidence' => 'The Dragonborn is brave.'],
+    ]);
+};
+same('committed', handleSpeechAck($crTerminatedAck, $db, $crModel, captureRequestLog($crRecords)), 'A core-trimmed trailing CR must preserve an otherwise valid ACK.');
+same('utt_0123456789abcdef', lastRequestSummary($crRecords)['utterance_id'] ?? null, 'The ACK summary must correlate the normalized ID.');
+$duplicateCrRecords = [];
+same('duplicate', handleSpeechAck($crTerminatedAck, $db, $crModel, captureRequestLog($duplicateCrRecords)), 'The normalized ID must dedupe the same ACK.');
+same(1, $crModelCalls, 'A CR-terminated retry must not make a second model call.');
+same('utt_0123456789abcdef', lastRequestSummary($duplicateCrRecords)['utterance_id'] ?? null, 'The duplicate summary must use the normalized ID.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$GLOBALS['CHIM_EXECUTION_MODE'] = 'INJECTION_CHAT';
+$npcModeCalls = 0;
+$npcModeAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $event['text'],
+    'utterance_id' => $event['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+same('committed', handleSpeechAck($npcModeAck, $db, static function (array $messages) use (&$npcModeCalls): string {
+    $npcModeCalls++;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'NPC speech remains eligible.', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => 0, 'reason' => 'No Player change.', 'evidence' => 'The Dragonborn is brave.'],
+    ]);
+}), 'Execution-mode gating must not change the NPC ACK path.');
+same(1, $npcModeCalls, 'A non-speech Player mode must not disable a valid NPC ACK.');
+unset($GLOBALS['CHIM_EXECUTION_MODE']);
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $event['text'] = 'You may trust Jarl Balgruuf.';
@@ -1361,7 +1478,8 @@ $malformedAckCases = [
     ['null-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => null]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
     ['array-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => []]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
     ['invalid-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => 'invalid-id']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
-    ['nul-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => "\0"]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
+    ['interior-cr-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => 'utt_01234567' . "\r" . '89abcdef']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
+    ['form-feed-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => "\f"]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
     ['oversized-payload', str_repeat('x', 16385), 'oversized', 'payload_raw_oversized'],
     ['non-string-payload', null, 'oversized', 'payload_raw_type_invalid'],
 ];
@@ -1388,6 +1506,7 @@ $untrackedAckCases = [
     ['missing-id', $missingUtteranceIdAck],
     ['empty-id', array_replace($validAckFields, ['utterance_id' => ''])],
     ['whitespace-id', array_replace($validAckFields, ['utterance_id' => " \t\r\n "])],
+    ['nul-id', array_replace($validAckFields, ['utterance_id' => "\0"])],
 ];
 foreach ($untrackedAckCases as [$label, $fields]) {
     resetAckLoggingInteraction();

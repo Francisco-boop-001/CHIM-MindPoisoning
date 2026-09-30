@@ -675,3 +675,34 @@ Final review: lead inspected the ACK guard, logging summary path, tests and docu
 Release review: prior focused A-01 runtime/logging RED/GREEN and lint evidence retained; product diff unchanged. Seven packaging tests and four installed manifest-helper checks passed for release preparation. GNU tar strip-one extraction matched all 15 payload files. Clean-tag and uploaded-byte checks pending. No installed changes.
 
 Publication review: v0.1.10 is public as PRE-ALPHA; clean-tag and downloaded-asset byte/checksum comparisons passed. Main advanced after publication. See release-v0.1.10.md for hashes and verification scope. Installed environment and compatibility reference unchanged.
+
+## Document live acceptance progress — 2026-09-30 UTC
+
+- [x] Record user-supplied live outcomes and distinguish direct read-only checks from screenshots/log excerpts.
+- [x] Record NPC-origin test as not performed and retain PRE-ALPHA status; review evidence for overclaims.
+
+Review: reconciled four event records with supplied screenshots and the direct pre-test lock query. Explicitly excluded context injection from NPC-origin proof, retained incomplete-test limits and unconfirmed unlock state. Documentation only; no live modifications or release changes.
+
+## Review author-supplied runtime reference
+
+- [x] Compare runtime/storage and installation contracts with relevant inspected source; distinguish unstable documentation from installed version.
+- [x] Update reusable CHIM skill with documented contracts and provenance; validate and sync installed skill.
+- [x] Review findings, correct justified documentation gaps, and record unresolved compatibility/runtime limits. No deployment or release authorized.
+
+Review: completed source review against installed CHIM cf5030f15781637498be86debe26fcf102f5690d; no product-code change justified. Documented version-specific execQuery return behavior and unresolved client compatibility. Updated documentation and installed skill; validator, reference checks, byte equality and diff whitespace checks passed. No runtime examples, live writes, deployment, release or pin changes.
+
+## A-02/A-03 compatibility corrections
+
+- [x] Verify affected core contracts and preserve prior dirty documentation.
+- [x] Normalize ACK IDs and gate Player input on effective speech mode; add focused regressions.
+- [x] Clarify non-speech testing and single-version installation guidance.
+- [x] Review diffs and regression evidence; no deployment or release.
+
+Review: lead reviewed the full product/test diff and affected logging/dashboard consumers; both reproduced defects now pass the existing runtime fixture suite. Effective mode is CHIM_EXECUTION_MODE (not the critique variable name). PHP lint and diff checks passed. Documentation marks changes unreleased. No version, compatibility reference, installed CHIM, database, provider or release changes.
+
+## Publish v0.1.11
+
+- [x] Prepare and review candidate metadata; run release packaging gates.
+- [ ] Commit explicit files and tag; rebuild clean tag and compare packages.
+- [ ] Upload draft assets, download and verify, publish before advancing main.
+- [ ] Verify public release and record evidence; preserve installed environment.

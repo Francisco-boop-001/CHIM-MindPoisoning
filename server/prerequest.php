@@ -28,6 +28,9 @@ try {
             $chimMindPoisoningBootstrapUtteranceId = is_array($chimMindPoisoningBootstrapDecoded)
                 ? ($chimMindPoisoningBootstrapDecoded['utterance_id'] ?? null)
                 : null;
+            if (is_string($chimMindPoisoningBootstrapUtteranceId)) {
+                $chimMindPoisoningBootstrapUtteranceId = trim($chimMindPoisoningBootstrapUtteranceId);
+            }
             if (
                 is_string($chimMindPoisoningBootstrapUtteranceId)
                 && preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $chimMindPoisoningBootstrapUtteranceId) === 1
@@ -334,6 +337,15 @@ function evaluateInfluenceRequest(
             $logFields['reason'] = $pauseReason;
             return $pauseStatus;
         }
+        // main.php can rewrite this effective value after capturing the routing snapshot.
+        if ($playerInputInsert !== null && !in_array(
+            $GLOBALS['CHIM_EXECUTION_MODE'] ?? null,
+            ['STANDARD', 'WHISPER', 'CLOSE'],
+            true
+        )) {
+            $logFields['reason'] = 'player-input-not-speech';
+            return 'player-input-not-speech';
+        }
         if (!function_exists('chimIsGlobalLlmConnectorEnabled') || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
             return 'disabled';
         }
@@ -558,11 +570,11 @@ function evaluateInfluenceRequest(
                 $logFields['reason'] = 'payload_invalid_utf8';
                 return 'invalid-payload';
             }
-            if (!$hasUtteranceId || trim($payload['utterance_id'], " \t\n\r\x0B\x0C") === '') {
+            $utteranceId = $hasUtteranceId ? trim($payload['utterance_id']) : '';
+            if ($utteranceId === '') {
                 $logFields['reason'] = 'utterance_id_absent';
                 return 'untracked-speech';
             }
-            $utteranceId = $payload['utterance_id'];
             if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/', $utteranceId) !== 1) {
                 $logFields['reason'] = 'payload_utterance_id_invalid';
                 return 'invalid-payload';

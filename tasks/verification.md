@@ -1,5 +1,9 @@
 # Candidate verification
 
+## Live Player-origin acceptance — 2026-09-30 UTC
+
+See [v0.1.10 live acceptance progress](live-acceptance-v0.1.10.md): two user-observed live commits (slander and praise) corroborated in CHIM, plus no-subject and locked skips. NPC-origin testing was not performed. This updates live-readiness evidence without changing historical release-time results; PRE-ALPHA remains.
+
 ## Local dashboard — 2026-09-27
 
 Three retained gpt-6-luna/max agents implemented the read-only controller, bounded data adapter and journal UI with distinct ownership; lead reviewed every product path and returned concrete defects to owners. User selected loopback or server-authenticated remote access. No CHIM/core/mod changes or live database/provider execution. L-01 work remains included and uncommitted.
@@ -147,3 +151,11 @@ Official-source review establishes FOMOD required-file mapping and a cancellable
 User authorized commit, push and publication. Fresh focused tests passed for both original wrapper and FOMOD wrapper (2 tests). Final installer ZIP rebuilt under dist/0.1.5-installer.1 matches the accepted corrected artifact: 697754 bytes, SHA-256 1f6ef69c8c8bba401d5041cc81f428bcdc981e8a918a17fb6c1041b3aa2b7cca. Nested DWPkg matches the downloaded published v0.1.5 package. Source review accepted standard FOMOD required-file mapping, atomic/deterministic builder and unchanged runtime payload. GUI installation and CHIM sync remain unverified; post-install custom-content flag may remain. No protected installation changes or compatibility/deployment pin advance.
 
 Installer.1 publication verified: commit 28ee058 and annotated tag mind_poisoning-v0.1.5-installer.1; clean tag rebuilt identical ZIP. GitHub prerelease is public (isDraft=false, isPrerelease=true). Downloaded installer and SHA256SUMS.txt both match local bytes; GitHub installer digest matches 1f6ef69c8c8bba401d5041cc81f428bcdc981e8a918a17fb6c1041b3aa2b7cca. Release URL: https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.5-installer.1. Runtime server tree/manifest unchanged, original release assets not modified. Main may advance after this completed download gate. User critique and catalog drafts remain excluded.
+
+## A-02/A-03 compatibility fixes — 2026-09-30
+
+Source contract: installed core processor/chim_modes.php:110 sets CHIM_EXECUTION_MODE; main.php:317 can rewrite it to AUTOCHAT before prerequest at :1128. Player gating uses that effective value, not the client routing snapshot. ACK normalization uses core-compatible PHP default trim, including bootstrap correlation, before strict validation and exact-event lookup. No private database adapter changes.
+
+Worker RED evidence: runtime_test.php exited 1 for AUTOCHAT (expected player-input-not-speech, got player-text-invalid); after the gate, exited 1 for trailing-CR ACK (expected committed, got invalid-payload). GREEN: `wsl.exe -d DwemerAI4Skyrim3 -- env TMPDIR=/tmp php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning/tests/runtime_test.php` exited 0, printing `runtime store checks passed` and two expected injected persistence-failure diagnostics. Both changed PHP files passed php -l; only a rationale comment changed after GREEN, followed by lint.
+
+Fixtures cover allowed modes, excluded/unknown/missing/wrong-type modes, contradictory routing snapshots, info-level skips before model/profile work with unchanged state, NPC ACK eligibility independent of Player mode, trailing-CR commit/retry dedupe and normalized log identity, and malformed interior CR/type rejection. PHP default trim strips boundary NUL but does not strip form feed; fixtures distinguish these. Lead reviewed final diffs and existing log/dashboard code consumers; diff --check passed. This is fixture evidence, not installed-server/provider/gameplay verification of these fixes. Version and compatibility reference unchanged; changes remain uncommitted and unreleased.
