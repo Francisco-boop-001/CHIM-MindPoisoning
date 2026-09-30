@@ -716,3 +716,12 @@ Review: v0.1.11 published as PRE-ALPHA after clean-tag and downloaded-asset equa
 - [x] Render the synthetic desktop/night and mobile/day previews; review subtitle contrast and llama visibility.
 
 Review: PHP lint and existing dashboard preview self-test passed using WSL PHP 8.2.29. Headless Edge captures of the synthetic fixture at 1440px/night and 390px/day showed the subtitle, central scene and background llama; both had no document overflow and loaded the 1536×1024 artwork. Evidence: drama-llama-desktop-night.png and drama-llama-mobile-day.png. Runtime WebP is 547,258 bytes. The temporary preview process was stopped. No release, deployment, compatibility pin, CHIM installation, database or modlist changes.
+
+## World of Drama-Llama publication - 2026-09-30
+
+- [x] Prepare compatible MP 0.1.12 and PCV 0.1.4 source and informative guides.
+- [x] Review source, focused checks and independent README findings.
+- [x] Commit and tag; compare clean builds and downloaded draft assets.
+- [x] Publish verified PRE-ALPHA releases before updating main; verify public source/manifests.
+
+Review: release evidence and authoritative hashes are in world-of-drama-llama-publication-2026-09-30.md. Installed/runtime certification remains unclaimed.
