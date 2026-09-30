@@ -703,6 +703,8 @@ Review: lead reviewed the full product/test diff and affected logging/dashboard 
 ## Publish v0.1.11
 
 - [x] Prepare and review candidate metadata; run release packaging gates.
-- [ ] Commit explicit files and tag; rebuild clean tag and compare packages.
-- [ ] Upload draft assets, download and verify, publish before advancing main.
-- [ ] Verify public release and record evidence; preserve installed environment.
+- [x] Commit explicit files and tag; rebuild clean tag and compare packages.
+- [x] Upload draft assets, download and verify, publish before advancing main.
+- [x] Verify public release and record evidence; preserve installed environment.
+
+Review: v0.1.11 published as PRE-ALPHA after clean-tag and downloaded-asset equality checks. Main advanced only after publication. See release-v0.1.11.md. Compatibility reference and installed environment unchanged.
