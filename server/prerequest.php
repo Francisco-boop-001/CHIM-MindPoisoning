@@ -532,24 +532,20 @@ function evaluateInfluenceRequest(
                     return 'invalid-payload';
                 }
             }
-            if (!array_key_exists('utterance_id', $payload)) {
-                $logFields['reason'] = 'payload_utterance_id_missing';
-                return 'invalid-payload';
-            }
             foreach ($requiredFields as $field) {
                 if (!is_string($payload[$field])) {
                     $logFields['reason'] = 'payload_field_type_invalid';
                     return 'invalid-payload';
                 }
             }
-            if (!is_string($payload['utterance_id'])) {
+            $hasUtteranceId = array_key_exists('utterance_id', $payload);
+            if ($hasUtteranceId && !is_string($payload['utterance_id'])) {
                 $logFields['reason'] = 'payload_utterance_id_type_invalid';
                 return 'invalid-payload';
             }
             $speakerInput = $payload['speaker'];
             $listenerInput = $payload['listener'];
             $speech = $payload['speech'];
-            $utteranceId = $payload['utterance_id'];
             if (strlen($speakerInput) > 256 || strlen($listenerInput) > 256 || strlen($speech) > 12000) {
                 $logFields['reason'] = 'payload_field_oversized';
                 return 'invalid-payload';
@@ -562,6 +558,11 @@ function evaluateInfluenceRequest(
                 $logFields['reason'] = 'payload_invalid_utf8';
                 return 'invalid-payload';
             }
+            if (!$hasUtteranceId || trim($payload['utterance_id'], " \t\n\r\x0B\x0C") === '') {
+                $logFields['reason'] = 'utterance_id_absent';
+                return 'untracked-speech';
+            }
+            $utteranceId = $payload['utterance_id'];
             if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/', $utteranceId) !== 1) {
                 $logFields['reason'] = 'payload_utterance_id_invalid';
                 return 'invalid-payload';

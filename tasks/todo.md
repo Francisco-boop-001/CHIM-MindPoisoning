@@ -654,3 +654,22 @@ Limits: pause is an operator file, checked preflight/post-model, not an atomic c
 Release review: runtime and logging fixtures, touched PHP lint, installed manifest-update helper checks, and seven packaging tests passed. GNU tar strip-one extraction matched all 15 allowlisted payload files. The prior isolated PostgreSQL timeout/rollback proof was reviewed, not repeated. Lead reviewed code and release metadata; compatibility reference unchanged. Clean-tag rebuild and publication verification remain pending below.
 
 Final publication review: v0.1.9 PRE-ALPHA is public. Clean-tag rebuild and downloaded-asset byte/checksum comparisons passed before main advanced. Source commit 0502c979b1622ebd62592bfcf2850908acbd6153; see release-v0.1.9.md for hashes and limits. Installed environment and compatibility reference unchanged.
+
+## A-01 acknowledgement classification correction
+
+- [x] Code owner: preserve exact correlation; classify otherwise valid missing/empty-string ID ACKs as info skips, malformed IDs as warnings; prove no model/write and valid routes.
+- [x] Docs owner: attribute decoded-request evidence, correct obsolete unresolved wording, and clarify one installation route/database isolation without changing historical tags or live files.
+- [x] Lead: review all diffs and targeted verification; record limits. No version/pin, publication or installed changes.
+
+A-01 verification: the new missing-ID fixture failed against the old code (expected untracked-speech, got invalid-payload). After the small ACK-only guard change, runtime_test.php and logging_test.php passed; PHP lint passed for prerequest.php, logging.php and runtime_test.php. Cases cover absent/blank IDs, absent correlation field, no model call/affinity/ledger/history write, wrong-type/null/array and NUL/malformed IDs, plus malformed speech fields. Independent consumer review found existing skipped outcome/reason parsing sufficient; no dashboard or logger changes required. These are fixture checks, not live delivery proof.
+
+Final review: lead inspected the ACK guard, logging summary path, tests and documentation. Missing/blank IDs remain ineligible; other malformed fields and IDs retain warnings. Fixed documentation attribution and avoided a link to the untracked critique. One-route installation and database isolation guidance clarified. Changes are uncommitted/unreleased; manifest version, compatibility reference, published artifacts and installed CHIM remain unchanged. Live acceptance and installation are separate pending work.
+
+## Prepare v0.1.10 PRE-ALPHA release — 2026-09-29
+
+- [x] Bump the manifest version and prepare the current README and release notes; preserve the compatibility reference and prior release history.
+- [x] Run release checks and build the repository archive, CHIM sync package, plain MO2 ZIP, and SHA256SUMS.txt.
+- [ ] Verify clean-tag rebuilds and release assets before publication.
+- [ ] Publish only after the release gates pass, then record commit, tag, asset hashes, and publication evidence.
+
+Release review: prior focused A-01 runtime/logging RED/GREEN and lint evidence retained; product diff unchanged. Seven packaging tests and four installed manifest-helper checks passed for release preparation. GNU tar strip-one extraction matched all 15 payload files. Clean-tag and uploaded-byte checks pending. No installed changes.

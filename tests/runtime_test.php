@@ -1357,9 +1357,11 @@ $malformedAckCases = [
     ['oversized-field', json_encode(array_replace($validAckFields, ['speech' => str_repeat('x', 12001)]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_oversized'],
     ['empty-field', json_encode(array_replace($validAckFields, ['speech' => '  ']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_field_empty'],
     ['invalid-utf8', $invalidUtf8Ack, 'invalid-payload', 'payload_invalid_utf8'],
-    ['missing-utterance-id', json_encode($missingUtteranceIdAck, JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_missing'],
     ['wrong-utterance-id-type', json_encode(array_replace($validAckFields, ['utterance_id' => 42]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
+    ['null-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => null]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
+    ['array-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => []]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_type_invalid'],
     ['invalid-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => 'invalid-id']), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
+    ['nul-utterance-id', json_encode(array_replace($validAckFields, ['utterance_id' => "\0"]), JSON_THROW_ON_ERROR), 'invalid-payload', 'payload_utterance_id_invalid'],
     ['oversized-payload', str_repeat('x', 16385), 'oversized', 'payload_raw_oversized'],
     ['non-string-payload', null, 'oversized', 'payload_raw_type_invalid'],
 ];
@@ -1381,6 +1383,62 @@ foreach ($malformedAckCases as [$label, $rawPayload, $expectedStatus, $expectedR
     same([], $db->history, "$label must not create a snapshot.");
     check(!str_contains(json_encode($malformedRecords, JSON_THROW_ON_ERROR), 'ACK_PRIVATE_CONTENT'), "$label must not log payload text.");
 }
+
+$untrackedAckCases = [
+    ['missing-id', $missingUtteranceIdAck],
+    ['empty-id', array_replace($validAckFields, ['utterance_id' => ''])],
+    ['whitespace-id', array_replace($validAckFields, ['utterance_id' => " \t\r\n "])],
+];
+foreach ($untrackedAckCases as [$label, $fields]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $untrackedRecords = [];
+    $untrackedModelCalls = 0;
+    same('untracked-speech', handleSpeechAck(
+        ['_speech', 0, 10, json_encode($fields, JSON_THROW_ON_ERROR)],
+        $db,
+        static function (array $messages) use (&$untrackedModelCalls): string {
+            $untrackedModelCalls++;
+            return '{}';
+        },
+        captureRequestLog($untrackedRecords)
+    ), "$label should skip without a correlation ID.");
+    $untrackedSummary = lastRequestSummary($untrackedRecords);
+    check(!array_key_exists('utterance_id', $untrackedSummary), "$label must not invent a correlation ID.");
+    same('utterance_id_absent', $untrackedSummary['reason'] ?? null, "$label should use the fixed benign-skip reason.");
+    same('skipped', $untrackedSummary['outcome'] ?? null, "$label should remain skipped.");
+    same('info', $untrackedSummary['level'] ?? null, "$label should be informational, not a warning.");
+    same('not_called', $untrackedSummary['model_outcome'] ?? null, "$label should record no model work.");
+    same(0, $untrackedModelCalls, "$label must not call the model.");
+    same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "$label must not change affinity.");
+    same([], $db->history, "$label must not create a snapshot.");
+    check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), "$label must not write a ledger.");
+    check(!str_contains(json_encode($untrackedRecords, JSON_THROW_ON_ERROR), 'ACK_PRIVATE_CONTENT'), "$label must not log speech text.");
+}
+
+foreach ([
+    ['missing-id-empty-speech', array_replace($missingUtteranceIdAck, ['speech' => '  ']), 'payload_field_empty'],
+    ['blank-id-wrong-speaker-type', array_replace($validAckFields, ['utterance_id' => " \t", 'speaker' => ['Jarl Balgruuf']]), 'payload_field_type_invalid'],
+] as [$label, $fields, $expectedReason]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $malformedOtherRecords = [];
+    $malformedOtherCalls = 0;
+    same('invalid-payload', handleSpeechAck(
+        ['_speech', 0, 10, json_encode($fields, JSON_THROW_ON_ERROR)],
+        $db,
+        static function (array $messages) use (&$malformedOtherCalls): string {
+            $malformedOtherCalls++;
+            return '{}';
+        },
+        captureRequestLog($malformedOtherRecords)
+    ), "$label must retain the malformed-field status.");
+    same($expectedReason, lastRequestSummary($malformedOtherRecords)['reason'] ?? null, "$label must retain its specific warning reason.");
+    same('warning', lastRequestSummary($malformedOtherRecords)['level'] ?? null, "$label must remain a warning before benign untracked skipping.");
+    same(0, $malformedOtherCalls, "$label must stop before model work.");
+    same([], $db->history, "$label must not create history.");
+}
+
 same(0, $invalidPayloadCalls, 'Malformed and oversized payloads must stop before paid model work.');
 
 resetAckLoggingInteraction();

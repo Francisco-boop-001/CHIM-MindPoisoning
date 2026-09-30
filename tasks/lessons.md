@@ -34,3 +34,5 @@
 - Do not make optional CHIM Playthrough Saves an implicit plugin prerequisite. Verify ordinary unprofiled operation as well as active-profile mode; keep shared-database scope distinct from a unique Skyrim save, and apply the same identity contract to persistence, logs and dashboard readers.
 
 - Do not label file length or repeated validation as technical debt without demonstrating a maintenance cost. Trace callers, trust boundaries and transaction timing first; propose extraction only when it reduces real coupling or rule drift without hiding safety-critical sequencing.
+
+- Aggregate application logs are not necessarily the last available evidence. Before calling a cause unrecoverable, check whether authorized retained request logs can be correlated by timestamps and payload shape. Attribute that conclusion to the report that performed the correlation; do not claim an independent re-decode, and keep historical release behavior separate from an unshipped working-tree fix.
