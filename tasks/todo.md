@@ -669,7 +669,9 @@ Final review: lead inspected the ACK guard, logging summary path, tests and docu
 
 - [x] Bump the manifest version and prepare the current README and release notes; preserve the compatibility reference and prior release history.
 - [x] Run release checks and build the repository archive, CHIM sync package, plain MO2 ZIP, and SHA256SUMS.txt.
-- [ ] Verify clean-tag rebuilds and release assets before publication.
-- [ ] Publish only after the release gates pass, then record commit, tag, asset hashes, and publication evidence.
+- [x] Verify clean-tag rebuilds and release assets before publication.
+- [x] Publish only after the release gates pass, then record commit, tag, asset hashes, and publication evidence.
 
 Release review: prior focused A-01 runtime/logging RED/GREEN and lint evidence retained; product diff unchanged. Seven packaging tests and four installed manifest-helper checks passed for release preparation. GNU tar strip-one extraction matched all 15 payload files. Clean-tag and uploaded-byte checks pending. No installed changes.
+
+Publication review: v0.1.10 is public as PRE-ALPHA; clean-tag and downloaded-asset byte/checksum comparisons passed. Main advanced after publication. See release-v0.1.10.md for hashes and verification scope. Installed environment and compatibility reference unchanged.
