@@ -6,6 +6,8 @@ namespace ChimMindPoisoning;
 use JsonException;
 use Throwable;
 
+const MIND_POISONING_REFLECTION_API_VERSION = 1;
+
 require_once __DIR__ . '/controls.php';
 require_once __DIR__ . '/influence.php';
 require_once __DIR__ . '/model.php';

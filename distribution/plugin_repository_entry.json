@@ -5,8 +5,8 @@
       "display_name": "Mind Poisoning",
       "description": "Development candidate: conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, with a read-only history dashboard.",
       "status": "development_candidate",
-      "git_repo": "Francisco-boop-001/CHIM-Plugins",
-      "github_url": "https://github.com/Francisco-boop-001/CHIM-Plugins",
+      "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
+      "github_url": "https://github.com/Francisco-boop-001/CHIM-MindPoisoning",
       "mod_download_url": "",
       "default_channel": "candidate",
       "channels": {
@@ -14,9 +14,9 @@
           "label": "Development candidate",
           "branch": "main",
           "package_source": "release",
-          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-Plugins/main/server/manifest.json",
+          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-MindPoisoning/main/server/manifest.json",
           "package_urls": [
-            "https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v<version>/mind_poisoning.tar.gz"
+            "https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v<version>/mind_poisoning.tar.gz"
           ],
           "archive_strip_components": 1,
           "allow_force": false

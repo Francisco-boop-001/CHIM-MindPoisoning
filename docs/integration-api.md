@@ -2,6 +2,8 @@
 
 `server/reflection.php` exposes the opt-in evaluator below. Loading it does not register a hook or call the model.
 
+The API declares `\ChimMindPoisoning\MIND_POISONING_REFLECTION_API_VERSION = 1`. Private Conversation 0.1.6 checks for exactly version 1 before using the reflection evaluator; a missing or unsupported version is treated as unavailable. This check is a companion compatibility contract, not a CHIM core pin.
+
 The evaluator function, `StoreDb`, and `RequestLog` are in namespace `ChimMindPoisoning`; import them or use their fully qualified names. Mind Poisoning never loads Private Conversation. A companion such as PCV attaches the observer and passes its `RequestLog`; Mind Poisoning continues its normal evaluation and ordinary sink delivery.
 
 ```php
@@ -27,9 +29,9 @@ The registration has exactly these keys: `event_id`, `utterance_id`, `actor_id`,
 
 `RequestLog::observe(?callable $observer): void` installs one callback on that `RequestLog` instance. Each accepted log record is delivered as `(array $record, string $level)` after the normal sink attempt. A second call replaces the callback; `observe(null)` clears it. Records emitted before installation are not replayed. Observer failures are swallowed and cannot change evaluation or persistence, and reentrant observer delivery is suppressed.
 
-The observer receives the sanitized record and fixed level. Debug `model_reason` is removed from this observer-only copy. The existing diagnostic sink can still receive that bounded, untrusted text when debug logging is enabled; it may contain names or a short game/model excerpt. The importer does not accept raw dialogue, names, speech digests, prompts, or exception messages.
+The observer receives the sanitized record and fixed level. Validated `config_id`, `event_id`, and `utterance_id` are deliberately included for exact correlation; they are identifiers, not proof of a speaker or listener. Debug `model_reason` is removed from this observer-only copy. The existing diagnostic sink can still receive that bounded, untrusted text when debug logging is enabled; it may contain names or a short game/model excerpt. The observer/importer boundary does not forward raw dialogue, prompts, speech digests, claim tokens, or exception messages.
 
-## Private Conversation revision 2 import
+## Private Conversation revision 2 import (published in 0.1.5)
 
 The importer accepts only `source_kind=reflection` records for `reflection_model_finished`, `persistence_finished`, `persistence_cleanup_failed`, or `request_finished`, with level `debug`, `info`, `warning`, or `error`. It then checks the event-specific outcome and level before writing a fixed Private Conversation record. Unrelated evaluator events and invalid level/outcome pairs are ignored.
 
@@ -50,4 +52,6 @@ The importer chooses `reason` before `persistence_reason` for `source_reason`. A
 
 ## Isolated cross-boundary check
 
-From `projects/CHIM-MindPoisoning`, run `php tests/reflection_observer_test.php`. The fixture invokes the actual Mind Poisoning evaluator and observer, then the standalone PCV importer, with an in-memory store and isolated temporary log directories. It covers a changed commit, zero change, provider failure, unconfirmed commit, and a warning-level pre-model skip. It does not load the production bootstrap, use a live provider, or connect to a database.
+From `projects/CHIM-MindPoisoning`, run `php tests/reflection_observer_test.php`. The MP 0.1.14 source contains a pinned PCV 0.1.6 integration snapshot; the fixture invokes the actual Mind Poisoning evaluator and observer, then that PCV importer, with an in-memory store and isolated temporary log directories. It covers a changed commit, zero change, provider failure, unconfirmed commit, and a warning-level pre-model skip. It does not load the production bootstrap, use a live provider, or connect to a database.
+
+The standalone PCV 0.1.6 `tests/reflection_registry_check.php` needs the matched MP 0.1.14 source/API fixtures. Run it with that companion checkout available, or run the pinned integration check from the MP 0.1.14 tree. A PCV-only clean source export cannot supply Mind Poisoning's evaluator or test fixtures; runtime packages contain only their own allowlisted server files and never include the other plugin or tests. These fixtures establish source/API compatibility only, not installed extension order, live persistence, provider behavior, or game/audio delivery.

@@ -27,11 +27,14 @@ function runObserverCase(string $case): array
     define('PCV_LOG_TESTING', true);
     require_once __DIR__ . '/runtime_test.php';
     require_once __DIR__ . '/../server/reflection.php';
-    $pcvRoot = realpath(__DIR__ . '/../../CHIM-PrivateConversation');
+    $pcvRoot = realpath(__DIR__ . '/../plugins/private_conversation');
     if (!is_string($pcvRoot)) {
-        throw new RuntimeException('Could not resolve standalone Private Conversation source.');
+        throw new RuntimeException('Could not resolve embedded Private Conversation source.');
     }
     require_once $pcvRoot . '/server/reflection.php';
+    observerCheck(defined('ChimMindPoisoning\\MIND_POISONING_REFLECTION_API_VERSION')
+        && constant('ChimMindPoisoning\\MIND_POISONING_REFLECTION_API_VERSION') === 1,
+        'Mind Poisoning reflection API version is missing or unsupported.');
 
     if (!class_exists(ObserverUnconfirmedStore::class, false)) {
         final class ObserverUnconfirmedStore implements \ChimMindPoisoning\StoreDb

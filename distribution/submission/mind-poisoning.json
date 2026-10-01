@@ -1,0 +1,27 @@
+{
+  "plugins": {
+    "mind-poisoning": {
+      "name": "mind_poisoning",
+      "display_name": "[PRE-ALPHA] Mind Poisoning",
+      "description": "PRE-ALPHA candidate for isolated testing. Earlier v0.1.10 Player-origin commits and skips are user-reported; they do not verify the current v0.1.14 install, provider/database behavior, or general NPC/audio delivery. The plugin has no migrations.",
+      "status": "development_candidate",
+      "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
+      "github_url": "https://github.com/Francisco-boop-001/CHIM-MindPoisoning",
+      "mod_download_url": "",
+      "default_channel": "candidate",
+      "channels": {
+        "candidate": {
+          "label": "PRE-ALPHA — isolated testing only",
+          "branch": "main",
+          "package_source": "release",
+          "manifest_url": "https://raw.githubusercontent.com/Francisco-boop-001/CHIM-MindPoisoning/main/server/manifest.json",
+          "package_urls": [
+            "https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v<version>/mind_poisoning.tar.gz"
+          ],
+          "archive_strip_components": 1,
+          "allow_force": false
+        }
+      }
+    }
+  }
+}

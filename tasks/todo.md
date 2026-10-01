@@ -759,3 +759,29 @@ Review: Four proven defects fixed: illegal affinity silently clamped, callback P
 Scope: User authorized commit, push and publication. No CHIM installation, live provider/database calls, modlist edits or catalog submission. Compatibility reference remains unchanged. Lead owns release evidence and review; metadata preparation stays delegated.
 
 Review: v0.1.13 PRE-ALPHA published after clean commit/tag rebuild equality and downloaded-asset checksum verification. Main advanced only after publication; public manifest and annotated tag match. Compatibility reference, installed CHIM and pending Private Conversation work are preserved. Exact evidence and runtime limits: release-v0.1.13.md.
+
+## Cross-plugin critique fixes and publication — 2026-09-30
+
+- [x] Inspect current source, pending PCV logging work and prior verification; settle release/deployment ownership.
+- [x] Give each plugin a distinct deployment repository identity; prove catalogue selection and preserve existing-install migration.
+- [x] Move PCV registration earlier, report scoped unmatched ACKs and verify acknowledgement-first behavior without weakening exact correlation.
+- [x] Add reflection API compatibility version and make cross-plugin checks reproducible from repository source.
+- [x] Document final-line/wire limits and repair temporary-fixture cleanup; verify any residue ownership before removal.
+- [x] Review all code, pending PCV release content and focused red/green outputs; prepare PRE-ALPHA candidate metadata.
+- [ ] Commit explicit reviewed files, build/export immutable tags and compare packages; publish verified assets before update manifests.
+- [ ] Verify public repositories/releases/migration URLs, record evidence and remaining live-runtime limits.
+
+Scope: User authorized fixes, commit, push and publication. Lead delegates product code to existing gpt-6-luna Max owners using Ponytail FULL. Installed CHIM, its catalogue, modlist and live database/providers remain inspection-only. No maintainer message or catalogue submission is authorized. CHIM-Plugins remains a public collection and migration entry point; independent deployment identities address the source-confirmed catalogue collision. Existing logging revision2 PCV work must pass scope/evidence review before incorporation; it is not silently discarded or bulk-staged.
+
+Ownership: reflection_correlation — MP API compatibility/contained integration fixture and PCV log-fixture cleanup; observer_logger — PCV registration/ACK and consumer version handshake; bridge_contract — deployment/package review, later coordinated metadata; lead — task/evidence review, repository creation, explicit Git and publication orchestration.
+
+Assumptions: New deployment repository names follow the existing project names. PRE-ALPHA and compatibility reference remain unchanged. Existing installed manifests need a migration release at their old package URLs before they can switch repositories. prepostrequest still follows the flush: moving registration alone is not proof of race closure. Fixtures must represent the tested, published PCV source rather than an external drifting folder.
+
+### Deployment metadata and handoff — bridge_contract
+
+- [x] Reconcile local refs and confirm published PCV 0.1.5 source/evidence; set next candidate to 0.1.6.
+- [x] Update MP 0.1.14 and PCV 0.1.6 deployment manifests, catalogue metadata and focused version/identity tests.
+- [x] Add release notes plus a concise deployment/package index and existing-install migration guide.
+- [x] Run the focused metadata and package gates; review URLs, identity selection, file scope and limitations.
+
+Review: manifests and source links identify the distinct deployment repositories; old-hub MP 0.1.14 migration and one-time PCV 0.1.6 replacement are documented without changing historical assets. The release notes link to tagged repository docs by absolute URLs because they will also serve as GitHub release bodies. Local Markdown link check passed; targeted manifest and PCV package tests passed. No catalogue submission, remote writes, or live-server actions were performed.
