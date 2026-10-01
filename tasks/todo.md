@@ -768,8 +768,8 @@ Review: v0.1.13 PRE-ALPHA published after clean commit/tag rebuild equality and 
 - [x] Add reflection API compatibility version and make cross-plugin checks reproducible from repository source.
 - [x] Document final-line/wire limits and repair temporary-fixture cleanup; verify any residue ownership before removal.
 - [x] Review all code, pending PCV release content and focused red/green outputs; prepare PRE-ALPHA candidate metadata.
-- [ ] Commit explicit reviewed files, build/export immutable tags and compare packages; publish verified assets before update manifests.
-- [ ] Verify public repositories/releases/migration URLs, record evidence and remaining live-runtime limits.
+- [x] Commit explicit reviewed files, build/export immutable tags and compare packages; publish verified assets before update manifests.
+- [x] Verify public repositories/releases/migration URLs, record evidence and remaining live-runtime limits.
 
 Scope: User authorized fixes, commit, push and publication. Lead delegates product code to existing gpt-6-luna Max owners using Ponytail FULL. Installed CHIM, its catalogue, modlist and live database/providers remain inspection-only. No maintainer message or catalogue submission is authorized. CHIM-Plugins remains a public collection and migration entry point; independent deployment identities address the source-confirmed catalogue collision. Existing logging revision2 PCV work must pass scope/evidence review before incorporation; it is not silently discarded or bulk-staged.
 
@@ -785,3 +785,5 @@ Assumptions: New deployment repository names follow the existing project names. 
 - [x] Run the focused metadata and package gates; review URLs, identity selection, file scope and limitations.
 
 Review: manifests and source links identify the distinct deployment repositories; old-hub MP 0.1.14 migration and one-time PCV 0.1.6 replacement are documented without changing historical assets. The release notes link to tagged repository docs by absolute URLs because they will also serve as GitHub release bodies. Local Markdown link check passed; targeted manifest and PCV package tests passed. No catalogue submission, remote writes, or live-server actions were performed.
+
+Final lead review: MP 0.1.14 and PCV 0.1.6 are committed, tagged and published as PRE-ALPHA in their public deployment repositories, with identical migration-hub assets. A standalone line-ending export mismatch was caught and corrected before any push. All canonical-tag packages, draft downloads and public downloads matched exact clean-source bytes and checksums; public main manifests were verified after publication. Earlier registration diagnoses but does not recover ACK-first misses. No installed CHIM/modlist, live provider/database or gameplay changes. Exact sources, commands, hashes and limits: release-v0.1.14-pcv-v0.1.6.md.
