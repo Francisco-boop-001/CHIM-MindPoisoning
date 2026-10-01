@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $fallbackChild = ($argv[1] ?? '') === 'fallback-child';
+$warningChild = ($argv[1] ?? '') === 'warning-child';
 if (!$fallbackChild) {
 class Logger
 {
@@ -30,6 +31,22 @@ use ChimMindPoisoning\RequestLog;
 
 if ($fallbackChild) {
     (new RequestLog())->event('fallback_check', 'info');
+    exit(0);
+}
+if ($warningChild) {
+    $sinkCalls = 0;
+    $observerCalls = 0;
+    $warningLog = new RequestLog(static function (string $json) use (&$sinkCalls): void {
+        $sinkCalls++;
+        trigger_error('normal sink warning probe', E_USER_WARNING);
+    }, false);
+    $warningLog->observe(static function (array $record, string $level) use (&$observerCalls): void {
+        $observerCalls++;
+        trigger_error('observer warning probe', E_USER_WARNING);
+    });
+    $warningLog->event('warning_child', 'info');
+    $warningStatus = $warningLog->finish('committed', 'ok');
+    echo "warning child returned status={$warningStatus} sink={$sinkCalls} observer={$observerCalls}\n";
     exit(0);
 }
 
@@ -104,6 +121,24 @@ loggingCheck(
     count($invalidInputIdRecords) === 4
         && array_reduce($invalidInputIdRecords, static fn(bool $valid, array $record): bool => $valid && !isset($record['utterance_id']), true),
     'Zero, leading-zero, overflow, and malformed input IDs must be dropped.'
+);
+
+$validConfigId = '550E8400-E29B-11D4-A716-446655440000';
+$configIdRecords = [];
+$configIdLog = new RequestLog(static function (string $json) use (&$configIdRecords): void {
+    $configIdRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$configIdLog->context(['config_id' => $validConfigId]);
+$configIdLog->event('config_id_check', 'info');
+$invalidConfigIdLog = new RequestLog(static function (string $json) use (&$configIdRecords): void {
+    $configIdRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$invalidConfigIdLog->context(['config_id' => '550E8400-E29B-not-a-uuid']);
+$invalidConfigIdLog->event('invalid_config_id_check', 'info');
+loggingCheck(
+    ($configIdRecords[0]['config_id'] ?? null) === $validConfigId
+        && !isset($configIdRecords[1]['config_id']),
+    'config_id should preserve valid UUIDs exactly and drop malformed values.'
 );
 
 $playerSourceRecords = [];
@@ -210,6 +245,69 @@ loggingCheck($debugData['changes'][0]['before'] === 250.12345, 'observed prior a
 loggingCheck($debugData['subject'] === 'npc:12' && $debugData['delta'] === -3, 'subject tokens and bounded deltas should pass.');
 loggingCheck(str_starts_with($debugData['model_reason'], "\n"), 'JSON escaping should preserve but not physically split embedded newlines.');
 
+$observerDeliveries = [];
+$observerOrder = [];
+$observedLog = new RequestLog(static function (string $json, string $level) use (&$observerDeliveries, &$observerOrder): void {
+    $observerOrder[] = 'sink';
+    $observerDeliveries[] = [$json, $level];
+}, true);
+$observedRecords = [];
+$observedLog->observe(static function (array $record, string $level) use (&$observedRecords, &$observerOrder): void {
+    $observerOrder[] = 'observer';
+    $observedRecords[] = [$record, $level];
+});
+$observedLog->context(['config_id' => $validConfigId, 'event_id' => 31, 'speaker_kind' => 'npc', 'speaker_id' => 9]);
+$observedLog->event('observer_debug', 'debug', [
+    'model_reason' => 'PRIVATE MODEL PROSE',
+    'speech' => 'PRIVATE NPC DIALOGUE',
+    'speaker_name' => 'PRIVATE NPC NAME',
+    'claim_token' => 'PRIVATE CLAIM TOKEN',
+    'raw' => 'PRIVATE RAW FIELD',
+    'digest' => 'PRIVATE DIGEST',
+]);
+$observedSinkRecord = json_decode($observerDeliveries[0][0], true, 512, JSON_THROW_ON_ERROR);
+$observedRecord = $observedRecords[0][0];
+$observedJson = json_encode($observedRecord, JSON_THROW_ON_ERROR);
+loggingCheck(
+    $observerOrder === ['sink', 'observer']
+        && $observedRecords[0][1] === 'debug'
+        && $observedRecord['level'] === 'debug'
+        && $observedRecord['config_id'] === $validConfigId,
+    'observer should receive the sanitized associative record and fixed level after normal delivery.'
+);
+loggingCheck(
+    ($observedSinkRecord['model_reason'] ?? null) === 'PRIVATE MODEL PROSE'
+        && !isset($observedRecord['model_reason'])
+        && !str_contains($observedJson, 'PRIVATE'),
+    'observer must not receive diagnostic prose, dialogue, names, tokens, raw fields, or digests.'
+);
+
+$detachedObserverCalls = 0;
+$detachedLog = new RequestLog(static function (string $json): void {}, false);
+$detachedLog->observe(static function (array $record, string $level) use (&$detachedObserverCalls): void {
+    $detachedObserverCalls++;
+});
+$detachedLog->event('observer_attached', 'info');
+$detachedLog->observe(null);
+$detachedLog->event('observer_detached', 'info');
+loggingCheck($detachedObserverCalls === 1, 'observe(null) should detach the observer.');
+
+$reentrantLog = null;
+$reentrantSinkCount = 0;
+$reentrantObserverCalls = 0;
+$reentrantLog = new RequestLog(static function (string $json) use (&$reentrantSinkCount): void {
+    $reentrantSinkCount++;
+}, false);
+$reentrantLog->observe(static function (array $record, string $level) use (&$reentrantLog, &$reentrantObserverCalls): void {
+    $reentrantObserverCalls++;
+    $reentrantLog->event('nested_observer_log', 'info');
+});
+$reentrantLog->event('outer_observer_log', 'info');
+loggingCheck(
+    $reentrantSinkCount === 2 && $reentrantObserverCalls === 1,
+    'reentrant observer logging should deliver normally without recursively invoking the observer.'
+);
+
 $previousLogLevel = getenv('MIND_POISONING_LOG_LEVEL');
 $envRecords = [];
 putenv('MIND_POISONING_LOG_LEVEL');
@@ -264,12 +362,20 @@ $severityRecords = [];
 (new RequestLog(static function (string $json, string $level) use (&$severityRecords): void {
     $severityRecords[] = [$json, $level];
 }, false))->finish('failed', 'judgment_validation_failed');
+(new RequestLog(static function (string $json, string $level) use (&$severityRecords): void {
+    $severityRecords[] = [$json, $level];
+}, false))->finish('skipped', 'result_uncertain', [
+    'persistence_outcome' => 'failed',
+    'commit_state' => 'unconfirmed',
+    'committed' => false,
+]);
 loggingCheck(
     $severityRecords[0][1] === 'warning'
     && $severityRecords[1][1] === 'error'
     && $severityRecords[2][1] === 'warning'
-    && $severityRecords[3][1] === 'warning',
-    'malformed/model-invalid outcomes should warn and failures should error except invalid model responses.'
+    && $severityRecords[3][1] === 'warning'
+    && $severityRecords[4][1] === 'error',
+    'malformed/model-invalid outcomes should warn, failures and uncertain commits should error, except invalid model responses.'
 );
 
 $cleanupRecords = [];
@@ -328,11 +434,55 @@ try {
     }
 }
 
+$warningPipes = [];
+$warningProcess = proc_open(
+    [PHP_BINARY, '-d', 'display_errors=1', __FILE__, 'warning-child'],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $warningPipes
+);
+loggingCheck(is_resource($warningProcess), 'warning containment subprocess should start.');
+fclose($warningPipes[0]);
+$warningChildOutput = stream_get_contents($warningPipes[1]);
+fclose($warningPipes[1]);
+$warningChildError = stream_get_contents($warningPipes[2]);
+fclose($warningPipes[2]);
+$warningExitCode = proc_close($warningProcess);
+loggingCheck($warningExitCode === 0, 'warning containment subprocess should exit cleanly.');
+loggingCheck(
+    $warningChildOutput === "warning child returned status=committed sink=2 observer=2\n"
+        && $warningChildError === '',
+    'warnings from custom sink and observer callbacks must not escape into output or stderr.'
+);
+
+$throwingSinkObserved = [];
 $throwingLog = new RequestLog(static function (string $json, string $level): void {
     throw new RuntimeException('sink failure');
 }, false);
+$throwingLog->observe(static function (array $record, string $level) use (&$throwingSinkObserved): void {
+    $throwingSinkObserved[] = [$record, $level];
+});
 $throwingLog->context(['event_id' => 'not-an-id', 'utterance_id' => "bad\nvalue"]);
 $throwingLog->event('sink_failure', 'error', ['persistence_reason' => 'rollback']);
 loggingCheck($throwingLog->finish('failed', 'sink-error') === 'failed', 'logging failures must never escape or prevent a result.');
+loggingCheck(
+    count($throwingSinkObserved) === 2
+        && $throwingSinkObserved[0][1] === 'error'
+        && $throwingSinkObserved[1][0]['event'] === 'request_finished',
+    'observer should still run when the normal sink throws.'
+);
+
+$throwingObserverSinkCalls = 0;
+$throwingObserverLog = new RequestLog(static function (string $json) use (&$throwingObserverSinkCalls): void {
+    $throwingObserverSinkCalls++;
+}, false);
+$throwingObserverLog->observe(static function (array $record, string $level): void {
+    throw new RuntimeException('observer failure');
+});
+$throwingObserverLog->event('observer_failure', 'info');
+loggingCheck(
+    $throwingObserverLog->finish('committed', 'ok') === 'committed'
+        && $throwingObserverSinkCalls === 2,
+    'observer exceptions must not disrupt sink delivery or domain results.'
+);
 
 echo "logging checks passed\n";

@@ -37,7 +37,13 @@ function mindPoisoningEvaluateReflection(
         $logFields['reason'] ??= 'reflection-failed';
     }
 
-    $outcome = $status === 'committed' ? 'committed' : ($status === 'failed' ? 'failed' : ($status === 'model-invalid' ? 'rejected' : 'skipped'));
+    $outcome = match ($status) {
+        'committed' => 'committed',
+        'failed' => 'failed',
+        'invalid' => 'rejected',
+        'model-invalid', 'invalid-payload' => 'rejected',
+        default => 'skipped',
+    };
     $reason = is_string($logFields['reason'] ?? null) ? $logFields['reason'] : $status;
     $requestLog?->finish($outcome, $reason, $logFields);
     return $status;
@@ -128,6 +134,7 @@ function evaluateReflection(
     }
     $requestLog?->context([
         'event_id' => $registration['event_id'],
+        'config_id' => $registration['config_id'],
         'utterance_id' => $registration['utterance_id'],
         'playthrough_id' => $registration['playthrough_id'],
         'speaker_id' => $registration['actor_id'],

@@ -14,6 +14,8 @@ The helper accepts only allowlisted IDs, result codes, timings, counts, numeric 
 
 ## v0.1.12 solo reflection API
 
+For the companion call, observer, and Private Conversation import contract, see the [integration API](integration-api.md).
+
 `server/reflection.php` exposes `mindPoisoningEvaluateReflection()` for a companion integration; it is side-effect-free on load and is not auto-run by the ordinary Mind Poisoning hook. The companion must provide a private exact registration and revalidation callback for the current event, utterance, actor, playthrough/configuration, sentinel and emitted subtitle digest, then call the API on the matching native `_speech` ACK. There is no newest-row, text-tail, or time-proximity fallback.
 
 Ordinary pair processing remains A→B about C, evaluating B's opinion of C. Solo reflection is A→C, evaluating A's opinion of C and persisting A as owner with no listener. It uses the actor profile and up to eight earlier spoken utterances where the actor is a known participant; affinity and prior reflection output are excluded. The current evidence basis remembers up to 32 subject tokens outside the 128-event ledger, including zero-change results, so unchanged evidence skips without relying on the rolling ledger.

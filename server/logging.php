@@ -6,7 +6,7 @@ namespace ChimMindPoisoning;
 final class RequestLog
 {
     private const CONTEXT_FIELDS = [
-        'event_id', 'utterance_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind',
+        'event_id', 'utterance_id', 'config_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind',
     ];
     private const CODE_FIELDS = [
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
@@ -18,6 +18,9 @@ final class RequestLog
     private array $context = [];
     /** @var callable|null */
     private $sink;
+    /** @var callable|null */
+    private $observer = null;
+    private bool $observing = false;
     private bool $diagnostic;
     private string $requestId;
     private string $version;
@@ -48,6 +51,11 @@ final class RequestLog
             }
         } catch (\Throwable) {
         }
+    }
+
+    public function observe(?callable $observer): void
+    {
+        $this->observer = $observer;
     }
 
     public function event(string $event, string $level, array $fields = []): void
@@ -187,6 +195,9 @@ final class RequestLog
         if (($safeFields['cleanup_failed'] ?? null) === true) {
             return 'error';
         }
+        if (($safeFields['commit_state'] ?? null) === 'unconfirmed') {
+            return 'error';
+        }
         if (($safeFields['model_outcome'] ?? null) === 'invalid') {
             return 'warning';
         }
@@ -230,6 +241,13 @@ final class RequestLog
         }
         $digits = $matches[1];
         return strlen($digits) === 19 && strcmp($digits, '9223372036854775807') > 0 ? null : $value;
+    }
+
+    private static function sanitizeConfigId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/iD', $value) === 1
+            ? $value
+            : null;
     }
 
     private static function sanitizeSubject(mixed $value): ?string
@@ -313,6 +331,9 @@ final class RequestLog
             if ($key === 'utterance_id') {
                 return self::sanitizeUtteranceId($value);
             }
+            if ($key === 'config_id') {
+                return self::sanitizeConfigId($value);
+            }
             if ($key === 'speaker_kind') {
                 return in_array($value, ['npc', 'player'], true) ? $value : null;
             }
@@ -367,26 +388,39 @@ final class RequestLog
     {
         try {
             $json = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            if (!is_string($json)) {
-                return;
+            if (is_string($json)) {
+                if (is_callable($this->sink)) {
+                    $sink = $this->sink;
+                    @$sink($json, $level);
+                } else {
+                    $method = match ($level) {
+                        'debug' => 'debug',
+                        'info' => 'info',
+                        'warning' => 'warn',
+                        'error' => 'error',
+                    };
+                    if (class_exists('Logger', false) && is_callable(['\\Logger', $method])) {
+                        @\Logger::$method($json);
+                    } else {
+                        @error_log($json);
+                    }
+                }
             }
-            if (is_callable($this->sink)) {
-                ($this->sink)($json, $level);
-                return;
-            }
-
-            $method = match ($level) {
-                'debug' => 'debug',
-                'info' => 'info',
-                'warning' => 'warn',
-                'error' => 'error',
-            };
-            if (class_exists('Logger', false) && is_callable(['\\Logger', $method])) {
-                @\Logger::$method($json);
-                return;
-            }
-            @error_log($json);
         } catch (\Throwable) {
+        }
+
+        if ($this->observing || !is_callable($this->observer)) {
+            return;
+        }
+        $observerRecord = $record;
+        unset($observerRecord['model_reason']);
+        $observer = $this->observer;
+        $this->observing = true;
+        try {
+            @$observer($observerRecord, $level);
+        } catch (\Throwable) {
+        } finally {
+            $this->observing = false;
         }
     }
 }

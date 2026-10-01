@@ -802,6 +802,9 @@ function persistJudgments(
                 return $done('invalid', 'affinity-invalid');
             }
             $beforeAffinity = (float)$affinity;
+            if (!is_finite($beforeAffinity) || $beforeAffinity < -100 || $beforeAffinity > 100) {
+                return $done('invalid', 'affinity-invalid');
+            }
             $nextAffinity = max(-100, min(100, (float)$affinity + $judgment['delta']));
             $updatedEdge->aff = floor($nextAffinity) === $nextAffinity ? (int)$nextAffinity : $nextAffinity;
             $updatedRelationships->{$name} = $updatedEdge;

@@ -57,11 +57,23 @@ function reflectionResponse(int $delta = 3): string
     ]]);
 }
 
+function captureObservedReflectionLog(array &$sinkRecords, array &$observedSummaries): object
+{
+    $requestLog = captureRequestLog($sinkRecords);
+    $requestLog->observe(static function (array $record, string $level) use (&$observedSummaries): void {
+        if (($record['event'] ?? null) === 'request_finished') {
+            $observedSummaries[] = $record;
+        }
+    });
+    return $requestLog;
+}
+
 resetAckLoggingInteraction();
 [$registration, $ack, $db] = reflectionFixture();
 $stages = [];
 $modelCalls = 0;
 $reflectionRecords = [];
+$reflectionObserved = [];
 $status = mindPoisoningEvaluateReflection(
     $registration,
     $ack,
@@ -77,7 +89,7 @@ $status = mindPoisoningEvaluateReflection(
         same('In my heart, Lydia earned my trust again.', $payload['current_reflection'] ?? null, 'The model must judge the exact ACK subtitle.');
         return reflectionResponse();
     },
-    captureRequestLog($reflectionRecords)
+    captureObservedReflectionLog($reflectionRecords, $reflectionObserved)
 );
 same('committed', $status, 'A registered emitted line with its genuine ACK should commit.');
 same(1, $modelCalls, 'One source ACK should make one provider request.');
@@ -86,18 +98,38 @@ same(2, count(array_filter($stages, static fn(string $stage): bool => $stage ===
 same(13, $db->npcs[11]['extended_data']->relationships->Lydia->aff, 'A reflection may update only its actor-owned opinion edge.');
 same(-50, $db->npcs[22]['extended_data']->relationships->Aela->aff, 'A reflection must not mutate another NPC.');
 $reflectionSummary = lastRequestSummary($reflectionRecords);
+$reflectionObservedSummary = lastRequestSummary($reflectionObserved);
 same('reflection', $reflectionSummary['source_kind'] ?? null, 'Diagnostics must identify reflection provenance.');
 same('11', $reflectionSummary['opinion_owner_id'] ?? null, 'Diagnostics must identify the actor who owns the opinion.');
 check(!array_key_exists('listener_id', $reflectionSummary), 'Reflection diagnostics must not invent a listener identity.');
+same($registration['config_id'], $reflectionObservedSummary['config_id'] ?? null, 'A validated registration should correlate its configuration UUID.');
+same('100', $reflectionObservedSummary['event_id'] ?? null, 'The final summary should retain the exact registered event.');
+same($registration['utterance_id'], $reflectionObservedSummary['utterance_id'] ?? null, 'The final summary should retain the exact registered utterance.');
+check(preg_match('/\A[a-f0-9]{24}\z/D', $reflectionObservedSummary['request_id'] ?? '') === 1, 'The final summary should retain its generated request ID.');
+same('npc', $reflectionObservedSummary['speaker_kind'] ?? null, 'Reflection should retain the validated NPC speaker kind.');
+same('11', $reflectionObservedSummary['speaker_id'] ?? null, 'Reflection should retain the registered NPC speaker ID.');
+same('11', $reflectionObservedSummary['opinion_owner_id'] ?? null, 'Reflection should retain its opinion owner in the observed summary.');
+check(!array_key_exists('listener_id', $reflectionObservedSummary), 'The observed summary must not invent a listener identity.');
+same('committed', $reflectionObservedSummary['persistence_outcome'] ?? null, 'The observer summary should retain persistence outcome.');
+same('committed', $reflectionObservedSummary['persistence_reason'] ?? null, 'The observer summary should retain the persistence reason.');
+same('confirmed', $reflectionObservedSummary['commit_state'] ?? null, 'The observer summary should retain confirmed commit state.');
+same(true, $reflectionObservedSummary['committed'] ?? null, 'The observer summary should retain the commit result.');
+same(1, $reflectionObservedSummary['changed_count'] ?? null, 'The observer summary should retain the number of changes.');
+same([['subject' => 'npc:22', 'delta' => 3, 'before' => 10.0, 'after' => 13]], $reflectionObservedSummary['changes'] ?? null, 'The observer summary should retain sanitized changes.');
+check(is_numeric($reflectionObservedSummary['model_ms'] ?? null) && is_numeric($reflectionObservedSummary['persistence_ms'] ?? null), 'The observer summary should retain model and persistence timing.');
 $reflectionLedger = $db->npcs[11]['plugin_extended_data']->mind_poisoning;
 same('reflection', $reflectionLedger->events[0]->source_kind, 'The ledger must retain distinct reflection provenance.');
 same(64, strlen($reflectionLedger->reflection_state->basis), 'The bounded actor evidence basis should be retained separately from rolling event history.');
 same(['npc:22'], $reflectionLedger->reflection_state->subjects, 'The processed subject token should be recorded for the unchanged basis.');
 
+$replayRecords = [];
+$replayObserved = [];
 same('duplicate', mindPoisoningEvaluateReflection($registration, $ack, $db, static fn(): bool => true, static function () use (&$modelCalls): string {
     $modelCalls++;
     return reflectionResponse();
-}), 'An exact replay must be deduped.');
+}, captureObservedReflectionLog($replayRecords, $replayObserved)), 'An exact replay must be deduped.');
+same('duplicate-event', lastRequestSummary($replayObserved)['reason'] ?? null, 'An exact replay should retain its fixed duplicate reason.');
+same('info', lastRequestSummary($replayObserved)['level'] ?? null, 'An exact replay should remain informational.');
 [$nextRegistration, $nextAck] = $registration === [] ? [[], []] : [$registration, $ack];
 $nextRegistration['event_id'] = 101;
 $nextRegistration['utterance_id'] = 'utt_abcdef0123456789';
@@ -144,12 +176,55 @@ same(1, $modelCalls, 'Rolling-ledger eviction must not re-enable an unchanged re
 resetAckLoggingInteraction();
 [$registration, $ack, $db] = reflectionFixture();
 $staleCalls = 0;
+$staleRecords = [];
+$staleObserved = [];
 same('stale', mindPoisoningEvaluateReflection($registration, $ack, $db, static fn(): bool => false, static function () use (&$staleCalls): string {
     $staleCalls++;
     return reflectionResponse();
-}), 'A changed or missing PCV registration must fail closed.');
+}, captureObservedReflectionLog($staleRecords, $staleObserved)), 'A changed or missing PCV registration must fail closed.');
+same('reflection-registration-stale', lastRequestSummary($staleObserved)['reason'] ?? null, 'A stale registration should retain its fixed reason.');
+same('info', lastRequestSummary($staleObserved)['level'] ?? null, 'A stale registration should remain informational.');
 same(0, $staleCalls, 'A stale registration must not reach the model.');
 same([], $db->history, 'A stale registration must not create a snapshot.');
+
+resetAckLoggingInteraction();
+[$invalidRegistration, $ack, $db] = reflectionFixture();
+$invalidRegistration['speech_hash'] = 'not-a-hash';
+$invalidRecords = [];
+$invalidObserved = [];
+same('invalid-payload', mindPoisoningEvaluateReflection(
+    $invalidRegistration,
+    $ack,
+    $db,
+    static fn(): bool => true,
+    static fn(): string => reflectionResponse(),
+    captureObservedReflectionLog($invalidRecords, $invalidObserved)
+), 'A malformed registration should stop before evaluation.');
+$invalidSummary = lastRequestSummary($invalidObserved);
+same('reflection-registration-invalid', $invalidSummary['reason'] ?? null, 'A malformed registration should retain its fixed reason.');
+same('warning', $invalidSummary['level'] ?? null, 'A malformed registration should remain a warning.');
+foreach (['config_id', 'event_id', 'utterance_id', 'speaker_id', 'opinion_owner_id'] as $field) {
+    check(!array_key_exists($field, $invalidSummary), 'An invalid registration must not contribute the ' . $field . ' correlation field.');
+}
+
+check(file_put_contents($pauseControlPath, '{"enabled":"false"}') !== false, 'The malformed pause control fixture should be written.');
+resetAckLoggingInteraction();
+[$registration, $ack, $db] = reflectionFixture();
+$pauseRecords = [];
+$pauseObserved = [];
+same('paused', mindPoisoningEvaluateReflection(
+    $registration,
+    $ack,
+    $db,
+    static fn(): bool => true,
+    static fn(): string => reflectionResponse(),
+    captureObservedReflectionLog($pauseRecords, $pauseObserved)
+), 'An invalid operator pause control should stop reflection.');
+$pauseSummary = lastRequestSummary($pauseObserved);
+same('pause_control_invalid', $pauseSummary['reason'] ?? null, 'An invalid pause control should retain its fixed reason.');
+same('warning', $pauseSummary['level'] ?? null, 'An invalid pause control should remain a warning.');
+same('not_called', $pauseSummary['model_outcome'] ?? null, 'An invalid pause control must stop before model work.');
+@unlink($pauseControlPath);
 
 resetAckLoggingInteraction();
 [$registration, $ack, $db] = reflectionFixture(['delivery_state' => 'aborted']);
@@ -198,10 +273,17 @@ same(0, $lockedCalls, 'A locked actor must stop before provider work.');
 resetAckLoggingInteraction();
 [$registration, $ack, $db] = reflectionFixture();
 $zeroCalls = 0;
+$zeroRecords = [];
+$zeroObserved = [];
 same('committed', mindPoisoningEvaluateReflection($registration, $ack, $db, static fn(): bool => true, static function (array $messages) use (&$zeroCalls): string {
     $zeroCalls++;
     return reflectionResponse(0);
-}), 'An all-zero reflection should still persist the unchanged-basis dedupe token.');
+}, captureObservedReflectionLog($zeroRecords, $zeroObserved)), 'An all-zero reflection should still persist the unchanged-basis dedupe token.');
+same('committed', lastRequestSummary($zeroObserved)['persistence_outcome'] ?? null, 'A zero change remains a committed persistence outcome.');
+same('zero-change', lastRequestSummary($zeroObserved)['persistence_reason'] ?? null, 'A zero change should retain its distinct persistence reason.');
+same('confirmed', lastRequestSummary($zeroObserved)['commit_state'] ?? null, 'A zero change should retain confirmed commit state.');
+same(0, lastRequestSummary($zeroObserved)['changed_count'] ?? null, 'A zero change should report no changed edges.');
+same([], lastRequestSummary($zeroObserved)['changes'] ?? null, 'A zero change should report an empty change list.');
 same(10, $db->npcs[11]['extended_data']->relationships->Lydia->aff, 'An all-zero reflection must not alter affinity.');
 $zeroNext = $registration;
 $zeroNext['event_id'] = 102;
@@ -285,5 +367,56 @@ same('failed', mindPoisoningEvaluateReflection($registration, $ack, $db, static 
 same([], $db->history, 'A provider failure must not create a snapshot.');
 $encodedFailureLog = json_encode($failedRecords, JSON_THROW_ON_ERROR);
 check(!str_contains($encodedFailureLog, $privateText) && !str_contains($encodedFailureLog, $privateHash), 'Logs must contain neither reflection dialogue nor the private speech digest.');
+
+resetAckLoggingInteraction();
+[$registration, $ack, $db] = reflectionFixture();
+$db->failSnapshot = true;
+$persistenceRecords = [];
+$persistenceObserved = [];
+same('failed', mindPoisoningEvaluateReflection(
+    $registration,
+    $ack,
+    $db,
+    static fn(): bool => true,
+    static fn(): string => reflectionResponse(),
+    captureObservedReflectionLog($persistenceRecords, $persistenceObserved)
+), 'A snapshot verification failure must remain a failed reflection.');
+$persistenceSummary = lastRequestSummary($persistenceObserved);
+same('failed', $persistenceSummary['persistence_outcome'] ?? null, 'The final observer should retain persistence failure.');
+same('snapshot-verification-failed', $persistenceSummary['persistence_reason'] ?? null, 'The final observer should retain the specific persistence reason.');
+same('not_attempted', $persistenceSummary['commit_state'] ?? null, 'A pre-commit snapshot failure should retain its commit state.');
+same('error', $persistenceSummary['level'] ?? null, 'Persistence failure should remain an error.');
+
+resetAckLoggingInteraction();
+[$registration, $ack, $db] = reflectionFixture();
+$db->npcs[11]['extended_data']->relationships->Lydia->aff = 250;
+$invalidAffinityRecords = [];
+$invalidAffinityObserved = [];
+$invalidAffinityLog = captureRequestLog($invalidAffinityRecords);
+$invalidAffinityLog->observe(static function (array $record, string $level) use (&$invalidAffinityObserved): void {
+    $invalidAffinityObserved[] = $record + ['level' => $level];
+});
+same('invalid', mindPoisoningEvaluateReflection(
+    $registration,
+    $ack,
+    $db,
+    static fn(): bool => true,
+    static fn(): string => reflectionResponse(),
+    $invalidAffinityLog
+), 'An out-of-range actor affinity should reject reflection persistence.');
+$invalidPersistenceEvents = array_values(array_filter(
+    $invalidAffinityObserved,
+    static fn(array $record): bool => ($record['event'] ?? null) === 'persistence_finished'
+));
+$invalidAffinityPersistence = $invalidPersistenceEvents[0] ?? [];
+$invalidAffinitySummary = lastRequestSummary($invalidAffinityObserved);
+same('affinity-invalid', $invalidAffinityPersistence['persistence_reason'] ?? null, 'The persistence event should retain the invalid affinity reason.');
+same('warning', $invalidAffinityPersistence['level'] ?? null, 'Invalid persistence should emit a warning.');
+same('invalid', $invalidAffinitySummary['persistence_outcome'] ?? null, 'The terminal event should retain the invalid persistence outcome.');
+same('affinity-invalid', $invalidAffinitySummary['persistence_reason'] ?? null, 'The terminal event should retain the invalid affinity reason.');
+same('rejected', $invalidAffinitySummary['outcome'] ?? null, 'Invalid persistence should be a rejected terminal result.');
+same('warning', $invalidAffinitySummary['level'] ?? null, 'The terminal event should retain warning severity for invalid persistence.');
+same(250, $db->npcs[11]['extended_data']->relationships->Lydia->aff, 'Invalid affinity must remain unchanged.');
+same([], $db->history, 'Invalid affinity must not create a snapshot.');
 
 echo "reflection checks passed\n";

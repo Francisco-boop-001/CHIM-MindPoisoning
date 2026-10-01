@@ -1004,7 +1004,7 @@ function dashboardCurrent(array $listener, string $subject, string $subjectName,
         return ['value' => null, 'state' => 'invalid'];
     }
     $value = (float)$affinity;
-    if (!is_finite($value)) {
+    if (!is_finite($value) || $value < -100 || $value > 100) {
         return ['value' => null, 'state' => 'invalid'];
     }
     return ['value' => floor($value) === $value ? (int)$value : $value, 'state' => 'set'];

@@ -725,3 +725,35 @@ Review: PHP lint and existing dashboard preview self-test passed using WSL PHP 8
 - [x] Publish verified PRE-ALPHA releases before updating main; verify public source/manifests.
 
 Review: release evidence and authoritative hashes are in world-of-drama-llama-publication-2026-09-30.md. Installed/runtime certification remains unclaimed.
+
+## Optional reflection diagnostics API — 2026-09-30
+
+- [x] Establish existing evaluation, logger, persistence and PCV importer contracts; account for dirty contributor work.
+- [x] Add failure-contained sanitized RequestLog observer with compatible constructor and normal delivery.
+- [x] Carry validated reflection configuration correlation and truthful terminal model/persistence outcomes.
+- [x] Execute isolated cross-plugin checks for success, zero, failure, uncertain commit, skips, stale/replay and no-observer behavior.
+- [x] Review all diffs and verification evidence; document the API and remaining integration limits.
+
+Scope: Mind Poisoning source, focused tests and documentation only. Private Conversation is read-only evidence, including the dirty embedded copy. No metadata/version/package edits, installation, live provider/database calls, publication or release pin changes.
+
+Review: Optional observer API and validated reflection configuration correlation implemented. Focused logger/store/reflection checks and the real PCV importer fixture passed; malformed registrations now warn, and uncertain commits remain errors. Lead reviewed all owned diffs and privacy/failure paths. See reflection-diagnostics-api-2026-09-30.md for exact commands, source hashes and limits. No installation, publication, metadata or pin change.
+
+## Bug hunt after reflection diagnostics API — 2026-09-30
+
+- [x] Inspect current tree, prior checks, contributor instructions and pending integration work.
+- [x] Audit observer delivery/sanitization, reflection authorization/replay, and ordinary evaluation/persistence in separate owned scopes.
+- [x] Reproduce concrete defects before the smallest root-cause fixes; reject unsupported hypotheses and preserve existing work.
+- [x] Review changed call paths and focused verification; record findings, counterexamples and remaining limits.
+
+Scope: MP source and isolated checks only. Standalone and embedded Private Conversation are read-only integration evidence. Existing API changes stay intact. No live CHIM/provider/database use, metadata/pin updates, installation or publication. Lead owns task evidence and review; implementation stays delegated.
+Review: Four proven defects fixed: illegal affinity silently clamped, callback PHP warnings escaped, invalid reflection persistence finished as info, and dashboard illegal current affinity shown as normal. Lead reviewed all owned diffs and independently ran five focused regression gates plus PHP lint/whitespace checks. No installation, publication, metadata or pin change. Exact evidence and counterarguments: bug-hunt-reflection-api-2026-09-30.md.
+
+## Mind Poisoning v0.1.13 publication — 2026-09-30
+
+- [x] Review only MP diagnostic API and bug-hunt changes; preserve unrelated Private Conversation work.
+- [x] Prepare PRE-ALPHA version metadata and notes; review the package allowlist and pass focused fixture gates.
+- [ ] Commit explicit files; build from the clean commit, tag and compare clean-tag packages.
+- [ ] Push tag, upload draft assets and verify downloaded hashes; publish before advancing main.
+- [ ] Verify public release, main manifest and immutable tag; record review and remaining runtime limits.
+
+Scope: User authorized commit, push and publication. No CHIM installation, live provider/database calls, modlist edits or catalog submission. Compatibility reference remains unchanged. Lead owns release evidence and review; metadata preparation stays delegated.

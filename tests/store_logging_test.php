@@ -122,6 +122,26 @@ same([
     ['subject' => 'npc:33', 'delta' => 5, 'before' => 100, 'after' => 100],
 ], $record['changes'] ?? null, 'The committed summary may retain the proposed delta with equal before/after values.');
 
+foreach ([
+    ['value' => 250, 'delta' => -5, 'label' => 'above the affinity range'],
+    ['value' => -250, 'delta' => 5, 'label' => 'below the affinity range'],
+    ['value' => '1e309', 'delta' => -5, 'label' => 'numeric overflow'],
+] as $invalidAffinity) {
+    [$event, $subjects, $judgments, $memory] = baseFixture();
+    $memory->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff = $invalidAffinity['value'];
+    $judgments['npc:33']['delta'] = $invalidAffinity['delta'];
+    $beforeOutOfRange = serialize($memory->npcs[22]);
+    $records = logRecords(static function (&$records, callable $sink) use ($event, $subjects, $judgments, $memory, $invalidAffinity): void {
+        same('invalid', persistJudgments($event, $subjects, $judgments, $memory, new RequestLog($sink, false)),
+            'A stored affinity ' . $invalidAffinity['label'] . ' must be rejected.');
+    });
+    same($beforeOutOfRange, serialize($memory->npcs[22]), 'An invalid stored affinity must remain unchanged after rejection.');
+    $record = persistenceRecord($records);
+    same('affinity-invalid', $record['persistence_reason'] ?? null, 'Invalid stored affinity should use the fixed reason.');
+    same('not_attempted', $record['commit_state'] ?? null, 'Invalid stored affinity must not reach COMMIT.');
+    same([], $record['changes'] ?? null, 'Rejected invalid state must not report affinity changes.');
+}
+
 [$event, $subjects, $judgments, $memory] = baseFixture();
 $event['event_id'] = 'bad';
 $records = logRecords(static function (&$records, callable $sink) use ($event, $subjects, $judgments, $memory): void {
