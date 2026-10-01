@@ -752,8 +752,10 @@ Review: Four proven defects fixed: illegal affinity silently clamped, callback P
 
 - [x] Review only MP diagnostic API and bug-hunt changes; preserve unrelated Private Conversation work.
 - [x] Prepare PRE-ALPHA version metadata and notes; review the package allowlist and pass focused fixture gates.
-- [ ] Commit explicit files; build from the clean commit, tag and compare clean-tag packages.
-- [ ] Push tag, upload draft assets and verify downloaded hashes; publish before advancing main.
-- [ ] Verify public release, main manifest and immutable tag; record review and remaining runtime limits.
+- [x] Commit explicit files; build from the clean commit, tag and compare clean-tag packages.
+- [x] Push tag, upload draft assets and verify downloaded hashes; publish before advancing main.
+- [x] Verify public release, main manifest and immutable tag; record review and remaining runtime limits.
 
 Scope: User authorized commit, push and publication. No CHIM installation, live provider/database calls, modlist edits or catalog submission. Compatibility reference remains unchanged. Lead owns release evidence and review; metadata preparation stays delegated.
+
+Review: v0.1.13 PRE-ALPHA published after clean commit/tag rebuild equality and downloaded-asset checksum verification. Main advanced only after publication; public manifest and annotated tag match. Compatibility reference, installed CHIM and pending Private Conversation work are preserved. Exact evidence and runtime limits: release-v0.1.13.md.
