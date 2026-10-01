@@ -40,3 +40,7 @@
 - Catalogue matching is a release gate across every plugin in a collection, not just a per-manifest check. At the inspected CHIM revision, repository-or-name first matching makes shared git_repo identities unsafe for independent plugins. Test both entry orders and single-entry catalogues before listing; explicit versioned assets alone do not solve selection.
 - Cross-plugin evidence must identify the exact consumer source and whether it is committed/published. A passing test against a drifting sibling development folder does not establish published-consumer compatibility. Keep a repository-contained, versioned integration snapshot or a reproducible pinned dependency, and execute the check from a clean tag.
 - Hook placement must be checked against emission, request-lock release and existing guards. A hook named prepostrequest still runs after flushing at the inspected revision; report early acknowledgements explicitly and never claim a timing race is closed solely by moving a hook.
+
+## Standalone deployment source exports
+
+When splitting a plugin into its own repository, carry its source-controlled line-ending policy. Equal Git trees do not prove equal exported build inputs under different attributes and host settings. Compare clean commit/tag consumer assets byte for byte before publication; keep failed candidate tags local until the mismatch is resolved.
