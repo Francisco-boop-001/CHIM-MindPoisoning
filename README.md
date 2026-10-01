@@ -11,7 +11,7 @@ Skyrim already has dragons, a civil war and Nazeem. Naturally, what it needed ne
 | Plugin | Purpose | Candidate | Guide |
 | --- | --- | --- | --- |
 | **Mind Poisoning** | A speaks to B about C; B may revise an opinion of C. Compatible solo reflection lets A reconsider an opinion of C. | [0.1.13 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/mind_poisoning-v0.1.13) · [release notes](distribution/mind_poisoning-v0.1.13.md) | [Player guide](docs/mind-poisoning.md) · [Developer guide](docs/development.md) · [Dashboard/logs](docs/dashboard.md) |
-| **Private Conversation** | Direct a two-NPC scene or one NPC thinking aloud, with current audience scoping and optional Mind Poisoning effects. | [0.1.4 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/private_conversation-v0.1.4) | [Full guide, installation and examples](plugins/private_conversation/README.md) |
+| **Private Conversation** | Direct a two-NPC scene or one NPC thinking aloud, with current audience scoping and optional Mind Poisoning effects. | [0.1.5 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/tag/private_conversation-v0.1.5) · [release notes](distribution/private_conversation-v0.1.5.md) | [Full guide, installation and examples](plugins/private_conversation/README.md) |
 
 Both are **server extensions** using CHIM's existing client. These releases require no extra ESP/ESL or Papyrus companion and consume no Skyrim plugin slot. They are development candidates, not a promise that every LLM has finally learned social boundaries.
 
@@ -22,7 +22,7 @@ Choose one route per plugin/server. **Replace older enabled packages; do not sta
 | Plugin | Plain MO2 import | Manual CHIM sync | Repository/Plugin Manager archive |
 | --- | --- | --- | --- |
 | Mind Poisoning 0.1.13 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.13/mind_poisoning-0.1.13-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.13/mind_poisoning-0.1.13.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/mind_poisoning-v0.1.13/mind_poisoning.tar.gz) |
-| Private Conversation 0.1.4 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.4/private_conversation-0.1.4-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.4/private_conversation-0.1.4.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.4/private_conversation.tar.gz) |
+| Private Conversation 0.1.5 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.5/private_conversation-0.1.5-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.5/private_conversation-0.1.5.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-Plugins/releases/download/private_conversation-v0.1.5/private_conversation.tar.gz) |
 
 The MO2 ZIP contains `CHIM/server-plugins/<plugin>/<version>.dwpkg`. Keep `CHIM` directly under the data root. For manual sync, rename the raw DWPkg to `<version>.dwpkg` and place it at `Data/CHIM/server-plugins/<plugin>/<version>.dwpkg`; do not unpack it into Data. The tar archive is a separate server installer format with one wrapper directory stripped once. Detailed guides explain the routes and MO2's possible CHIM-only content warning.
 
@@ -50,7 +50,7 @@ Enable **Solo reflection**, choose Lydia and arm it. Enter:
 
 The plugin selects Lydia, injects thinking-aloud guidance and fixes the listener to CHIM's `explicit_disable_rechat` marker. One generated response follows; another input can request another reflection. There is no new background monologue loop.
 
-With Mind Poisoning 0.1.13 enabled, an exact registered output and matching native speech acknowledgement can lead to evaluation of **Lydia's own opinion of Nazeem**, grounded in her profile and relevant prior history. Repeating a reflection against unchanged evidence cannot endlessly farm the same solo change.
+With compatible Mind Poisoning 0.1.12 enabled, an exact registered output and matching native speech acknowledgement can lead to evaluation of **Lydia's own opinion of Nazeem**, grounded in her profile and relevant prior history. Published Mind Poisoning 0.1.13 additionally supplies the optional sanitized observer used for unified solo model/persistence diagnostics; 0.1.12 remains sufficient for optional effects. Repeating a reflection against unchanged evidence cannot endlessly farm the same solo change.
 
 ### Gossip with consequences
 
@@ -85,7 +85,7 @@ The [0.1.10 live acceptance record](tasks/live-acceptance-v0.1.10.md) documents 
 
 ## Debugging and support
 
-Mind Poisoning's **Plugin Page → Logs → Download filtered plugin log** provides a bounded export. Private Conversation has a private CLI reader with request/configuration filters; see its [logging section](plugins/private_conversation/README.md#logs-and-troubleshooting). Outcomes include timestamps, success/skip/failure status and fixed reasons. Ordinary PCV logs do not dump prompts or dialogue; Mind Poisoning's optional debug rationale needs separate care before sharing.
+Mind Poisoning's **Plugin Page → Logs → Download filtered plugin log** provides a bounded export. The Private Conversation 0.1.5 candidate adds a protected **Logs** view with manual filters and sanitized JSONL export; its CLI uses the same bounded reader. See the [PCV diagnostics guide](plugins/private_conversation/docs/logging-revision-2.md). Access requires exact loopback without forwarding headers or trusted server `REMOTE_USER`, with session CSRF on submitted reads/exports/reports; this source check does not certify a deployed proxy topology. Ordinary PCV logs omit prompts and dialogue; Mind Poisoning's optional debug rationale needs separate care before sharing.
 
 Report installed versions, CHIM/client revision if known, exact settings, reproduction steps, expected/observed behavior and filtered logs. Omit credentials and full private conversation dumps. "It doesn't work" is a mood, not a bug report.
 
