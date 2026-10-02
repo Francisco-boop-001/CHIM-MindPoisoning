@@ -344,6 +344,7 @@ final class MemoryStoreDb implements StoreDb
     public bool $busy = false;
     public bool $failSnapshot = false;
     public bool $failRelease = false;
+    public bool $failCommit = false;
     public int $beginCalls = 0;
     public int $activePlaythroughCalls = 0;
     private bool $transaction = false;
@@ -486,7 +487,7 @@ final class MemoryStoreDb implements StoreDb
 
     public function commit(): bool
     {
-        if (!$this->transaction) {
+        if (!$this->transaction || $this->failCommit) {
             return false;
         }
         $this->transaction = false;

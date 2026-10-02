@@ -7,6 +7,7 @@ use JsonException;
 use Throwable;
 
 const MIND_POISONING_REFLECTION_API_VERSION = 1;
+const MIND_POISONING_REFLECTION_REPLY_API_VERSION = 2;
 
 require_once __DIR__ . '/controls.php';
 require_once __DIR__ . '/influence.php';
@@ -25,6 +26,33 @@ function mindPoisoningEvaluateReflection(
     ?callable $requestModel = null,
     ?RequestLog $requestLog = null
 ): string {
+    return runReflectionEvaluation($registration, $gameRequest, $store, $revalidate, $requestModel, $requestLog, false);
+}
+
+/**
+ * Evaluate a complete server-registered reply. Emitted source rows show line
+ * attempts; they do not prove hearing or completed audio playback.
+ */
+function mindPoisoningEvaluateReflectionReply(
+    array $registration,
+    array $gameRequest,
+    StoreDb $store,
+    callable $revalidate,
+    ?callable $requestModel = null,
+    ?RequestLog $requestLog = null
+): string {
+    return runReflectionEvaluation($registration, $gameRequest, $store, $revalidate, $requestModel, $requestLog, true);
+}
+
+function runReflectionEvaluation(
+    array $registration,
+    array $gameRequest,
+    StoreDb $store,
+    callable $revalidate,
+    ?callable $requestModel,
+    ?RequestLog $requestLog,
+    bool $fullReply
+): string {
     $logFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
     $requestLog?->context([
         'source_kind' => 'reflection',
@@ -33,7 +61,7 @@ function mindPoisoningEvaluateReflection(
     $requestLog?->event('reflection_started', 'debug', ['stage' => 'preflight']);
 
     try {
-        $status = evaluateReflection($registration, $gameRequest, $store, $revalidate, $requestModel, $requestLog, $logFields);
+        $status = evaluateReflection($registration, $gameRequest, $store, $revalidate, $requestModel, $requestLog, $logFields, $fullReply);
     } catch (Throwable) {
         $status = 'failed';
         $logFields['reason'] ??= 'reflection-failed';
@@ -42,8 +70,8 @@ function mindPoisoningEvaluateReflection(
     $outcome = match ($status) {
         'committed' => 'committed',
         'failed' => 'failed',
-        'invalid' => 'rejected',
-        'model-invalid', 'invalid-payload' => 'rejected',
+        'invalid', 'model-invalid', 'invalid-payload' => 'rejected',
+        'too-large' => $fullReply ? 'rejected' : 'skipped',
         default => 'skipped',
     };
     $reason = is_string($logFields['reason'] ?? null) ? $logFields['reason'] : $status;
@@ -71,6 +99,141 @@ function reflectionRegistrationValid(array $registration): bool
         && preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/iD', $registration['config_id']) === 1
         && $registration['rechat_target_hint'] === 'explicit_disable_rechat'
         && is_string($registration['speech_hash']) && preg_match('/\A[a-f0-9]{64}\z/D', $registration['speech_hash']) === 1;
+}
+
+function logReflectionRegistrationContext(array $registration, ?RequestLog $requestLog): void
+{
+    $requestLog?->context([
+        'event_id' => $registration['event_id'],
+        'config_id' => $registration['config_id'],
+        'utterance_id' => $registration['utterance_id'],
+        'playthrough_id' => $registration['playthrough_id'],
+        'speaker_id' => $registration['actor_id'],
+        'speaker_kind' => 'npc',
+        'opinion_owner_id' => $registration['actor_id'],
+    ]);
+}
+
+function reflectionReplyRegistrationValid(array $registration): bool
+{
+    $lines = $registration['lines'] ?? null;
+    $base = $registration;
+    unset($base['lines']);
+    if (!reflectionRegistrationValid($base) || !is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > 8) {
+        return false;
+    }
+
+    $seenUtterances = [];
+    $previousEventId = 0;
+    foreach ($lines as $line) {
+        $keys = is_array($line) ? array_keys($line) : [];
+        sort($keys, SORT_STRING);
+        if (
+            $keys !== ['event_id', 'speech_hash', 'utterance_id']
+            || !is_int($line['event_id'] ?? null) || $line['event_id'] <= $previousEventId
+            || !is_string($line['utterance_id'] ?? null) || preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $line['utterance_id']) !== 1
+            || isset($seenUtterances[$line['utterance_id']])
+            || !is_string($line['speech_hash'] ?? null) || preg_match('/\A[a-f0-9]{64}\z/D', $line['speech_hash']) !== 1
+        ) {
+            return false;
+        }
+        $previousEventId = $line['event_id'];
+        $seenUtterances[$line['utterance_id']] = true;
+    }
+
+    $last = $lines[array_key_last($lines)];
+    return $registration['event_id'] === $last['event_id']
+        && $registration['utterance_id'] === $last['utterance_id']
+        && hash_equals($registration['speech_hash'], $last['speech_hash']);
+}
+
+/**
+ * Source rows identify exact lines; only the companion callback can establish
+ * that this complete ordered list came from one immutable server reply.
+ */
+function reflectionReplySourceSnapshot(StoreDb $store, array $registration, ?string &$reason = null): ?array
+{
+    $reason = null;
+    $sources = [];
+    $texts = [];
+    foreach ($registration['lines'] as $line) {
+        $source = $store->acknowledgedEvent($line['utterance_id']);
+        if (
+            !is_array($source) || ($source['event_id'] ?? null) !== $line['event_id']
+            || ($source['utterance_id'] ?? null) !== $line['utterance_id']
+            || !in_array($source['delivery_state'] ?? null, ['emitted', 'spoken'], true)
+            || !is_string($source['source_data'] ?? null)
+            || !is_numeric($source['gamets'] ?? null) || !is_finite((float)$source['gamets'])
+        ) {
+            $reason = 'reflection-source-unmatched';
+            return null;
+        }
+        $parts = reflectionSourceParts($source['source_data']);
+        if (
+            !is_array($parts) || !sameActorName($parts['speaker'] ?? null, $registration['actor_name'])
+            || !hash_equals($line['speech_hash'], hash('sha256', $parts['text']))
+        ) {
+            $reason = 'reflection-source-mismatch';
+            return null;
+        }
+        $sources[] = [
+            'event_id' => $line['event_id'],
+            'utterance_id' => $line['utterance_id'],
+            'speech_hash' => $line['speech_hash'],
+            'gamets' => (float)$source['gamets'],
+            'source_data' => $source['source_data'],
+            'text' => $parts['text'],
+        ];
+        $texts[] = $parts['text'];
+    }
+
+    $text = implode(' ', $texts);
+    if (strlen($text) > 8000 || mb_strlen($text, 'UTF-8') > 2000) {
+        $reason = 'reflection-reply-too-large';
+        return null;
+    }
+    return ['sources' => $sources, 'text' => $text];
+}
+
+function reflectionReplySourcesCurrent(StoreDb $store, array $sources, string $actorName): bool
+{
+    if (!array_is_list($sources) || count($sources) < 1 || count($sources) > 8) {
+        return false;
+    }
+    foreach ($sources as $source) {
+        if (
+            !is_array($source) || !is_int($source['event_id'] ?? null) || $source['event_id'] < 1
+            || !is_string($source['utterance_id'] ?? null)
+            || !is_string($source['speech_hash'] ?? null) || preg_match('/\A[a-f0-9]{64}\z/D', $source['speech_hash']) !== 1
+            || !is_numeric($source['gamets'] ?? null) || !is_string($source['source_data'] ?? null)
+            || !is_string($source['text'] ?? null)
+        ) {
+            return false;
+        }
+        try {
+            $current = $store->eventById($source['event_id'], $source['utterance_id']);
+        } catch (Throwable) {
+            return false;
+        }
+        if (
+            !is_array($current) || ($current['event_id'] ?? null) !== $source['event_id']
+            || ($current['utterance_id'] ?? null) !== $source['utterance_id']
+            || !in_array($current['delivery_state'] ?? null, ['emitted', 'spoken'], true)
+            || (float)($current['gamets'] ?? -1) !== (float)$source['gamets']
+            || ($current['source_data'] ?? null) !== $source['source_data']
+        ) {
+            return false;
+        }
+        $parts = reflectionSourceParts($current['source_data']);
+        if (
+            !is_array($parts) || !sameActorName($parts['speaker'] ?? null, $actorName)
+            || ($parts['text'] ?? null) !== $source['text']
+            || !hash_equals($source['speech_hash'], hash('sha256', $parts['text']))
+        ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function reflectionAckPayload(array $gameRequest): ?array
@@ -125,24 +288,28 @@ function evaluateReflection(
     callable $revalidate,
     ?callable $requestModel,
     ?RequestLog $requestLog,
-    array &$logFields
+    array &$logFields,
+    bool $fullReply = false
 ): string {
     $fail = static function (string $status, string $reason) use (&$logFields): string {
         $logFields['reason'] = $reason;
         return $status;
     };
-    if (!reflectionRegistrationValid($registration) || ($gameRequest[0] ?? null) !== '_speech') {
+    if ($fullReply && is_array($registration['lines'] ?? null) && count($registration['lines']) > 8) {
+        $baseRegistration = $registration;
+        unset($baseRegistration['lines']);
+        if (reflectionRegistrationValid($baseRegistration)) {
+            logReflectionRegistrationContext($registration, $requestLog);
+            return $fail('invalid-payload', 'reflection-reply-too-many-lines');
+        }
+    }
+    $validRegistration = $fullReply
+        ? reflectionReplyRegistrationValid($registration)
+        : reflectionRegistrationValid($registration);
+    if (!$validRegistration || ($gameRequest[0] ?? null) !== '_speech') {
         return $fail('invalid-payload', 'reflection-registration-invalid');
     }
-    $requestLog?->context([
-        'event_id' => $registration['event_id'],
-        'config_id' => $registration['config_id'],
-        'utterance_id' => $registration['utterance_id'],
-        'playthrough_id' => $registration['playthrough_id'],
-        'speaker_id' => $registration['actor_id'],
-        'speaker_kind' => 'npc',
-        'opinion_owner_id' => $registration['actor_id'],
-    ]);
+    logReflectionRegistrationContext($registration, $requestLog);
     $interactionReason = null;
     if (speechAckInteractionStatus($interactionReason) !== 'ok') {
         return $fail('interaction-off', $interactionReason ?? 'interaction_off');
@@ -170,28 +337,63 @@ function evaluateReflection(
         return $fail('stale', 'reflection-scope-stale');
     }
     $ack = reflectionAckPayload($gameRequest);
-    if (
-        !is_array($ack)
-        || $ack['utterance_id'] !== $registration['utterance_id']
-        || !sameActorName($ack['speaker'], $registration['actor_name'])
-        || reflectionPlayerTransport($ack['speaker'], $playerName)
-        || !reflectionPlayerTransport($ack['listener'], $playerName)
-        || !hash_equals($registration['speech_hash'], hash('sha256', $ack['speech']))
-    ) {
+    if (!is_array($ack)) {
         return $fail('event-mismatch', 'reflection-ack-mismatch');
     }
-    $source = $store->acknowledgedEvent($registration['utterance_id']);
-    if (
-        !is_array($source) || ($source['event_id'] ?? null) !== $registration['event_id']
-        || ($source['utterance_id'] ?? null) !== $registration['utterance_id']
-        || !in_array($source['delivery_state'] ?? null, ['emitted', 'spoken'], true)
-        || !is_string($source['source_data'] ?? null)
-    ) {
-        return $fail('event-unmatched', 'reflection-source-unmatched');
-    }
-    $parts = reflectionSourceParts($source['source_data']);
-    if (!is_array($parts) || !sameActorName($parts['speaker'], $registration['actor_name'])) {
-        return $fail('event-mismatch', 'reflection-source-mismatch');
+    $replySources = null;
+    $replyText = null;
+    if ($fullReply) {
+        $ackLine = null;
+        foreach ($registration['lines'] as $index => $line) {
+            if ($line['utterance_id'] === $ack['utterance_id']) {
+                $ackLine = [$index, $line];
+                break;
+            }
+        }
+        if (
+            $ackLine === null || !sameActorName($ack['speaker'], $registration['actor_name'])
+            || reflectionPlayerTransport($ack['speaker'], $playerName)
+            || !reflectionPlayerTransport($ack['listener'], $playerName)
+            || !hash_equals($ackLine[1]['speech_hash'], hash('sha256', $ack['speech']))
+        ) {
+            return $fail('event-mismatch', 'reflection-ack-mismatch');
+        }
+        if ($ackLine[0] !== array_key_last($registration['lines'])) {
+            return $fail('non-final', 'reflection-non-final-ack');
+        }
+        $sourceReason = null;
+        $snapshot = reflectionReplySourceSnapshot($store, $registration, $sourceReason);
+        if (!is_array($snapshot)) {
+            return $sourceReason === 'reflection-reply-too-large'
+                ? $fail('too-large', $sourceReason)
+                : $fail($sourceReason === 'reflection-source-unmatched' ? 'event-unmatched' : 'event-mismatch', $sourceReason ?? 'reflection-source-mismatch');
+        }
+        $replySources = $snapshot['sources'];
+        $replyText = $snapshot['text'];
+        $source = $replySources[array_key_last($replySources)];
+    } else {
+        if (
+            $ack['utterance_id'] !== $registration['utterance_id']
+            || !sameActorName($ack['speaker'], $registration['actor_name'])
+            || reflectionPlayerTransport($ack['speaker'], $playerName)
+            || !reflectionPlayerTransport($ack['listener'], $playerName)
+            || !hash_equals($registration['speech_hash'], hash('sha256', $ack['speech']))
+        ) {
+            return $fail('event-mismatch', 'reflection-ack-mismatch');
+        }
+        $source = $store->acknowledgedEvent($registration['utterance_id']);
+        if (
+            !is_array($source) || ($source['event_id'] ?? null) !== $registration['event_id']
+            || ($source['utterance_id'] ?? null) !== $registration['utterance_id']
+            || !in_array($source['delivery_state'] ?? null, ['emitted', 'spoken'], true)
+            || !is_string($source['source_data'] ?? null)
+        ) {
+            return $fail('event-unmatched', 'reflection-source-unmatched');
+        }
+        $parts = reflectionSourceParts($source['source_data']);
+        if (!is_array($parts) || !sameActorName($parts['speaker'], $registration['actor_name'])) {
+            return $fail('event-mismatch', 'reflection-source-mismatch');
+        }
     }
     try {
         if (!$revalidate($registration, 'pre_model')) {
@@ -199,6 +401,9 @@ function evaluateReflection(
         }
     } catch (Throwable) {
         return $fail('stale', 'reflection-registration-stale');
+    }
+    if ($fullReply && !reflectionReplySourcesCurrent($store, $replySources, $registration['actor_name'])) {
+        return $fail('stale', 'reflection-source-stale');
     }
 
     $identities = $store->npcIdentities();
@@ -227,17 +432,23 @@ function evaluateReflection(
         'opinion_owner_id' => $registration['actor_id'],
         'listener_id' => null,
         'speaker_name' => $actor['npc_name'],
-        'text' => $ack['speech'],
+        'text' => $fullReply ? $replyText : $ack['speech'],
         'gamets' => $source['gamets'],
         'playthrough_id' => $registration['playthrough_id'],
         'player_name' => $playerName,
         'source_data' => $source['source_data'],
         'source_kind' => 'reflection',
-        'speech_hash' => $registration['speech_hash'],
+        'speech_hash' => $fullReply ? hash('sha256', $replyText) : $registration['speech_hash'],
     ];
-    $dedupeReason = null;
-    if (eventAlreadyProcessed($actor, $event['playthrough_id'], $event['event_id'], $event['utterance_id'], $dedupeReason)) {
-        return $fail('duplicate', $dedupeReason ?? 'duplicate-event');
+    if ($fullReply) {
+        $event['reflection_sources'] = $replySources;
+    }
+    $dedupeSources = $fullReply ? $replySources : [$event];
+    foreach ($dedupeSources as $dedupeSource) {
+        $dedupeReason = null;
+        if (eventAlreadyProcessed($actor, $event['playthrough_id'], $dedupeSource['event_id'], $dedupeSource['utterance_id'], $dedupeReason)) {
+            return $fail('duplicate', $dedupeReason ?? 'duplicate-event');
+        }
     }
     $ledger = storedLedgerNamespace($pluginData);
     if ($ledger === null) {
@@ -310,6 +521,9 @@ function evaluateReflection(
         }
     } catch (Throwable) {
         return $fail('stale', 'reflection-registration-stale');
+    }
+    if ($fullReply && !reflectionReplySourcesCurrent($store, $replySources, $registration['actor_name'])) {
+        return $fail('stale', 'reflection-source-stale');
     }
 
     $requestModel ??= __NAMESPACE__ . '\\requestJudgments';

@@ -544,6 +544,52 @@ function playerRelationshipKey(object $relationships, string $playerName): ?stri
     return $matches[0] ?? null;
 }
 
+function reflectionSourceSnapshotsValid(array $event): bool
+{
+    $sources = $event['reflection_sources'] ?? null;
+    if (!is_array($sources) || !array_is_list($sources) || count($sources) < 1 || count($sources) > 8) {
+        return false;
+    }
+    $texts = [];
+    $previousEventId = 0;
+    $seenUtterances = [];
+    foreach ($sources as $source) {
+        $keys = is_array($source) ? array_keys($source) : [];
+        sort($keys, SORT_STRING);
+        if (
+            $keys !== ['event_id', 'gamets', 'source_data', 'speech_hash', 'text', 'utterance_id']
+            || !is_int($source['event_id'] ?? null) || $source['event_id'] <= $previousEventId
+            || !is_string($source['utterance_id'] ?? null) || preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $source['utterance_id']) !== 1
+            || isset($seenUtterances[$source['utterance_id']])
+            || !is_string($source['speech_hash'] ?? null) || preg_match('/\A[a-f0-9]{64}\z/D', $source['speech_hash']) !== 1
+            || (!is_int($source['gamets'] ?? null) && !is_float($source['gamets']) && !(is_string($source['gamets'] ?? null) && is_numeric($source['gamets'])))
+            || !is_finite((float)$source['gamets'])
+            || !is_string($source['source_data'] ?? null) || !is_string($source['text'] ?? null)
+        ) {
+            return false;
+        }
+        $parts = reflectionSourceParts($source['source_data']);
+        if (
+            !is_array($parts) || !sameActorName($parts['speaker'] ?? null, $event['speaker_name'] ?? null)
+            || ($parts['text'] ?? null) !== $source['text']
+            || !hash_equals($source['speech_hash'], hash('sha256', $source['text']))
+        ) {
+            return false;
+        }
+        $previousEventId = $source['event_id'];
+        $seenUtterances[$source['utterance_id']] = true;
+        $texts[] = $source['text'];
+    }
+    $joined = implode(' ', $texts);
+    $last = $sources[array_key_last($sources)];
+    return mb_strlen($joined, 'UTF-8') <= 2000 && strlen($joined) <= 8000
+        && ($event['text'] ?? null) === $joined
+        && ($event['event_id'] ?? null) === $last['event_id']
+        && ($event['utterance_id'] ?? null) === $last['utterance_id']
+        && ($event['gamets'] ?? null) !== null && (float)$event['gamets'] === (float)$last['gamets']
+        && ($event['source_data'] ?? null) === $last['source_data'];
+}
+
 function persistJudgments(
     array $event,
     array $subjects,
@@ -566,6 +612,9 @@ function persistJudgments(
     $stage = 'validation';
     $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
     $reflection = ($event['source_kind'] ?? null) === 'reflection';
+    $hasReplySources = array_key_exists('reflection_sources', $event);
+    $replySources = $event['reflection_sources'] ?? null;
+    $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
     $playerSpeaker = $speakerKind === 'player';
     $ownerId = $reflection ? ($event['opinion_owner_id'] ?? null) : ($event['listener_id'] ?? null);
     $edgeChanges = [];
@@ -638,10 +687,18 @@ function persistJudgments(
             || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
             || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
             || !is_string($event['source_data'] ?? null)
+            || !$replySourcesValid
             || !validSubjectsAndJudgments($subjects, $judgments, $event)
         ) {
             return $done('invalid', 'invalid-event');
         }
+
+        $coveredEvents = $hasReplySources
+            ? array_map(static fn(array $source): array => [
+                'event_id' => $source['event_id'],
+                'utterance_id' => $source['utterance_id'],
+            ], $replySources)
+            : [['event_id' => $event['event_id'], 'utterance_id' => $event['utterance_id']]];
 
         if (!is_int($ownerId) || $ownerId < 1) {
             return $done('invalid', 'invalid-opinion-owner');
@@ -670,6 +727,9 @@ function persistJudgments(
                 }
             } catch (Throwable) {
                 return $done('stale', 'reflection-registration-stale');
+            }
+            if ($hasReplySources && !reflectionReplySourcesCurrent($store, $replySources, $event['speaker_name'])) {
+                return $done('stale', 'reflection-source-stale');
             }
             $basisReason = null;
             $currentHistory = null;
@@ -837,12 +897,14 @@ function persistJudgments(
             return $done('invalid', 'ledger-invalid');
         }
         if ($pluginNamespace !== [] && $pluginNamespace['playthrough_id'] === $event['playthrough_id']) {
-            if ($event['event_id'] <= $pluginNamespace['floor_event_id']) {
-                return $done('below-floor', 'ledger-floor');
-            }
-            foreach ($pluginNamespace['events'] as $entry) {
-                if ($entry['event_id'] === $event['event_id'] || $entry['utterance_id'] === $event['utterance_id']) {
-                    return $done('duplicate', 'duplicate-event');
+            foreach ($coveredEvents as $coveredEvent) {
+                if ($coveredEvent['event_id'] <= $pluginNamespace['floor_event_id']) {
+                    return $done('below-floor', 'ledger-floor');
+                }
+                foreach ($pluginNamespace['events'] as $entry) {
+                    if ($entry['event_id'] === $coveredEvent['event_id'] || $entry['utterance_id'] === $coveredEvent['utterance_id']) {
+                        return $done('duplicate', 'duplicate-event');
+                    }
                 }
             }
         }
@@ -854,14 +916,18 @@ function persistJudgments(
                 : $pluginNamespace;
             $reflectionState = nextReflectionState($reflectionBaseLedger, $event['reflection_basis'], array_keys($subjects));
         }
-        $nextLedger = nextLedger(
-            $pluginNamespace,
-            $event['playthrough_id'],
-            $event['event_id'],
-            $event['utterance_id'],
-            $judgments,
-            $reflectionState
-        );
+        $nextLedger = $pluginNamespace;
+        foreach ($coveredEvents as $index => $coveredEvent) {
+            $isFinal = $index === array_key_last($coveredEvents);
+            $nextLedger = nextLedger(
+                $nextLedger,
+                $event['playthrough_id'],
+                $coveredEvent['event_id'],
+                $coveredEvent['utterance_id'],
+                $isFinal ? $judgments : [],
+                $reflectionState
+            );
+        }
         $updatedPluginExtendedData = clone $pluginExtendedData;
         $updatedPluginExtendedData->mind_poisoning = (object)$nextLedger;
         $stage = 'validate-timeline';
@@ -908,6 +974,9 @@ function persistJudgments(
                 }
             } catch (Throwable) {
                 return $done('stale', 'reflection-registration-stale');
+            }
+            if ($hasReplySources && !reflectionReplySourcesCurrent($store, $replySources, $event['speaker_name'])) {
+                return $done('stale', 'reflection-source-stale');
             }
         }
         $stage = 'commit';
