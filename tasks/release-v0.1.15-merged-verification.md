@@ -76,4 +76,8 @@ No command redirected or suppressed stderr. The tool returned each command's std
 
 ## Limits
 
+### Environment correction — 2026-10-02
+
+The commands recorded above used the gaming distro. Do not repeat them. In-memory fixtures isolate their data seams but booting `DwemerAI4Skyrim3` can start the real environment and write its VHD. The user reported repeated boots and disk writes during those checks; this invalidates any implication that execution had no gaming-environment side effects. Fixture assertions remain fixture evidence, and package comparisons remain packaging evidence. All future PHP checks must use an independent PHP installation or the existing disposable test clone under the root AGENTS.md rules.
+
 These are isolated in-memory fixture results on the named merged snapshot. They establish compatibility and replay/persistence validation behavior for those fixtures. They do not certify live PostgreSQL durability/concurrency, provider judgment or transport, installed extension ordering, companion v2 grouping/subtitle correspondence, audible playback, or the final archive/release assets. Source hashes and HEAD were unchanged during these checks. Publication/packaging and metadata updates remain the release owner's work.

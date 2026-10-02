@@ -1,5 +1,27 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Mind Poisoning 0.1.16 publication — 2026-10-02
+
+- [x] Inspect pending correction and review evidence; confirm both remote main refs and preserve unrelated work.
+- [ ] Prepare and review PRE-ALPHA metadata/current docs and focused release verification.
+- [ ] Commit explicit files, build clean source/tag and verify identical packages/checksums.
+- [ ] Push the new tag, verify draft downloads, publish, then advance update branches.
+- [ ] Verify public artifacts/manifests and record final evidence and runtime limits.
+
+Authorization: commit, push and publish. Scope and safety gates: release-v0.1.16-plan.md. Gaming distro remains forbidden; publication does not authorize installation or live provider/database work.
+
+## Reply cap and runtime safety correction — 2026-10-02
+
+- [x] Record the gaming-distro execution ban in root project instructions and reusable lessons.
+- [x] Establish Windows-only distro state and VHD metadata baseline; record supplied pair-path evidence with its limits.
+- [x] Raise reply line cap to 24 while preserving joined-text and subject bounds; distinguish unpublished source behavior in current docs.
+- [x] Execute focused red/green reply checks using the disposable clone only; review diff and output.
+- [x] Finish clone cleanup, compare gaming VHD metadata and record review; preserve published pin and assets.
+
+Plan and ownership: reflection-reply-cap-2026-10-02.md. No installation, provider/database access, release/version change or publication is authorized by this correction.
+
+Review: One shared constant covers the four initial/revalidation/persistence guards. The executed fixture proves longer replies commit once with all line IDs while count/text overflow fails without mutation; changed-file syntax checks pass. Both CHIM distros are stopped after test-clone cleanup; gaming VHD timestamp and size match the baseline. Prior environment-isolation claims were corrected, and user-reported pair-path evidence is recorded without extending it to solo/gameplay proof. PRE-ALPHA published pin 0.1.15 and unrelated dirty work are preserved; these source fixes are local and unpublished.
+
 ## Plugin dashboard — 2026-09-27
 
 User approved implementation of the proposed two-tab read-only dashboard and delegated execution. Assume operator journal with player-friendly presentation. Preserve L-01 uncommitted work, critique.md, published pins and all protected installations. No core edits, database migrations, provider calls or deployment.

@@ -253,19 +253,80 @@ same('stale', mindPoisoningEvaluateReflectionReply(
 same(0, $calls, 'Mixed reply membership never reaches provider work.');
 
 resetAckLoggingInteraction();
-$nineBodies = array_fill(0, 9, 'Aela remembers Lydia.');
-[$registration, $ack, $db] = reflectionReplyFixture($nineBodies);
+$thirteenBodies = array_map(static fn(int $index): string => 'Lydia remembers promise ' . $index . '.', range(1, 13));
+[$registration, $ack, $db, $lines] = reflectionReplyFixture($thirteenBodies);
+$thirteenText = implode(' ', $thirteenBodies);
+$thirteenCalls = 0;
+same('committed', mindPoisoningEvaluateReflectionReply(
+    $registration, $ack, $db, reflectionReplyRevalidator($registration, $stages),
+    static function (array $messages) use (&$thirteenCalls, $thirteenText, $thirteenBodies): string {
+        $thirteenCalls++;
+        $payload = json_decode($messages[1]['content'], true, 32, JSON_THROW_ON_ERROR);
+        same($thirteenText, $payload['untrusted_data']['current_reflection'] ?? null, 'All thirteen source lines reach the evaluator in order.');
+        return reflectionReplyResponse($thirteenBodies[0]);
+    }
+), 'A thirteen-line reply below the new cap commits its effect.');
+same(1, $thirteenCalls, 'A thirteen-line reply makes one provider request.');
+same(13, $db->npcs[11]['extended_data']->relationships->Lydia->aff, 'The thirteen-line reply applies one relationship effect.');
+same(1, count($db->history), 'The thirteen-line reply writes one history snapshot.');
+$thirteenLedger = $db->npcs[11]['plugin_extended_data']->mind_poisoning->events;
+same(13, count($thirteenLedger), 'Every source line from the thirteen-line reply is stored in the ledger.');
+foreach ($lines as $index => $line) {
+    same($line['event_id'], $thirteenLedger[$index]->event_id ?? null, 'Every thirteen-line ledger member keeps its event ID.');
+    same($line['utterance_id'], $thirteenLedger[$index]->utterance_id ?? null, 'Every thirteen-line ledger member keeps its utterance ID.');
+    same('reflection', $thirteenLedger[$index]->source_kind ?? null, 'Every thirteen-line ledger member is marked as reflection.');
+    same($index === array_key_last($lines) ? 1 : 0, count($thirteenLedger[$index]->judgments ?? []), 'Only the final thirteen-line ledger member carries the judgment.');
+}
+
+resetAckLoggingInteraction();
+$twentyFourBodies = array_map(static fn(int $index): string => 'Lydia remembers promise ' . $index . '.', range(1, 24));
+[$registration, $ack, $db, $lines] = reflectionReplyFixture($twentyFourBodies);
+$twentyFourCalls = 0;
+same('committed', mindPoisoningEvaluateReflectionReply(
+    $registration, $ack, $db, reflectionReplyRevalidator($registration, $stages),
+    static function () use (&$twentyFourCalls, $twentyFourBodies): string {
+        $twentyFourCalls++;
+        return reflectionReplyResponse($twentyFourBodies[0]);
+    }
+), 'The exact twenty-four-line boundary is accepted through persistence.');
+same(1, $twentyFourCalls, 'The twenty-four-line boundary makes one provider request.');
+same(24, count($db->npcs[11]['plugin_extended_data']->mind_poisoning->events), 'The twenty-four-line boundary stores every source line.');
+
+resetAckLoggingInteraction();
+$twentyFiveBodies = array_fill(0, 25, 'Lydia remembers promise.');
+[$registration, $ack, $db] = reflectionReplyFixture($twentyFiveBodies);
 $calls = 0;
 $records = [];
+$beforeOverCountActor = unserialize(serialize($db->npcs[11]));
 same('invalid-payload', mindPoisoningEvaluateReflectionReply(
     $registration, $ack, $db, reflectionReplyRevalidator($registration, $stages),
     static function () use (&$calls): string { $calls++; return ''; }, captureRequestLog($records)
-), 'More than eight reply lines are rejected instead of truncated.');
+), 'Twenty-five reply lines are rejected instead of truncated.');
 same(0, $calls, 'An over-count reply does not reach provider work.');
+check(ChimMindPoisoning\sameJsonValue($beforeOverCountActor, $db->npcs[11]), 'An over-count reply does not mutate actor state or its ledger.');
+same([], $db->history, 'An over-count reply does not write history.');
 $overCountSummary = lastRequestSummary($records);
 same('reflection-reply-too-many-lines', $overCountSummary['reason'] ?? null, 'The line cap is reported with its fixed source-safe reason.');
 same((string)$registration['event_id'], $overCountSummary['event_id'] ?? null, 'The cap summary retains final event correlation.');
 same($registration['utterance_id'], $overCountSummary['utterance_id'] ?? null, 'The cap summary retains final utterance correlation.');
+
+resetAckLoggingInteraction();
+$overflowBodies = [str_repeat('é', 1000), str_repeat('é', 1000)];
+[$registration, $ack, $db] = reflectionReplyFixture($overflowBodies);
+$overflowText = implode(' ', $overflowBodies);
+same(2001, mb_strlen($overflowText, 'UTF-8'), 'The multi-line overflow crosses the code-point limit only after joining.');
+same(4001, strlen($overflowText), 'The multi-line overflow remains below the byte limit.');
+$overflowCalls = 0;
+$overflowRecords = [];
+$beforeOverflowActor = unserialize(serialize($db->npcs[11]));
+same('too-large', mindPoisoningEvaluateReflectionReply(
+    $registration, $ack, $db, reflectionReplyRevalidator($registration, $stages),
+    static function () use (&$overflowCalls): string { $overflowCalls++; return ''; }, captureRequestLog($overflowRecords)
+), 'A multi-line joined-text overflow is rejected instead of truncated.');
+same(0, $overflowCalls, 'A multi-line text overflow does not reach provider work.');
+check(ChimMindPoisoning\sameJsonValue($beforeOverflowActor, $db->npcs[11]), 'A multi-line text overflow does not mutate actor state or its ledger.');
+same([], $db->history, 'A multi-line text overflow does not write history.');
+same('reflection-reply-too-large', lastRequestSummary($overflowRecords)['reason'] ?? null, 'The multi-line text cap keeps its fixed source-safe reason.');
 
 resetAckLoggingInteraction();
 [$registration, $ack, $db] = reflectionReplyFixture([str_repeat('é', 2001)]);

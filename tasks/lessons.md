@@ -1,5 +1,7 @@
 # Lessons
 
+- Runtime isolation includes the interpreter's environment, not only fixture data. Never execute even read-only PHP checks inside `DwemerAI4Skyrim3`: booting it can start the real CHIM environment and write its VHD. Use an independent PHP installation or the explicitly named disposable clone under its documented safety procedure. Historical commands naming the gaming distro are evidence, not commands to repeat.
+
 - A transport listener can be the Player even when the NPC catalog contains a same-named row. Establish the path's authoritative actor/target contract before applying ordinary NPC identity ambiguity rules to a registered reflection.
 - A numeric API version bump does not preserve an existing caller that requires exact equality. Keep the old entry point and its advertised version usable; negotiate new behavior through a separate verified capability.
 - Multi-line correlation must bind the immutable ordered output of one server request. Matching names, targets or adjacent IDs cannot establish reply membership; replay protection must cover every consumed source line in the same transaction as the effect.

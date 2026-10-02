@@ -57,6 +57,10 @@ Builds/downloads are retained under ignored `dist/release-0.1.15/`. A subsequent
 
 ## Preservation and limits
 
+### Environment correction — 2026-10-02
+
+The earlier merged-source PHP checks ran inside `DwemerAI4Skyrim3`, booting the protected gaming environment. The user reports resulting VHD activity and writes. The statement that installed files were not deliberately edited does not establish an untouched runtime: starting the interpreter's distro has operational side effects. Treat prior no-impact wording as withdrawn. Reproducible package/tag comparisons are unaffected, but fixture isolation must not be described as environment isolation. Root AGENTS.md now forbids every command inside the gaming distro, including read-only checks. Historical tag/assets are preserved; this correction does not advance the release pin.
+
 The newer published PCV source was incorporated unchanged from collection main. Its unrelated dirty task file still hashes to `93125ca439851affdcb38aa59ccb08db5f16970022f101edc636b6ed6477c4bf`; critique/submission drafts and screenshots remain untracked and unpublished. Staging was explicit and excluded those paths.
 
 This proves source incorporation and reproducible publication, not installed-version, live PostgreSQL durability/concurrency, provider quality/latency, clean-server installation, companion v2 grouping/subtitle correspondence or playback. Final ACK/emitted rows are line-attempt evidence. The compatibility reference is unchanged and not an enforced deployment pin. A new live acceptance run and separate companion adoption remain necessary. Use one installation route and replace older enabled packages; no installed files were changed here.

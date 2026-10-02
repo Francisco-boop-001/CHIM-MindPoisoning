@@ -129,7 +129,7 @@ function reflectionReplyRegistrationValid(array $registration): bool
     $lines = $registration['lines'] ?? null;
     $base = $registration;
     unset($base['lines']);
-    if (!reflectionRegistrationValid($base) || !is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > 8) {
+    if (!reflectionRegistrationValid($base) || !is_array($lines) || !array_is_list($lines) || count($lines) < 1 || count($lines) > MIND_POISONING_REFLECTION_REPLY_MAX_LINES) {
         return false;
     }
 
@@ -207,7 +207,7 @@ function reflectionReplySourceSnapshot(StoreDb $store, array $registration, ?str
 
 function reflectionReplySourcesCurrent(StoreDb $store, array $sources, string $actorName): bool
 {
-    if (!array_is_list($sources) || count($sources) < 1 || count($sources) > 8) {
+    if (!array_is_list($sources) || count($sources) < 1 || count($sources) > MIND_POISONING_REFLECTION_REPLY_MAX_LINES) {
         return false;
     }
     foreach ($sources as $source) {
@@ -305,7 +305,7 @@ function evaluateReflection(
         $logFields['reason'] = $reason;
         return $status;
     };
-    if ($fullReply && is_array($registration['lines'] ?? null) && count($registration['lines']) > 8) {
+    if ($fullReply && is_array($registration['lines'] ?? null) && count($registration['lines']) > MIND_POISONING_REFLECTION_REPLY_MAX_LINES) {
         $baseRegistration = $registration;
         unset($baseRegistration['lines']);
         if (reflectionRegistrationValid($baseRegistration)) {

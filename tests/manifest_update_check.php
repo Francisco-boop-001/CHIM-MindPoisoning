@@ -103,7 +103,6 @@ try {
     $legacyRepo = 'Francisco-boop-001/CHIM-Plugins';
     updateCheck($manifest['name'] === 'mind_poisoning', 'Unexpected plugin package name.');
     updateCheck(is_string($manifest['version']) && preg_match('/^([0-9]+)\.([0-9]+)\.([0-9]+)$/D', $manifest['version'], $versionParts) === 1, 'Manifest version must remain a three-part numeric version.');
-    updateCheck($manifest['version'] === '0.1.14', 'Unexpected Mind Poisoning candidate version.');
     updateCheck(($manifest['schema_version'] ?? null) === 2 && $manifest['git_repo'] === $repo, 'Plugin manifest lacks its unique update-flow identity.');
     updateCheck($entry['git_repo'] === $repo && $entry['github_url'] === 'https://github.com/' . $repo, 'Catalog entry does not use the unique Mind Poisoning repository.');
     updateCheck($manifest['channels']['candidate']['manifest_url'] === 'https://raw.githubusercontent.com/' . $repo . '/main/server/manifest.json', 'Candidate manifest URL does not point to the deployment repository root.');
@@ -154,7 +153,7 @@ try {
     $pcvManifest = json_decode((string)file_get_contents($projectRoot . '/plugins/private_conversation/server/manifest.json'), true, 64, JSON_THROW_ON_ERROR);
     $pcvRepo = 'Francisco-boop-001/CHIM-PrivateConversation';
     updateCheck($pcvManifest['name'] === 'private_conversation' && $pcvManifest['git_repo'] === $pcvRepo, 'Private Conversation does not have its separate deployment identity.');
-    updateCheck($pcvManifest['version'] === '0.1.6', 'Unexpected Private Conversation candidate version.');
+    updateCheck(is_string($pcvManifest['version']) && preg_match('/^([0-9]+)\.([0-9]+)\.([0-9]+)$/D', $pcvManifest['version'], $pcvVersionParts) === 1, 'Private Conversation manifest version must remain a three-part numeric version.');
     updateCheck($pcvManifest['channels']['candidate']['manifest_url'] === 'https://raw.githubusercontent.com/' . $pcvRepo . '/main/server/manifest.json', 'Private Conversation manifest URL does not point to its deployment repository root.');
     updateCheck($pcvManifest['channels']['candidate']['package_urls'] === ['https://github.com/' . $pcvRepo . '/releases/download/private_conversation-v<version>/private_conversation.tar.gz'], 'Private Conversation package URL must use the versioned deployment release template.');
     $twoPluginCatalog = [
@@ -193,16 +192,18 @@ try {
 
     $GLOBALS['expectedManifestUrl'] = $pcvManifest['channels']['candidate']['manifest_url'];
     $GLOBALS['remoteManifest'] = $pcvManifest;
-    $GLOBALS['remoteManifest']['version'] = '0.1.7';
+    $pcvRemoteVersion = $pcvVersionParts[1] . '.' . $pcvVersionParts[2] . '.' . ((int)$pcvVersionParts[3] + 1);
+    $GLOBALS['remoteManifest']['version'] = $pcvRemoteVersion;
     $pcvManagerChannels = normalizePluginManagerChannels($pcvManifest, $pcvManifest['name'], $pcvRepo);
-    updateCheck(getPluginManagerChannelVersion($pcvRepo, $pcvManagerChannels['candidate']) === '0.1.7', 'PCV new deployment channel did not resolve its next-version manifest.');
+    updateCheck(getPluginManagerChannelVersion($pcvRepo, $pcvManagerChannels['candidate']) === $pcvRemoteVersion, 'PCV new deployment channel did not resolve its next-version manifest.');
+    updateCheck(version_compare($pcvRemoteVersion, $pcvManifest['version'], '>'), 'PCV remote version comparison did not detect the next release.');
     $pcvInstallerChannels = chimPluginInstallerNormalizeChannels($pcvManifest, $pcvManifest['name'], $pcvRepo);
     $pcvInstallerChannel = $pcvInstallerChannels['candidate'] ?? null;
     updateCheck(is_array($pcvInstallerChannel), 'PCV installer did not normalize its deployment channel.');
     $pcvRemote = chimPluginInstallerGetRemoteManifest($pcvInstallerChannel, $pcvRepo);
-    updateCheck(is_array($pcvRemote) && $pcvRemote['version'] === '0.1.7', 'PCV installer did not resolve its deployment manifest without network access.');
+    updateCheck(is_array($pcvRemote) && $pcvRemote['version'] === $pcvRemoteVersion, 'PCV installer did not resolve its deployment manifest without network access.');
     $pcvResolvedUrls = array_map(static fn(string $url): string => strtr($url, ['<version>' => $pcvRemote['version']]), $pcvInstallerChannel['package_urls']);
-    updateCheck($pcvResolvedUrls === ['https://github.com/' . $pcvRepo . '/releases/download/private_conversation-v0.1.7/private_conversation.tar.gz'], 'PCV package URL did not resolve to its versioned deployment release.');
+    updateCheck($pcvResolvedUrls === ['https://github.com/' . $pcvRepo . '/releases/download/private_conversation-v' . $pcvRemoteVersion . '/private_conversation.tar.gz'], 'PCV package URL did not resolve to its versioned deployment release.');
 
     echo "PASS: actual installed manager helpers resolve the candidate manifest and next-version update URL.\n";
     echo "PASS: actual installer helpers fetch the fixture manifest and resolve the plugin-specific release asset without network access.\n";

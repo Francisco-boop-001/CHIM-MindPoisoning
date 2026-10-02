@@ -7,6 +7,8 @@ use JsonException;
 use RuntimeException;
 use Throwable;
 
+const MIND_POISONING_REFLECTION_REPLY_MAX_LINES = 24;
+
 require_once __DIR__ . '/logging.php';
 require_once __DIR__ . '/influence.php';
 
@@ -547,7 +549,7 @@ function playerRelationshipKey(object $relationships, string $playerName): ?stri
 function reflectionSourceSnapshotsValid(array $event): bool
 {
     $sources = $event['reflection_sources'] ?? null;
-    if (!is_array($sources) || !array_is_list($sources) || count($sources) < 1 || count($sources) > 8) {
+    if (!is_array($sources) || !array_is_list($sources) || count($sources) < 1 || count($sources) > MIND_POISONING_REFLECTION_REPLY_MAX_LINES) {
         return false;
     }
     $texts = [];

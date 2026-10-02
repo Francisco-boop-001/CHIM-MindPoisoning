@@ -6,7 +6,7 @@ Mind Poisoning and Private Conversation use separate deployment identities. Publ
 
 | Plugin | Candidate | Deployment repository | Manifest | Versioned release |
 | --- | --- | --- | --- | --- |
-| Mind Poisoning | 0.1.15 PRE-ALPHA | [CHIM-MindPoisoning](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) | `server/manifest.json` | [`mind_poisoning-v0.1.15`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.15) |
+| Mind Poisoning | 0.1.16 PRE-ALPHA | [CHIM-MindPoisoning](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) | `server/manifest.json` | [`mind_poisoning-v0.1.16`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.16) |
 | Private Conversation | 0.1.8 PRE-ALPHA | [CHIM-PrivateConversation](https://github.com/Francisco-boop-001/CHIM-PrivateConversation) | `server/manifest.json` | [`private_conversation-v0.1.8`](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/tag/private_conversation-v0.1.8) |
 
 Each release has three separate consumer formats: a repository `.tar.gz` with one package directory for Plugin Manager ingestion, a versioned schema-4 `.dwpkg` for CHIM file sync, and an MO2 ZIP containing that `.dwpkg` at `CHIM/server-plugins/<package>/<version>.dwpkg`. Use the release's own `SHA256SUMS.txt`; do not substitute `releases/latest`.
