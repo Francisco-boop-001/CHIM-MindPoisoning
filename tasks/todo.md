@@ -806,7 +806,9 @@ Final lead review: All three task gates and the combined source review are appro
 - [x] Incorporate the reviewed fixes into work/mind-poisoning and preserve newer collection commits and unrelated dirty work.
 - [x] Verify merged runtime/reply behavior and v1 observer compatibility with the updated PCV 0.1.8 snapshot.
 - [x] Review 0.1.15 PRE-ALPHA metadata and exact caller documentation.
-- [ ] Build and compare clean-commit/tag assets; verify draft downloads, publish and advance main only after release availability.
-- [ ] Verify public refs/assets and save final publication evidence.
+- [x] Build and compare clean-commit/tag assets; verify draft downloads, publish and advance main only after release availability.
+- [x] Verify public refs/assets and save final publication evidence.
 
 Authorization: the user requested merge as needed, commit, push and publish. Scope is MP only; installed CHIM, game/modlist and live database/providers remain untouched. Plan and boundaries: release-v0.1.15-plan.md.
+
+Review: 0.1.15 is committed, immutably tagged and published PRE-ALPHA in the dedicated repository and migration hub. Clean-tag rebuilds, both draft downloads and both public downloads match exact bytes/checksums. Update branches advanced after publication and identify 0.1.15. Unrelated dirty work and historical assets remain preserved. Full evidence: release-v0.1.15.md. Companion v2 adoption and live runtime remain unverified; no installation occurred.
