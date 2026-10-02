@@ -787,3 +787,14 @@ Assumptions: New deployment repository names follow the existing project names. 
 Review: manifests and source links identify the distinct deployment repositories; old-hub MP 0.1.14 migration and one-time PCV 0.1.6 replacement are documented without changing historical assets. The release notes link to tagged repository docs by absolute URLs because they will also serve as GitHub release bodies. Local Markdown link check passed; targeted manifest and PCV package tests passed. No catalogue submission, remote writes, or live-server actions were performed.
 
 Final lead review: MP 0.1.14 and PCV 0.1.6 are committed, tagged and published as PRE-ALPHA in their public deployment repositories, with identical migration-hub assets. A standalone line-ending export mismatch was caught and corrected before any push. All canonical-tag packages, draft downloads and public downloads matched exact clean-source bytes and checksums; public main manifests were verified after publication. Earlier registration diagnoses but does not recover ACK-first misses. No installed CHIM/modlist, live provider/database or gameplay changes. Exact sources, commands, hashes and limits: release-v0.1.14-pcv-v0.1.6.md.
+
+## Reflection reply fixes — 2026-10-02
+
+- [x] Fix reflection listener collision and add conservative shared subject aliases.
+- [x] Add an opt-in full-reply API with source revalidation and atomic all-line dedupe, preserving v1.
+- [x] Verify diagnostic coverage and document the consumer contract.
+- [ ] Review each task and whole branch; record focused verification and remaining limits.
+
+Scope: isolated fix/reflection-reply-v2 worktree. PCV and installed CHIM are read-only. No release/version/pin changes, installation, live database/provider calls, push or publication. Plan: reflection-reply-fixes-2026-10-02.md.
+
+Task 3 review: The shared evaluator now creates the default RequestLog only when omitted, keeps caller-supplied observer/sink delivery, and preserves v1/v2 return statuses. Focused tests confirm one terminal summary, fixed severity, sink-failure containment, and v1 importer compatibility. The source docs describe the unreleased v2 contract and current PCV v1-only caller; no PCV or release files changed. Live provider, database, installed-order, grouping, and audio behavior remain unverified.
