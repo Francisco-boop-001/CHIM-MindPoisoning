@@ -107,6 +107,10 @@ function findSubjects(array $event, array $npcs, string $playerName): array
 
     $entries = [];
     $details = ['player' => ['name' => 'Player', 'id' => null]];
+    $titleStoplist = [
+        'Jarl', 'Sir', 'Lady', 'Lord', 'Captain', 'Commander', 'General', 'Guard', 'King',
+        'Queen', 'Prince', 'Princess', 'Master', 'Mistress', 'Doctor', 'Dr', 'Sergeant',
+    ];
     foreach ($npcs as $npc) {
         if (
             !is_array($npc)
@@ -122,7 +126,51 @@ function findSubjects(array $event, array $npcs, string $playerName): array
         }
         $token = 'npc:' . $npc['id'];
         $details[$token] ??= ['name' => $name, 'id' => $npc['id']];
-        $entries[] = ['name' => $name, 'token' => $token];
+
+        $aliases = [];
+        if (preg_match('/\A(.+?)\s+the\s+.+\z/iu', $name, $parts) === 1) {
+            $aliases[] = trim($parts[1]);
+        }
+        $withoutSuffix = preg_replace('/\s+\[[^\]]*\]\s*\z/u', '', $name);
+        if (is_string($withoutSuffix) && $withoutSuffix !== $name) {
+            $aliases[] = trim($withoutSuffix);
+        }
+        $nameParts = preg_split('/\s+/u', $name, 2);
+        if (is_array($nameParts) && count($nameParts) === 2 && preg_match_all('/\p{L}/u', $nameParts[0]) >= 3) {
+            $aliases[] = $nameParts[0];
+        }
+
+        $npcNames = [$name];
+        foreach ($aliases as $alias) {
+            $alias = trim($alias);
+            if ($alias === '' || preg_match('//u', $alias) !== 1) {
+                continue;
+            }
+            $title = rtrim($alias, '.');
+            $isTitle = false;
+            foreach ($titleStoplist as $stopword) {
+                if (sameName($stopword, $title)) {
+                    $isTitle = true;
+                    break;
+                }
+            }
+            if ($isTitle) {
+                continue;
+            }
+            $duplicate = false;
+            foreach ($npcNames as $existing) {
+                if (sameName($existing, $alias)) {
+                    $duplicate = true;
+                    break;
+                }
+            }
+            if (!$duplicate) {
+                $npcNames[] = $alias;
+            }
+        }
+        foreach ($npcNames as $candidate) {
+            $entries[] = ['name' => $candidate, 'token' => $token];
+        }
     }
 
     foreach (['Player', 'the Player', 'player character', 'the player character', 'Dragonborn', 'the Dragonborn'] as $alias) {

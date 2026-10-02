@@ -122,6 +122,67 @@ same('reflection', $reflectionLedger->events[0]->source_kind, 'The ledger must r
 same(64, strlen($reflectionLedger->reflection_state->basis), 'The bounded actor evidence basis should be retained separately from rolling event history.');
 same(['npc:22'], $reflectionLedger->reflection_state->subjects, 'The processed subject token should be recorded for the unchanged basis.');
 
+resetAckLoggingInteraction();
+[$playerCollisionRegistration, $playerCollisionAck, $playerCollisionDb] = reflectionFixture();
+$playerCollisionDb->npcs[44] = [
+    'id' => 44,
+    'npc_name' => $playerCollisionDb->playerName,
+    'extended_data' => (object)['relationships' => new stdClass()],
+    'plugin_extended_data' => new stdClass(),
+];
+$playerCollisionPayload = json_decode($playerCollisionAck[3], true, 32, JSON_THROW_ON_ERROR);
+$playerCollisionPayload['listener'] = $playerCollisionDb->playerName;
+$playerCollisionAck[3] = json_encode($playerCollisionPayload, JSON_THROW_ON_ERROR);
+$playerCollisionCalls = 0;
+same('committed', mindPoisoningEvaluateReflection(
+    $playerCollisionRegistration,
+    $playerCollisionAck,
+    $playerCollisionDb,
+    static fn(): bool => true,
+    static function () use (&$playerCollisionCalls): string {
+        $playerCollisionCalls++;
+        return reflectionResponse();
+    }
+), 'A Player listener sharing a catalog NPC name must remain valid after exact source validation.');
+same(1, $playerCollisionCalls, 'A same-named Player/NPC listener must reach the model once.');
+
+foreach (['Lydia', 'explicit_disable_rechat'] as $invalidListener) {
+    resetAckLoggingInteraction();
+    [$invalidListenerRegistration, $invalidListenerAck, $invalidListenerDb] = reflectionFixture();
+    $invalidListenerPayload = json_decode($invalidListenerAck[3], true, 32, JSON_THROW_ON_ERROR);
+    $invalidListenerPayload['listener'] = $invalidListener;
+    $invalidListenerAck[3] = json_encode($invalidListenerPayload, JSON_THROW_ON_ERROR);
+    $invalidListenerCalls = 0;
+    same('event-mismatch', mindPoisoningEvaluateReflection(
+        $invalidListenerRegistration,
+        $invalidListenerAck,
+        $invalidListenerDb,
+        static fn(): bool => true,
+        static function () use (&$invalidListenerCalls): string {
+            $invalidListenerCalls++;
+            return reflectionResponse();
+        }
+    ), 'A distinct NPC or the source sentinel must not be accepted as the ACK listener.');
+    same(0, $invalidListenerCalls, 'An invalid ACK listener must stop before model work.');
+}
+
+resetAckLoggingInteraction();
+[$wrongSourceRegistration, $wrongSourceAck, $wrongSourceDb] = reflectionFixture([
+    'source' => 'Aela: I still think Lydia earned my trust. (Talking to Lydia)',
+]);
+$wrongSourceCalls = 0;
+same('event-mismatch', mindPoisoningEvaluateReflection(
+    $wrongSourceRegistration,
+    $wrongSourceAck,
+    $wrongSourceDb,
+    static fn(): bool => true,
+    static function () use (&$wrongSourceCalls): string {
+        $wrongSourceCalls++;
+        return reflectionResponse();
+    }
+), 'A Player listener match must not bypass the exact source sentinel.');
+same(0, $wrongSourceCalls, 'A source without the exact sentinel must stop before model work.');
+
 $replayRecords = [];
 $replayObserved = [];
 same('duplicate', mindPoisoningEvaluateReflection($registration, $ack, $db, static fn(): bool => true, static function () use (&$modelCalls): string {

@@ -202,10 +202,6 @@ function evaluateReflection(
     }
 
     $identities = $store->npcIdentities();
-    $listenerNpcMatches = array_values(array_filter($identities, static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $ack['listener'])));
-    if ($listenerNpcMatches !== []) {
-        return $fail('event-mismatch', 'reflection-listener-ambiguous');
-    }
     $matches = array_values(array_filter($identities, static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $registration['actor_name'])));
     if (count($matches) !== 1 || (int)($matches[0]['id'] ?? 0) !== $registration['actor_id']) {
         return $fail('actor-unmatched', 'reflection-actor-unmatched');
