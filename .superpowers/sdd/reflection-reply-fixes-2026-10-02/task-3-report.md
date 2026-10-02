@@ -64,6 +64,26 @@ No syntax errors detected in /mnt/k/ActorwrightExchange/projects/CHIM-MindPoison
 
 `git diff --check` passed for the changed tracked documentation/source files; final staged whitespace checking is recorded after staging the new test and this report.
 
+### Unsuppressed stderr follow-up
+
+The first compatibility commands suppressed stderr, so I reran only the diagnostics, v1 reflection, and v2 reply fixtures with stdout/stderr captured separately in an isolated temporary directory. Each command exited 0:
+
+```text
+wsl.exe -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning-reflection-v2/tests/reflection_diagnostics_test.php 1> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\diagnostics.stdout.txt 2> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\diagnostics.stderr.txt
+reflection diagnostics checks passed
+stderr: 0 lines
+
+wsl.exe -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning-reflection-v2/tests/reflection_test.php 1> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\reflection-v1.stdout.txt 2> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\reflection-v1.stderr.txt
+reflection checks passed
+stderr: 30 records; 26 info, 4 warning
+
+wsl.exe -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning-reflection-v2/tests/reflection_reply_test.php 1> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\reflection-reply-v2.stdout.txt 2> C:\Users\FRANCI~1\AppData\Local\Temp\mp-reflection-stderr-1a25c0f59afe4e96bd732e13ab323483\reflection-reply-v2.stderr.txt
+reflection reply checks passed
+stderr: 40 records; 30 info, 10 warning
+```
+
+Every nonempty stderr line in those captures parsed with PowerShell `ConvertFrom-Json` and passed checks for `plugin=mind_poisoning`, schema version 1, an allowed severity, event and request ID, only fields accepted by `RequestLog`'s sanitized schema, and absence of dialogue, speech, prompt, hashes, claim tokens, and exception fields. Both stdout and stderr were scanned for PHP warnings, notices, deprecations, and fatal errors; none were present. The diagnostics fixture's isolated `Logger` stub captured default delivery in memory, so its stderr was empty. The 70 records from the existing v1/v2 fixtures were expected sanitized MP JSON diagnostics. This answers the remaining question: unsuppressed fixture execution found no hidden runtime warnings.
+
 ## Limits
 
 The focused fixture captures the default global `Logger` sink and checks that omitted v1 and v2 logger paths produce one terminal record. It also verifies supplied observer delivery without a default duplicate, warning versus informational classifications, redaction, and that a throwing supplied sink cannot alter the committed evaluator result or relationship history. Constructor-failure handling was verified by source inspection only; no factory seam was added to simulate a `RequestLog` constructor failure.
