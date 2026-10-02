@@ -67,3 +67,21 @@ No syntax errors detected in /mnt/k/ActorwrightExchange/projects/CHIM-MindPoison
 The event rows and numeric ordering do not identify reply membership. The companion's revalidation callback must compare the exact complete ordered list captured immutably from one server request at every checkpoint, including rejecting a list mixed across replies. The current inspected PCV route registers one output line; it does not yet provide this v2 list. Mind Poisoning therefore does not claim independent grouping proof. A final ACK and `emitted` rows establish a line-attempt sequence, not proof that every earlier line was heard or played.
 
 All verification used in-memory stores and isolated fixtures. No live model provider, PostgreSQL database, installed CHIM instance, or game/audio path was exercised. The implementation is not evidence of v2 PCV integration or deployed behavior.
+
+## Named ordinary-route regression check
+
+Ran the existing runtime suite on branch `fix/reflection-reply-v2` at HEAD `cb534aa3e7bacb735c27de15deba1148f16b7475`, after the shared persistence and covered-event ledger changes. Exact command:
+
+```text
+wsl.exe -d DwemerAI4Skyrim3 -- php /mnt/k/ActorwrightExchange/projects/CHIM-MindPoisoning-reflection-v2/tests/runtime_test.php
+```
+
+Exit code: `0`. Captured output, with stdout and stderr unsuppressed:
+
+```text
+Mind Poisoning persistence failed at snapshot-verification-failed.
+Mind Poisoning persistence failed at player-alias-ambiguous.
+runtime store checks passed
+```
+
+The first diagnostic is the suite's deliberate snapshot-verification failure case; `tests/runtime_test.php` asserts the failed status and exact `snapshot-verification-failed` persistence reason. The second is the deliberate Player alias-race case; the fixture asserts the new NPC alias stales the Player identity and preserves relationship, history, and ledger state. Both are expected failure-path diagnostics. No unexpected PHP warning, notice, or fatal error appeared. This run covers the ordinary runtime store routes and alias guards with isolated fixtures only; it does not use a live provider or database.
