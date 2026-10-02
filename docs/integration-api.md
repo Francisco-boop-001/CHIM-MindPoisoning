@@ -25,9 +25,9 @@ The registration has exactly these keys: `event_id`, `utterance_id`, `actor_id`,
 
 `$revalidate($registration, $phase)` must read the companion's private registration and return whether the same scope is still active. It is called at `pre_model` and twice during `transaction`, so it must be read-only and safe to repeat. `$requestModel` is a test/integration seam; if omitted, the normal Mind Poisoning request function is used. The return value is an evaluator status string; it does not replace the structured request log.
 
-## Full-reply reflection API (source-only capability)
+## Full-reply reflection API (v0.1.15)
 
-The v1 constant and function above remain unchanged. This source checkout separately declares `MIND_POISONING_REFLECTION_REPLY_API_VERSION = 2` and exposes an opt-in evaluator; v2 is not in the published v0.1.14 package. Existing v1 callers continue to use version 1. Published PCV integration remains v1-compatible, and the development caller at PCV revision `c46d650` also checks v1 and calls only `mindPoisoningEvaluateReflection`; adopting v2 requires a separate companion change.
+The Mind Poisoning 0.1.15 package adds the opt-in `MIND_POISONING_REFLECTION_REPLY_API_VERSION = 2` and `mindPoisoningEvaluateReflectionReply()`. The v1 constant and function above remain unchanged, and existing v1 callers continue to use version 1. The current embedded Private Conversation 0.1.8 integration also checks exactly v1 and calls only `mindPoisoningEvaluateReflection`; it has not adopted v2. A companion must make a separate change to capture and revalidate a complete reply before it can call this API. See the [0.1.15 release notes](../distribution/mind_poisoning-v0.1.15.md) for candidate limits.
 
 ```php
 use function ChimMindPoisoning\mindPoisoningEvaluateReflectionReply;

@@ -10,7 +10,7 @@ Skyrim already has dragons, a civil war and Nazeem. Naturally, what it needed ne
 
 | Plugin | Purpose | Candidate | Source | Guide |
 | --- | --- | --- | --- | --- |
-| **Mind Poisoning** | A speaks to B about C; B may revise an opinion of C. Compatible solo reflection lets A reconsider an opinion of C. | [0.1.14 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.14) · [release notes](distribution/mind_poisoning-v0.1.14.md) | [CHIM-MindPoisoning](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) | [Player guide](docs/mind-poisoning.md) · [Developer guide](docs/development.md) · [Dashboard/logs](docs/dashboard.md) |
+| **Mind Poisoning** | A speaks to B about C; B may revise an opinion of C. Compatible solo reflection lets A reconsider an opinion of C. | [0.1.15 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.15) · [release notes](distribution/mind_poisoning-v0.1.15.md) | [CHIM-MindPoisoning](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) | [Player guide](docs/mind-poisoning.md) · [Developer guide](docs/development.md) · [Dashboard/logs](docs/dashboard.md) |
 | **Private Conversation** | Direct a two-NPC scene or one NPC thinking aloud, with current audience scoping and optional Mind Poisoning effects. | [0.1.8 PRE-ALPHA](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/tag/private_conversation-v0.1.8) · [release notes](distribution/private_conversation-v0.1.8.md) | [CHIM-PrivateConversation](https://github.com/Francisco-boop-001/CHIM-PrivateConversation) | [Full guide, installation and examples](plugins/private_conversation/README.md) |
 
 Both are **server extensions** using CHIM's existing client. These releases require no extra ESP/ESL or Papyrus companion and consume no Skyrim plugin slot. They are development candidates, not a promise that every LLM has finally learned social boundaries.
@@ -21,7 +21,7 @@ Choose one route per plugin/server. **Replace older enabled packages; do not sta
 
 | Plugin | Plain MO2 import | Manual CHIM sync | Repository/Plugin Manager archive |
 | --- | --- | --- | --- |
-| Mind Poisoning 0.1.14 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.14/mind_poisoning-0.1.14-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.14/mind_poisoning-0.1.14.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.14/mind_poisoning.tar.gz) |
+| Mind Poisoning 0.1.15 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.15/mind_poisoning-0.1.15-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.15/mind_poisoning-0.1.15.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.15/mind_poisoning.tar.gz) |
 | Private Conversation 0.1.8 | [MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.8/private_conversation-0.1.8-mo2.zip) | [DWPkg](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.8/private_conversation-0.1.8.dwpkg) | [Tar archive](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.8/private_conversation.tar.gz) |
 
 The MO2 ZIP contains `CHIM/server-plugins/<plugin>/<version>.dwpkg`. Keep `CHIM` directly under the data root. For manual sync, rename the raw DWPkg to `<version>.dwpkg` and place it at `Data/CHIM/server-plugins/<plugin>/<version>.dwpkg`; do not unpack it into Data. The tar archive is a separate server installer format with one wrapper directory stripped once. Detailed guides explain the routes and MO2's possible CHIM-only content warning.
@@ -50,7 +50,9 @@ Enable **Solo reflection**, choose Lydia and arm it. Enter:
 
 The plugin selects Lydia, injects thinking-aloud guidance and fixes the listener to CHIM's `explicit_disable_rechat` marker. One generated response follows; another input can request another reflection. There is no new background monologue loop.
 
-With Mind Poisoning 0.1.14 enabled, an exact registered output and matching native speech acknowledgement can lead to evaluation of **Lydia's own opinion of Nazeem**, grounded in her profile and relevant prior history. Repeating a reflection against unchanged evidence cannot endlessly farm the same solo change.
+With Mind Poisoning 0.1.15 enabled, an exact registered output and matching native speech acknowledgement can lead to evaluation of **Lydia's own opinion of Nazeem**, grounded in her profile and relevant prior history. Repeating a reflection against unchanged evidence cannot endlessly farm the same solo change.
+
+Mind Poisoning 0.1.15 also exposes a separate v2 full-reply API for a compatible companion that captures and revalidates one complete ordered reply registration. The current Private Conversation 0.1.8 integration still calls the v1 single-line API; v2 requires a separate companion adoption change. Neither a final ACK nor emitted source rows prove that earlier lines were heard.
 
 ### Gossip with consequences
 
@@ -70,7 +72,7 @@ The existing root `server/` is Mind Poisoning. Private Conversation lives under 
 
 Private Conversation uses PHP request/prompt/response hooks, local scoped state and a small browser polling script. It replaces current nearby context, switches the initial actor profile and constrains supported speaker/listener routes. CHIM owns generation, speech synthesis and client delivery. It reads CHIM's existing no-chat presence reports; browser reads never manufacture fresh reports.
 
-Mind Poisoning uses exact event correlation, the configured relationship model connector, validated judgments and guarded persistence. Affinity, event ledger and history snapshot commit together. Model/network work stays outside transaction locks. The optional reflection API keeps opinion ownership with the reflecting actor rather than inventing a second witness. `RequestLog` also offers an optional sanitized, request-local observer for companion diagnostics; its validated correlation IDs are intentional, while raw dialogue, prompts and debug rationale are excluded from the observer copy. See the [v0.1.14 release notes](distribution/mind_poisoning-v0.1.14.md), [developer guide](docs/development.md) and [PCV source map](plugins/private_conversation/README.md#how-it-is-coded) for details and failure limits.
+Mind Poisoning uses exact event correlation, the configured relationship model connector, validated judgments and guarded persistence. Affinity, event ledger and history snapshot commit together. Model/network work stays outside transaction locks. The optional reflection APIs keep opinion ownership with the reflecting actor rather than inventing a second witness. `RequestLog` also offers an optional sanitized, request-local observer for companion diagnostics; its validated correlation IDs are intentional, while raw dialogue, prompts and debug rationale are excluded from the observer copy. See the [v0.1.15 release notes](distribution/mind_poisoning-v0.1.15.md), [developer guide](docs/development.md) and [PCV source map](plugins/private_conversation/README.md#how-it-is-coded) for details and failure limits.
 
 ## Limits, because marketing can sit down
 

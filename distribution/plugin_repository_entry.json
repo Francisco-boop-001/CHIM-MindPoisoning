@@ -3,7 +3,7 @@
     "mind-poisoning": {
       "name": "mind_poisoning",
       "display_name": "Mind Poisoning",
-      "description": "Development candidate: conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, with a read-only history dashboard.",
+      "description": "Development candidate: conservative affinity updates from identity-checked NPC acknowledgements and Player-origin input, with opt-in actor-owned reflection of a line or companion-registered reply and a read-only history dashboard.",
       "status": "development_candidate",
       "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
       "github_url": "https://github.com/Francisco-boop-001/CHIM-MindPoisoning",

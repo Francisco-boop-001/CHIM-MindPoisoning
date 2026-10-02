@@ -800,3 +800,13 @@ Scope: isolated fix/reflection-reply-v2 worktree. PCV and installed CHIM are rea
 Task 3 review: The shared evaluator now creates the default RequestLog only when omitted, keeps caller-supplied observer/sink delivery, and preserves v1/v2 return statuses. Focused tests confirm one terminal summary, fixed severity, sink-failure containment, and v1 importer compatibility. The source docs describe the unreleased v2 contract and current PCV v1-only caller; no PCV or release files changed. Live provider, database, installed-order, grouping, and audio behavior remain unverified.
 
 Final lead review: All three task gates and the combined source review are approved. The one report attribution error was corrected by its owner at ec3a9fe. Product and test bytes are unchanged since the final ordinary runtime check; the isolated branch is ready for integration, not certified for live deployment. Exact review and accepted evidence boundaries: reflection-reply-review-2026-10-02.md. Original dirty edits and protected PCV/installation/release paths remain preserved. No release pin advanced.
+
+## Mind Poisoning 0.1.15 publication — 2026-10-02
+
+- [x] Incorporate the reviewed fixes into work/mind-poisoning and preserve newer collection commits and unrelated dirty work.
+- [x] Verify merged runtime/reply behavior and v1 observer compatibility with the updated PCV 0.1.8 snapshot.
+- [x] Review 0.1.15 PRE-ALPHA metadata and exact caller documentation.
+- [ ] Build and compare clean-commit/tag assets; verify draft downloads, publish and advance main only after release availability.
+- [ ] Verify public refs/assets and save final publication evidence.
+
+Authorization: the user requested merge as needed, commit, push and publish. Scope is MP only; installed CHIM, game/modlist and live database/providers remain untouched. Plan and boundaries: release-v0.1.15-plan.md.

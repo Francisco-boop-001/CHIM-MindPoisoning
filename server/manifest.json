@@ -1,9 +1,9 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
-  "description": "PRE-ALPHA: Conservative listener-affinity updates from identity-checked NPC acknowledgements and Player-origin gossip, plus opt-in actor-owned reflection of an exactly registered NPC line and a read-only history dashboard.",
+  "description": "PRE-ALPHA: Conservative affinity updates from identity-checked NPC acknowledgements and Player-origin input, with opt-in actor-owned reflection of one line or a companion-registered full reply, plus a read-only history dashboard.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",
