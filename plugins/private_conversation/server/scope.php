@@ -162,11 +162,7 @@ function pcvPairRoutedRequest(array $requestScope): bool
     if (in_array($type, ['continue', 'continue_group'], true)) {
         return $route === 'pair_continuation' && $scope['exclude_player'] === false;
     }
-    return $route === 'generated_event'
-        && !in_array($type, [
-            'inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s',
-            'rechat', 'continue', 'continue_group',
-        ], true);
+    return false;
 }
 
 function pcvRoutingLogStart(string $requestType): void
@@ -487,10 +483,14 @@ function pcvScopePresenceFailureReason(array $presence): string
 }
 
 /** A present state file cannot safely be matched while the live playthrough identity is unknown. */
-function pcvScopeStoredStateExists(): bool
+function pcvScopeStoredStateExists(?string $stateDirectory = null): bool
 {
-    $path = __DIR__ . '/state/state.json';
-    return file_exists($path) || is_link($path);
+    try {
+        $path = pcv_state_directory($stateDirectory) . DIRECTORY_SEPARATOR . 'state.json';
+        return file_exists($path) || is_link($path);
+    } catch (Throwable) {
+        return true;
+    }
 }
 
 function pcvScopeLogSceneIneligible(string $operation, array $storedScope): void
@@ -594,6 +594,11 @@ function pcvPrepareScopedInput(array $request, array $snapshot, ?array $resolved
     $snapshot = pcvScopeRoutingSnapshot($snapshot, $resolvedScope, $playerName);
 
     if ($resolvedScope['exclude_player']) {
+        if (str_contains($playerName, ':')) {
+            $result['status'] = 'blocked';
+            $result['reason'] = 'invalid_input_prefix';
+            return $result;
+        }
         $text = $request[3] ?? null;
         if (!is_string($text)) {
             $result['status'] = 'blocked';

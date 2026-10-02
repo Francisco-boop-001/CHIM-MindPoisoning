@@ -1,6 +1,6 @@
 # Follow the llama's paperwork
 
-Logging revision 2 shipped in Private Conversation 0.1.5 and remains in 0.1.6. The guide describes the published diagnostics contract; source checks and isolated PHP/browser fixtures are not a deployed CHIM or Skyrim test. The release notes record focused evidence, rather than letting the llama certify itself.
+Logging revision 2 shipped in Private Conversation 0.1.5 and remains in 0.1.6 and published 0.1.7. The 0.1.8 PRE-ALPHA candidate carries the logger lock-wait and private-state migration updates described below; its source checks and isolated PHP/browser fixtures are not a deployed CHIM or Skyrim test. The release notes record focused evidence, rather than letting the llama certify itself.
 
 ## What the records answer
 
@@ -37,9 +37,11 @@ For a bug report, reproduce once, note settings and the observed result, then ex
 ## Interpret outcomes honestly
 
 - `routing.request_prepared` means PCV applied its guards and prepared context.
+- **0.1.8 candidate:** `state.scope_ended` records a successful END state change with `action: end`; it does not cancel an in-flight request or audio already delivered.
 - `routing.request_finished` records the final observed PCV lifecycle outcome. `postrequest_observed` means that hook ran; it does not prove generated speech, playback or hearing. `unobserved` means no terminal outcome was observed.
+- The shutdown observer can emit `routing.request_finished` before a later ACK-reconciliation callback runs. Any resulting reflection accepted/skipped/error entry is a separate effect result; the earlier routing event never certifies opinion evaluation.
 - `reflection.output_registered` means the exact fresh native output passed registration checks. It does not prove audio played.
-- `reflection.ack_skipped` explains missing, stale, mismatched or already claimed acknowledgement evidence.
+- `reflection.ack_skipped` explains a missing, stale, mismatched or already claimed acknowledgement at that check. An initial `registration_missing` can be followed by a later separate reflection result if registration and the unique native ACK row reconcile during shutdown or source registration; read the correlated reflection events together.
 - `reflection.ack_error` records operational/integration failure. A returned MP failure never becomes a successful PCV evaluation record.
 - `reflection.evaluation_finished` means the MP adapter returned its committed status. A compatible observer can add bounded solo model and persistence diagnostics; without it, detailed outcomes remain in MP's own diagnostics.
 - Presence observations distinguish available, known empty, aged stale, missing, awaiting an ordering baseline, malformed and operationally unavailable. Missing evidence is never an empty room.
@@ -51,7 +53,7 @@ Routing requests that reached `routing.request_started` register a fatal shutdow
 
 ## Mind Poisoning stays in its own lane
 
-Mind Poisoning 0.1.13 introduced the optional sanitized `RequestLog` observer; 0.1.14 declares reflection API version 1. PCV 0.1.6 checks for exactly that version before invoking the evaluator, and treats a missing or unsupported API as `reflection_api_incompatible`. This companion check is separate from CHIM core compatibility. Scene direction works without Mind Poisoning.
+Mind Poisoning 0.1.13 introduced the optional sanitized `RequestLog` observer; 0.1.14 declares reflection API version 1. PCV 0.1.6 introduced, and 0.1.7 retains, the exact API-v1 check before invoking the evaluator; a missing or unsupported API is `reflection_api_incompatible`. This companion check is separate from CHIM core compatibility. Scene direction works without Mind Poisoning.
 
 When the compatible observer is available, PCV imports allowlisted solo model and persistence records with exact validated correlation IDs, fixed causes, bounded timings and opinion changes, and confirmed/unconfirmed/not-attempted commit state. The observer does not change Mind Poisoning's ordinary evaluation or sink delivery. If a compatible request log has no observer, PCV records `reflection.observer_unavailable`; this means unified telemetry is unavailable, not failed evaluation. Unknown commit stays unknown; zero change remains a legitimate result. These source and fixture checks do not establish live adapter, database, provider or gameplay behavior.
 
@@ -59,14 +61,18 @@ Pair gossip has no verified PCV registration tuple tying its separate MP hook to
 
 ## Storage and failure limits
 
-The writer keeps **five segments of at most 10 MiB**, with **8 KiB per entry**, outside the webroot. Directories are private (`0700`), files private (`0600`), worker-owned and checked for symlinks/non-regular files. Rotation and append use the existing nonblocking lock. The reader briefly captures bounded file handles/sizes under a shared lock, then releases it before parsing.
+The writer keeps **five segments of at most 10 MiB**, with **8 KiB per entry**, outside the webroot. Directories are private (`0700`), files private (`0600`), worker-owned and checked for symlinks/non-regular files. **The 0.1.8 candidate** makes rotation and append retry the native nonblocking lock within one cumulative **100 ms per-request lock-acquisition budget**. The reader briefly captures bounded file handles/sizes under a shared lock, then releases it before parsing.
 
-Default storage is per-install/per-worker temporary storage. OS cleanup can remove it. For longer retention, an administrator can provision an absolute, worker-owned, private directory outside the webroot and set trusted worker environment variable `PCV_LOG_DIR`. The directory must already exist and pass the same checks. Invalid overrides visibly fall back to safe temporary storage when possible. No browser-provided path is accepted.
+Default log storage is per-install/per-worker temporary storage. OS cleanup can remove it. For longer retention, an administrator can provision an absolute, worker-owned, private directory outside the webroot and set trusted worker environment variable `PCV_LOG_DIR`. The directory must already exist and pass the same checks. Invalid overrides visibly fall back to safe temporary storage when possible. No browser-provided path is accepted.
 
-Health describes **this request**, not a historical guarantee that every worker wrote successfully. A later successful append does not erase earlier failure codes. Logging failures send bounded fixed-code fallbacks to PHP's configured error log without replacing CHIM's error handler. That fallback destination must itself be configured by the administrator.
+**0.1.8 candidate:** Runtime state is separate from diagnostic log placement. Its default is `state/` under the validated per-install private temporary root, keyed by the effective PHP temporary root/namespace, worker UID and canonical extension path; `PCV_LOG_DIR` does not change it. The OS may clean the temporary root, and a different temporary namespace, worker UID or extension path may resolve a different store. On first state resolution—not package installation—a valid legacy extension-local `state/` (shown as `server/state/` in this source tree) is moved whole to the private target by atomic rename when the target is absent and both locations share a filesystem. Corrupt, unknown, unsafe or conflicting state and a failed cross-filesystem rename (including `EXDEV`) refuse migration; the source is preserved, with no merge, partial copy or reset. Quiesce old requests before upgrading and keep HTTP access restricted through first startup. Manual recovery must match the HTTP worker's effective temp root/namespace, UID and install path and use the same filesystem; matching UID in a CLI process alone is not sufficient. Do not copy or reset live state.
+
+The extension-root `.htaccess` is only a defense for legacy extension-local `state/` (shown as `server/state/` in this source tree) when Apache honors overrides. If overrides are ignored, legacy data may remain HTTP-readable until the first state resolver migrates it, so use an independent access boundary during upgrade. The source denial was checked in isolated Apache fixtures, not on an installed server.
+
+Health describes **this request**, not a historical guarantee that every worker wrote successfully. A later successful append does not erase earlier failure codes. In the 0.1.8 candidate, after the lock wait budget expires, PCV marks the request degraded, emits the generic fixed-code warning once, and attempts to send each already-sanitized bounded JSONL event line to PHP's configured `error_log` sink. Sink failure is contained. This fallback is best effort, is not included in the Logs reader, and is not covered by the 100 ms lock-acquisition budget; it does not bound total I/O or promise durable/no-drop delivery. The fallback destination must itself be configured by the administrator.
 
 Logging is best-effort: contention, permissions, disk failure, process termination and temporary cleanup can lose records. The reader shows busy/unavailable states and bounded omissions; it cannot recover already lost history. There is no tamper-evident archive, remote collector, audio verification or unlimited transcript.
 
 Debug routing details require administrator environment variable `PCV_LOG_DEBUG_UNTIL`, a Unix timestamp no more than one hour ahead. Normal operational records stay enabled. Raw dialogue, prompts, credentials, claim tokens, subtitle digests, caller URLs and arbitrary error strings remain excluded.
 
-The design follows relevant [OWASP logging guidance](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) and the [OpenTelemetry log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/). It adds no logging dependency and makes no claim to be a complete OpenTelemetry exporter or to universally exceed every logging standard.
+The [operator acceptance checklist](operator-acceptance.md) is a manual procedure and has not been run. The design follows relevant [OWASP logging guidance](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) and the [OpenTelemetry log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/). It adds no logging dependency and makes no claim to be a complete OpenTelemetry exporter or to universally exceed every logging standard.

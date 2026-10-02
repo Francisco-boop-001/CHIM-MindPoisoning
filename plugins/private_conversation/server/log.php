@@ -5,6 +5,7 @@ const PCV_LOG_SCHEMA_VERSION = 1;
 const PCV_LOG_MAX_FILES = 5;
 const PCV_LOG_MAX_FILE_BYTES = 10485760;
 const PCV_LOG_MAX_ENTRY_BYTES = 8192;
+const PCV_LOG_LOCK_WAIT_BUDGET_NS = 100000000;
 const PCV_LOG_DEBUG_MAX_SECONDS = 3600;
 const PCV_LOG_INSTRUMENTATION_REVISION = 2;
 
@@ -54,6 +55,7 @@ function &pcv_log_request_context(): array
             'debug_enabled' => pcv_log_debug_setting_is_active(),
             'fallback_codes' => [],
             'failure_codes' => [],
+            'lock_wait_ns' => 0,
             'test_directory' => null,
             'storage_mode' => null,
             'storage_reason' => null,
@@ -148,6 +150,7 @@ function pcv_log_event_rules(): array
     static $rules = [
         'state.scope_staged' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
         'state.scope_activated' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
+        'state.scope_ended' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
         'state.scope_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['operation', 'scene_mode']],
         'state.scope_expired' => ['severity' => 'info', 'outcome' => 'expired', 'context' => ['target']],
         'state.scope_invalidated' => ['severity' => 'warning', 'outcome' => 'invalidated', 'context' => ['active_config_id', 'pending_config_id']],
@@ -253,7 +256,8 @@ function pcv_log_reason_codes(): array
         'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed',
         'scope_ineligible', 'baseline_stale', 'output_unavailable', 'output_malformed', 'sentinel_mismatch',
         'event_unmatched', 'registry_unavailable', 'registry_corrupt', 'registration_missing', 'registration_stale',
-        'claim_taken', 'ack_mismatch', 'source_aborted', 'scope_changed', 'identity_changed',
+        'claim_taken', 'registration_busy', 'receipt_busy', 'receipt_unavailable', 'receipt_corrupt', 'ack_conflict',
+        'interaction_stale', 'native_ack_ambiguous', 'ack_mismatch', 'source_aborted', 'scope_changed', 'identity_changed',
         'mind_poisoning_unavailable', 'reflection_api_incompatible', 'evaluation_rejected', 'database_unavailable', 'observer_unsupported',
         'actors_unavailable', 'player_identity_unavailable', 'profile_switch_failed', 'actions_unavailable',
         'context_unavailable', 'hook_exception', 'debug_detail', 'presence_unavailable', 'presence_stale',
@@ -362,13 +366,15 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
             'scope_ineligible', 'baseline_stale', 'output_unavailable', 'output_malformed', 'sentinel_mismatch',
             'event_unmatched', 'registry_unavailable', 'registry_corrupt', 'registration_missing', 'registration_stale',
             'claim_taken', 'ack_mismatch', 'source_aborted', 'scope_changed', 'identity_changed',
-            'mind_poisoning_unavailable', 'reflection_api_incompatible', 'evaluation_rejected',
+            'mind_poisoning_unavailable', 'reflection_api_incompatible', 'evaluation_rejected', 'registration_busy',
+            'receipt_busy', 'ack_conflict', 'interaction_stale', 'native_ack_ambiguous',
         ], true);
     }
     if (in_array($event, ['reflection.registration_error', 'reflection.ack_error'], true)) {
         return in_array($reason, [
             'registry_unavailable', 'registry_corrupt', 'database_unavailable',
             'mind_poisoning_unavailable', 'reflection_api_incompatible', 'evaluation_failed', 'internal_error',
+            'receipt_unavailable', 'receipt_corrupt',
         ], true);
     }
     if ($event === 'reflection.output_registered') {
@@ -843,6 +849,18 @@ function pcv_log_fallback_once(string $code): void
     }
 }
 
+function pcv_log_fallback_event_line(string $line): void
+{
+    if (strlen($line) > PCV_LOG_MAX_ENTRY_BYTES || !str_ends_with($line, "\n")) {
+        return;
+    }
+    try {
+        @error_log('Private Conversation event fallback: ' . rtrim($line, "\r\n"));
+    } catch (Throwable) {
+        // The PHP error-log sink is best effort; never break the request.
+    }
+}
+
 function pcv_log_private_file(string $path): bool
 {
     if (is_link($path) || !is_file($path)) {
@@ -904,9 +922,34 @@ function pcv_log_write_line(string $line): bool
         return false;
     }
     @chmod($lockPath, 0600);
-    if (!pcv_log_private_file($lockPath) || !@flock($lock, LOCK_EX | LOCK_NB)) {
+    if (!pcv_log_private_file($lockPath)) {
         @fclose($lock);
         pcv_log_fallback_once('lock_unavailable');
+        return false;
+    }
+
+    $request =& pcv_log_request_context();
+    $waitedBeforeNs = $request['lock_wait_ns'];
+    $waitStartedNs = hrtime(true);
+    $deadlineNs = $waitStartedNs + max(0, PCV_LOG_LOCK_WAIT_BUDGET_NS - $waitedBeforeNs);
+    $locked = false;
+    do {
+        if (@flock($lock, LOCK_EX | LOCK_NB)) {
+            $locked = true;
+            break;
+        }
+        $remainingNs = $deadlineNs - hrtime(true);
+        if ($remainingNs <= 0) {
+            break;
+        }
+        usleep(max(1, (int)ceil(min(1000000, $remainingNs) / 1000)));
+    } while (true);
+    $request['lock_wait_ns'] = min(PCV_LOG_LOCK_WAIT_BUDGET_NS,
+        $waitedBeforeNs + max(0, hrtime(true) - $waitStartedNs));
+    if (!$locked) {
+        @fclose($lock);
+        pcv_log_fallback_once('lock_unavailable');
+        pcv_log_fallback_event_line($line);
         return false;
     }
 
