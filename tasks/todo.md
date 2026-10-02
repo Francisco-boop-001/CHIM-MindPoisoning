@@ -3,12 +3,14 @@
 ## Mind Poisoning 0.1.16 publication — 2026-10-02
 
 - [x] Inspect pending correction and review evidence; confirm both remote main refs and preserve unrelated work.
-- [ ] Prepare and review PRE-ALPHA metadata/current docs and focused release verification.
-- [ ] Commit explicit files, build clean source/tag and verify identical packages/checksums.
-- [ ] Push the new tag, verify draft downloads, publish, then advance update branches.
-- [ ] Verify public artifacts/manifests and record final evidence and runtime limits.
+- [x] Prepare and review PRE-ALPHA metadata/current docs and focused release verification.
+- [x] Commit explicit files, build clean source/tag and verify identical packages/checksums.
+- [x] Push the new tag, verify draft downloads, publish, then advance update branches.
+- [x] Verify public artifacts/manifests and record final evidence and runtime limits.
 
 Authorization: commit, push and publish. Scope and safety gates: release-v0.1.16-plan.md. Gaming distro remains forbidden; publication does not authorize installation or live provider/database work.
+
+Review: Release source `ace3d21` and tag `mind_poisoning-v0.1.16` are published PRE-ALPHA in both repositories. Two clean-export fixtures and four PHP syntax checks passed in the explicitly guarded test clone. All packages/checksums reproduce from the tag and match draft and public downloads. Update-main manifests match the tagged payload; historical tags/assets and unrelated work remain preserved. Receipt: [release-v0.1.16.md](release-v0.1.16.md). Longer solo replies still require companion adoption and live acceptance; no installation or live provider/database check was performed.
 
 ## Reply cap and runtime safety correction — 2026-10-02
 
