@@ -8,6 +8,7 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/logging.php';
+require_once __DIR__ . '/influence.php';
 
 interface StoreDb
 {
@@ -724,6 +725,8 @@ function persistJudgments(
 
         $stage = 'revalidate-actors';
         $identities = $store->npcIdentities();
+        $currentPlayerName = is_string($active['player_name'] ?? null) ? $active['player_name'] : '';
+        $currentSubjects = findSubjects($event, $identities, $currentPlayerName);
         $actors = $reflection
             ? [$event['opinion_owner_id'] => $event['speaker_name']]
             : [$event['listener_id'] => $event['listener_name']];
@@ -737,6 +740,14 @@ function persistJudgments(
             }
         }
         foreach ($subjects as $token => $subject) {
+            $currentSubject = $currentSubjects[$token] ?? null;
+            if (
+                !is_array($currentSubject)
+                || !sameActorName($currentSubject['name'] ?? null, $subject['name'])
+                || ($currentSubject['id'] ?? null) !== $subject['id']
+            ) {
+                return $done('stale', 'subject-catalog-stale');
+            }
             if ($token === 'player') {
                 continue;
             }

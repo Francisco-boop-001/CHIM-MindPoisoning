@@ -108,7 +108,7 @@ function findSubjects(array $event, array $npcs, string $playerName): array
     $entries = [];
     $details = ['player' => ['name' => 'Player', 'id' => null]];
     $titleStoplist = [
-        'Jarl', 'Sir', 'Lady', 'Lord', 'Captain', 'Commander', 'General', 'Guard', 'King',
+        'The', 'Jarl', 'Sir', 'Lady', 'Lord', 'Captain', 'Commander', 'General', 'Guard', 'King',
         'Queen', 'Prince', 'Princess', 'Master', 'Mistress', 'Doctor', 'Dr', 'Sergeant',
     ];
     foreach ($npcs as $npc) {

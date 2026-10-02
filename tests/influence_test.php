@@ -90,9 +90,14 @@ $aliasNpcs = [
     ['id' => 16, 'npc_name' => 'Li of Rohan'],
 ];
 $aliasEvent = $event;
-$aliasEvent['text'] = "Aela, Aela's, and Aela’s stories mention Delia.";
+$aelaAliases = ['Aela', "Aela's", 'Aela’s'];
+foreach ($aelaAliases as $aelaAlias) {
+    $aliasEvent['text'] = $aelaAlias;
+    $aliasSubjects = findSubjects($aliasEvent, $aliasNpcs, 'Hawke');
+    check(($aliasSubjects['npc:10'] ?? null) === ['name' => 'Aela the Huntress', 'id' => 10], 'Each Aela spelling should match the full-name NPC alias independently.');
+}
+$aliasEvent['text'] = 'Delia';
 $aliasSubjects = findSubjects($aliasEvent, $aliasNpcs, 'Hawke');
-check(($aliasSubjects['npc:10'] ?? null) === ['name' => 'Aela the Huntress', 'id' => 10], 'ASCII and curly possessives should match the full-name NPC alias.');
 check(($aliasSubjects['npc:11'] ?? null) === ['name' => 'Delia [Bandit Thug Archer]', 'id' => 11], 'A bracketed catalog suffix should not prevent its base-name alias from matching.');
 $unicodeAliasEvent = $event;
 $unicodeAliasEvent['text'] = 'Åsa arrived.';
@@ -102,7 +107,10 @@ $shortAliasEvent['text'] = 'Li arrived.';
 check(!isset(findSubjects($shortAliasEvent, $aliasNpcs, 'Hawke')['npc:16']), 'A first word shorter than three letters should not become an alias.');
 $ownAliasEvent = $aliasEvent;
 $ownAliasEvent['speaker_id'] = 10;
-check(!isset(findSubjects($ownAliasEvent, $aliasNpcs, 'Hawke')['npc:10']), 'Speaker aliases must remain excluded using the existing speaker identity.');
+$ownAliasEvent['listener_id'] = 11;
+$ownAliasEvent['text'] = 'Aela told Delia.';
+$ownAliasSubjects = findSubjects($ownAliasEvent, $aliasNpcs, 'Hawke');
+check(!isset($ownAliasSubjects['npc:10']) && !isset($ownAliasSubjects['npc:11']), 'Speaker and listener aliases must remain excluded using existing identities.');
 
 $ambiguousAliasEvent = $event;
 $ambiguousAliasEvent['text'] = 'Lydia was mentioned.';
@@ -131,6 +139,11 @@ $titleEvent['text'] = 'Jarl';
 check(!isset(findSubjects($titleEvent, [$derivedTitleNpcs[0]], 'Hawke')['npc:50']), 'A title derived before the word the must stay excluded.');
 $titleEvent['text'] = 'Lady';
 check(!isset(findSubjects($titleEvent, [$derivedTitleNpcs[1]], 'Hawke')['npc:51']), 'A title derived by stripping a bracketed suffix must stay excluded.');
+$theCourier = [['id' => 52, 'npc_name' => 'The Courier']];
+$titleEvent['text'] = 'The has arrived.';
+check(!isset(findSubjects($titleEvent, $theCourier, 'Hawke')['npc:52']), 'The definite article must not become a standalone alias.');
+$titleEvent['text'] = 'The Courier has arrived.';
+check((findSubjects($titleEvent, $theCourier, 'Hawke')['npc:52'] ?? null) === ['name' => 'The Courier', 'id' => 52], 'The full catalog name remains usable when its first word is excluded as an alias.');
 $exactTitleEvent = $event;
 $exactTitleEvent['text'] = 'Jarl the Cruel and Lady [Noble]';
 $exactTitleSubjects = findSubjects($exactTitleEvent, $derivedTitleNpcs, 'Hawke');

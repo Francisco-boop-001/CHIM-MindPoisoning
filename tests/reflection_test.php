@@ -122,6 +122,51 @@ same('reflection', $reflectionLedger->events[0]->source_kind, 'The ledger must r
 same(64, strlen($reflectionLedger->reflection_state->basis), 'The bounded actor evidence basis should be retained separately from rolling event history.');
 same(['npc:22'], $reflectionLedger->reflection_state->subjects, 'The processed subject token should be recorded for the unchanged basis.');
 
+foreach ([
+    ['In my heart, Lydia earned my trust again.', 'Lydia earned my trust again.', 'stale'],
+    ['In my heart, Lydia Vance earned my trust again.', 'Lydia Vance earned my trust again.', 'committed'],
+] as [$raceSpeech, $raceEvidence, $expectedRaceStatus]) {
+    resetAckLoggingInteraction();
+    [$raceRegistration, $raceAck, $raceDb] = reflectionFixture(['speech' => $raceSpeech]);
+    $raceDb->npcs[22]['npc_name'] = 'Lydia Vance';
+    $raceDb->npcs[11]['extended_data']->relationships->{'Lydia Vance'} = (object)['aff' => 10, 'type' => 'ally'];
+    $beforeRaceActor = unserialize(serialize($raceDb->npcs[11]));
+    $raceModelCalls = 0;
+    $insertAmbiguousReflectionAlias = static function (array $messages) use ($raceDb, $raceEvidence, &$raceModelCalls): string {
+        $raceModelCalls++;
+        $payload = json_decode($messages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+        same('Lydia Vance', $payload['candidates']['npc:22']['name'] ?? null, 'Reflection should retain the selected subject canonical name.');
+        $raceDb->npcs[44] = [
+            'id' => 44,
+            'npc_name' => 'Lydia Hart',
+            'extended_data' => (object)['relationships' => new stdClass()],
+            'plugin_extended_data' => new stdClass(),
+        ];
+        return validModelResponse([[
+            'subject' => 'npc:22',
+            'delta' => 3,
+            'reason' => 'A supported reflection claim.',
+            'evidence' => $raceEvidence,
+        ]]);
+    };
+    same($expectedRaceStatus, mindPoisoningEvaluateReflection(
+        $raceRegistration,
+        $raceAck,
+        $raceDb,
+        static fn(): bool => true,
+        $insertAmbiguousReflectionAlias
+    ), 'Reflection persistence must reject a newly ambiguous alias but retain a canonical full-name match.');
+    same(1, $raceModelCalls, 'Reflection subject revalidation should follow one model call.');
+    if ($expectedRaceStatus === 'stale') {
+        check(ChimMindPoisoning\sameJsonValue($beforeRaceActor, $raceDb->npcs[11]), 'An ambiguous reflection alias must not change affinity or the ledger.');
+        same([], $raceDb->history, 'An ambiguous reflection alias must not create a history snapshot.');
+        check(!property_exists($raceDb->npcs[11]['plugin_extended_data'], 'mind_poisoning'), 'An ambiguous reflection alias must not create a dedupe ledger.');
+    } else {
+        same(13, $raceDb->npcs[11]['extended_data']->relationships->{'Lydia Vance'}->aff, 'A canonical full-name reflection remains usable with the same ambiguous short alias.');
+        same(1, count($raceDb->history), 'A canonical full-name reflection should create its history snapshot.');
+    }
+}
+
 resetAckLoggingInteraction();
 [$playerCollisionRegistration, $playerCollisionAck, $playerCollisionDb] = reflectionFixture();
 $playerCollisionDb->npcs[44] = [

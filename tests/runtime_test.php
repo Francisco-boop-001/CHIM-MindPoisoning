@@ -618,6 +618,43 @@ if (defined('CHIM_MIND_POISONING_TEST_FIXTURES_ONLY') && CHIM_MIND_POISONING_TES
 
 // Exercise the player path through the same extracted CHIM route decoder and store contract.
 resetAckLoggingInteraction();
+[$playerAliasRaceEvent, , , $playerAliasRaceDb] = baseFixture();
+$playerAliasRaceEvent['text'] = 'Dragonborn trusts her.';
+$playerAliasRaceEvent['source_data'] = 'Aela: Dragonborn trusts her. (Talking to Lydia)';
+$playerAliasRaceDb->events[100] = $playerAliasRaceEvent + ['type' => 'chat', 'delivery_state' => 'spoken'];
+$playerAliasRaceAck = ['_speech', 0, 10, json_encode([
+    'speaker' => 'Aela',
+    'listener' => 'Lydia',
+    'speech' => $playerAliasRaceEvent['text'],
+    'utterance_id' => $playerAliasRaceEvent['utterance_id'],
+], JSON_THROW_ON_ERROR)];
+$beforePlayerAliasRaceListener = unserialize(serialize($playerAliasRaceDb->npcs[22]));
+$playerAliasRaceModelCalls = 0;
+$insertPlayerIdentityAliasNpc = static function (array $messages) use ($playerAliasRaceDb, $playerAliasRaceEvent, &$playerAliasRaceModelCalls): string {
+    $playerAliasRaceModelCalls++;
+    $payload = json_decode($messages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+    check(isset($payload['candidates']['player']), 'The initial Dragonborn mention should select the Player identity.');
+    $playerAliasRaceDb->npcs[44] = [
+        'id' => 44,
+        'npc_name' => 'Dragonborn the Wanderer',
+        'extended_data' => (object)['relationships' => new stdClass()],
+        'plugin_extended_data' => new stdClass(),
+    ];
+    check(!isset(ChimMindPoisoning\findSubjects($playerAliasRaceEvent, $playerAliasRaceDb->npcIdentities(), 'Dragonborn')['player']), 'The new NPC alias should make the Player token ambiguous in the current catalog.');
+    return validModelResponse([[
+        'subject' => 'player',
+        'delta' => -2,
+        'reason' => 'The Player identity was discussed.',
+        'evidence' => 'Dragonborn trusts her.',
+    ]]);
+};
+same('stale', handleSpeechAck($playerAliasRaceAck, $playerAliasRaceDb, $insertPlayerIdentityAliasNpc), 'A newly colliding NPC alias must stale the selected Player identity before persistence.');
+same(1, $playerAliasRaceModelCalls, 'The Player alias race should be detected after one model call.');
+check(ChimMindPoisoning\sameJsonValue($beforePlayerAliasRaceListener, $playerAliasRaceDb->npcs[22]), 'A colliding NPC alias must not change listener affinity or ledger state.');
+same([], $playerAliasRaceDb->history, 'A colliding NPC alias must not create a history snapshot.');
+check(!property_exists($playerAliasRaceDb->npcs[22]['plugin_extended_data'], 'mind_poisoning'), 'A colliding NPC alias must not create a dedupe ledger.');
+
+resetAckLoggingInteraction();
 [$event, $subjects, $judgments, $db] = baseFixture();
 [$playerRequest, $playerInsert] = playerInputFixture($db);
 $playerMessages = null;
@@ -1145,6 +1182,58 @@ $lowercaseMayContext = json_decode($lowercaseMayMessages[1]['content'], true, 51
 check(isset($lowercaseMayContext['candidates']['npc:44']), 'Lowercase client text must retain the matching NPC candidate.');
 same(2, $db->npcs[22]['extended_data']->relationships->May->aff, 'A confirmed lowercase-name judgment should persist through the composed path.');
 same(1, count($db->history), 'A confirmed lowercase-name judgment should snapshot the listener.');
+
+foreach ([
+    ['Lydia kept the promise.', 'Lydia', 'stale'],
+    ['Lydia Vance kept the promise.', 'Lydia Vance', 'committed'],
+] as [$raceText, $evidence, $expectedRaceStatus]) {
+    resetAckLoggingInteraction();
+    [$raceEvent, , , $raceDb] = baseFixture();
+    $raceEvent['listener_name'] = 'Inigo';
+    $raceEvent['text'] = $raceText;
+    $raceEvent['source_data'] = 'Aela: ' . $raceText . ' (Talking to Inigo)';
+    $raceDb->npcs[22]['npc_name'] = 'Inigo';
+    $raceDb->npcs[22]['extended_data']->relationships = (object)[
+        'Lydia Vance' => (object)['aff' => 5, 'type' => 'friend'],
+    ];
+    $raceDb->npcs[33]['npc_name'] = 'Lydia Vance';
+    $raceDb->events[100] = $raceEvent + ['type' => 'chat', 'delivery_state' => 'spoken'];
+    $raceAck = ['_speech', 0, 10, json_encode([
+        'speaker' => 'Aela',
+        'listener' => 'Inigo',
+        'speech' => $raceText,
+        'utterance_id' => $raceEvent['utterance_id'],
+    ], JSON_THROW_ON_ERROR)];
+    $beforeRaceListener = unserialize(serialize($raceDb->npcs[22]));
+    $raceModelCalls = 0;
+    $insertAmbiguousAliasNpc = static function (array $messages) use ($raceDb, $evidence, &$raceModelCalls): string {
+        $raceModelCalls++;
+        $payload = json_decode($messages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+        same('Lydia Vance', $payload['candidates']['npc:33']['name'] ?? null, 'The selected subject should retain its canonical catalog name.');
+        $raceDb->npcs[44] = [
+            'id' => 44,
+            'npc_name' => 'Lydia Hart',
+            'extended_data' => (object)['relationships' => new stdClass()],
+            'plugin_extended_data' => new stdClass(),
+        ];
+        return validModelResponse([[
+            'subject' => 'npc:33',
+            'delta' => 2,
+            'reason' => 'A supported personal claim.',
+            'evidence' => $evidence,
+        ]]);
+    };
+    same($expectedRaceStatus, handleSpeechAck($raceAck, $raceDb, $insertAmbiguousAliasNpc), 'Commit-time subject matching must reject only the newly ambiguous alias.');
+    same(1, $raceModelCalls, 'The identity race must be detected after one model call.');
+    if ($expectedRaceStatus === 'stale') {
+        check(ChimMindPoisoning\sameJsonValue($beforeRaceListener, $raceDb->npcs[22]), 'An ambiguous alias must not change listener affinity or ledger state.');
+        same([], $raceDb->history, 'An ambiguous alias must not create a history snapshot.');
+        check(!property_exists($raceDb->npcs[22]['plugin_extended_data'], 'mind_poisoning'), 'An ambiguous alias must not create a dedupe ledger.');
+    } else {
+        same(7, $raceDb->npcs[22]['extended_data']->relationships->{'Lydia Vance'}->aff, 'A canonical full name remains usable with the same ambiguous short alias.');
+        same(1, count($raceDb->history), 'A canonical full-name judgment should still create its history snapshot.');
+    }
+}
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $event['text'] = 'I trust Jarl Balgruuf. The Dragonborn is brave.';
