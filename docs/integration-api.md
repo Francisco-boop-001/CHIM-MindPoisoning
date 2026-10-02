@@ -25,6 +25,35 @@ The registration has exactly these keys: `event_id`, `utterance_id`, `actor_id`,
 
 `$revalidate($registration, $phase)` must read the companion's private registration and return whether the same scope is still active. It is called at `pre_model` and twice during `transaction`, so it must be read-only and safe to repeat. `$requestModel` is a test/integration seam; if omitted, the normal Mind Poisoning request function is used. The return value is an evaluator status string; it does not replace the structured request log.
 
+## Full-reply reflection API (source-only capability)
+
+The v1 constant and function above remain unchanged. This source checkout separately declares `MIND_POISONING_REFLECTION_REPLY_API_VERSION = 2` and exposes an opt-in evaluator; v2 is not in the published v0.1.14 package. Existing v1 callers continue to use version 1. Published PCV integration remains v1-compatible, and the development caller at PCV revision `c46d650` also checks v1 and calls only `mindPoisoningEvaluateReflection`; adopting v2 requires a separate companion change.
+
+```php
+use function ChimMindPoisoning\mindPoisoningEvaluateReflectionReply;
+
+mindPoisoningEvaluateReflectionReply(
+    array $registration,
+    array $gameRequest,
+    StoreDb $store,
+    callable $revalidate,
+    ?callable $requestModel = null,
+    ?RequestLog $requestLog = null
+): string
+```
+
+The top-level registration has exactly the eight v1 keys (`event_id`, `utterance_id`, `actor_id`, `actor_name`, `playthrough_id`, `config_id`, `rechat_target_hint`, `speech_hash`) plus `lines`. The top-level event, utterance, and hash identify and equal the final tuple. `lines` is a PHP list of 1–8 exact-key tuples `{event_id: positive int, utterance_id: valid utt_ string, speech_hash: lowercase SHA-256}`. Event IDs increase strictly and utterance IDs are unique. Numeric ordering rejects reversal but does not establish reply membership. The API accepts no caller dialogue, client-supplied group, recency lookup, or synthesized ACK.
+
+The companion's server-only callback receives the complete original registration. At both `pre_model` checkpoints and both `transaction` checks, it must confirm the same claim, configuration, playthrough, actor, active interaction scope, and complete immutable ordered output list captured from one companion request; it must reject a list mixed across replies. MP has no source-backed reply-group identifier and cannot independently prove that grouping. After callbacks, MP re-reads each source; it also checks every source under the actor lock before commit. Missing, aborted, changed, or mismatched rows fail closed; an `emitted` to `spoken` transition remains valid.
+
+For v2, MP resolves every tuple through `StoreDb`, parses the existing explicit `explicit_disable_rechat` source, trims its UTF-8 body, and requires the registered digest to equal SHA-256 of that parsed body. V1 retains its existing contract: the native ACK speech digest must match the single-line registration, while v1 does not compare that digest with the parsed source body. V2's native `_speech` ACK must match the registered actor, supported Player transport listener, and final tuple; an earlier valid ACK returns the fixed informational `reflection-non-final-ack` skip. MP joins source bodies in tuple order with one ASCII space. The joined text is limited inclusively to 2,000 Unicode code points and 8,000 bytes; it is rejected without truncation. A valid base registration with more than eight lines returns `reflection-reply-too-many-lines`; text overflow returns `reflection-reply-too-large`.
+
+Replay checks cover every registered event ID and utterance ID against the existing ledger and numeric eviction floor before provider work and again inside the transaction. A confirmed reply records all tuples in the existing bounded 128-entry ledger in one atomic relationship write and history snapshot; earlier entries have empty judgments and the final entry carries the reply decision. Confirmed zero decisions still record every tuple. No table or `StoreDb` method was added. V2's persisted source digest hashes the joined parsed bodies; terminal diagnostics remain correlated to the final event and utterance. A false or throwing commit remains failed/unconfirmed.
+
+When `RequestLog` is omitted, the shared evaluator creates the normal request logger; when supplied, it reuses that instance and preserves its observer delivery. Each invoked evaluation attempts one terminal `request_finished` summary. Expected skips such as non-final ACK, replay, locked actor, or no eligible subjects are informational. Malformed registration/ACK, source mismatch, and reply caps are warning-level rejections. Provider/internal and persistence failures are errors, including an unconfirmed commit; invalid model responses are warnings. The sanitized schema contains fixed reasons and bounded correlation/status data, not dialogue, source hashes, claim tokens, or exception messages. Delivery is best-effort: logger construction or sink failure cannot change the evaluator result, and a failed sink can drop a record. PCV must log attributable reflection exits before it calls MP; ordinary or unregistered ACKs that never reach MP do not create MP records.
+
+The focused source check is `php tests/reflection_diagnostics_test.php`; the v2 behavior and pinned v1 importer checks are `php tests/reflection_reply_test.php` and `php tests/reflection_observer_test.php`. These use isolated in-memory fixtures. They do not prove companion grouping/subtitle correspondence, live provider behavior, PostgreSQL durability, installed extension order, or audible playback.
+
 ## Optional request observer
 
 `RequestLog::observe(?callable $observer): void` installs one callback on that `RequestLog` instance. Each accepted log record is delivered as `(array $record, string $level)` after the normal sink attempt. A second call replaces the callback; `observe(null)` clears it. Records emitted before installation are not replayed. Observer failures are swallowed and cannot change evaluation or persistence, and reentrant observer delivery is suppressed.

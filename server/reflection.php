@@ -53,6 +53,13 @@ function runReflectionEvaluation(
     ?RequestLog $requestLog,
     bool $fullReply
 ): string {
+    if ($requestLog === null) {
+        try {
+            $requestLog = new RequestLog();
+        } catch (Throwable) {
+            $requestLog = null;
+        }
+    }
     $logFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
     $requestLog?->context([
         'source_kind' => 'reflection',
@@ -67,6 +74,7 @@ function runReflectionEvaluation(
         $logFields['reason'] ??= 'reflection-failed';
     }
 
+    $reason = is_string($logFields['reason'] ?? null) ? $logFields['reason'] : $status;
     $outcome = match ($status) {
         'committed' => 'committed',
         'failed' => 'failed',
@@ -74,7 +82,9 @@ function runReflectionEvaluation(
         'too-large' => $fullReply ? 'rejected' : 'skipped',
         default => 'skipped',
     };
-    $reason = is_string($logFields['reason'] ?? null) ? $logFields['reason'] : $status;
+    if ($status === 'event-mismatch' && in_array($reason, ['reflection-ack-mismatch', 'reflection-source-mismatch'], true)) {
+        $outcome = 'rejected';
+    }
     $requestLog?->finish($outcome, $reason, $logFields);
     return $status;
 }
