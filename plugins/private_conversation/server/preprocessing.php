@@ -14,6 +14,17 @@ if (!is_array($gameRequest)) {
 }
 
 $requestType = (string)($gameRequest[0] ?? '');
+if ($requestType === 'infonpc') {
+    // The wider "beings in range" report keeps an active scene's partner who briefly left close range.
+    try {
+        if (function_exists('pcv_capture_wide_presence_report')) {
+            pcv_capture_wide_presence_report(pcv_current_playthrough_key(), $gameRequest[3] ?? null, pcv_current_player_name());
+        }
+    } catch (Throwable $error) {
+        pcv_log_exception('state.unavailable', 'error', 'unavailable', 'presence_unavailable', $error, ['operation' => 'presence_capture']);
+    }
+    return;
+}
 if ($requestType === 'infonpc_close') {
     try {
         if (!function_exists('pcv_capture_background_presence_report')) {
@@ -29,17 +40,6 @@ if ($requestType === 'infonpc_close') {
         pcv_invalidate_eligible_npcs();
         pcv_log_exception('state.unavailable', 'error', 'unavailable', 'presence_unavailable', $error, ['operation' => 'presence_capture']);
     }
-    return;
-}
-$fastCommands = $GLOBALS['external_fast_commands'] ?? [];
-if (!is_array($fastCommands)) {
-    $fastCommands = [];
-}
-if ($requestType === 'ext_pcv_presence') {
-    if (!in_array('ext_pcv_presence', $fastCommands, true)) {
-        $fastCommands[] = 'ext_pcv_presence';
-    }
-    $GLOBALS['external_fast_commands'] = $fastCommands;
     return;
 }
 $ordinaryInputTypes = ['inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s'];
@@ -199,8 +199,8 @@ if ($isContinuation) {
             throw $error;
         }
         if ($clamped === null) {
-            $reason = $failureReason === 'rechat_speaker_outside_pair' ? $failureReason : 'malformed_rechat';
-            pcvBlockRequest('Private Conversation rechat payload or speaker is outside the selected pair; request stopped for safety.', $reason, 'preprocessing', $state);
+            $reason = $failureReason === 'rechat_speaker_outside_scene' ? $failureReason : 'malformed_rechat';
+            pcvBlockRequest('Private Conversation rechat payload or speaker is outside the selected scene; request stopped for safety.', $reason, 'preprocessing', $state);
         }
         $gameRequest[3] = $clamped;
         $GLOBALS['gameRequest'] = $gameRequest;
@@ -246,6 +246,22 @@ $route = ($resolvedScope['scene_mode'] ?? 'pair') === 'solo'
     : (($resolvedScope['exclude_player'] ?? true) ? 'scene_direction' : 'player_speech');
 $baselineOutputLog = is_array($GLOBALS['DEBUG_DATA'] ?? null) && is_string($GLOBALS['DEBUG_DATA']['OUTPUT_LOG'] ?? null)
     ? $GLOBALS['DEBUG_DATA']['OUTPUT_LOG'] : '';
+// Group scenes: the member named earliest in the direction opens, else the picked opener, else the first member.
+// Free scenes: named, else the player's direct target if a member, else the nearest member.
+$openerName = (string)($resolvedScope['actor_a'] ?? '');
+$openerSource = 'first';
+$openerProfile = $profileA;
+if ($route !== 'solo_reflection') {
+    $direction = is_string($gameRequest[3] ?? null) ? $gameRequest[3] : '';
+    $pick = pcvGroupPickOpener($direction, pcvScopeMembers($resolvedScope), $resolvedScope['opener'] ?? null,
+        pcvSnapshotDirectTarget($snapshot), ($resolvedScope['free'] ?? false) === true);
+    $pickedProfile = $state['profiles'][$pick['name']] ?? null;
+    if ($pick['name'] !== '' && is_int($pickedProfile) && $pickedProfile > 0) {
+        $openerName = $pick['name'];
+        $openerSource = $pick['source'];
+        $openerProfile = $pickedProfile;
+    }
+}
 $GLOBALS['PCV_REQUEST_SCOPE'] = array_replace($state, [
     'status' => 'active', 'scope' => $resolvedScope, 'start' => true,
     'profile_id_a' => $profileA, 'route' => $route,
@@ -253,7 +269,17 @@ $GLOBALS['PCV_REQUEST_SCOPE'] = array_replace($state, [
     'origin_dialogue' => is_string($gameRequest[3] ?? null) ? $gameRequest[3] : null,
     'baseline_utterance_id' => is_string($GLOBALS['SCRIPTLINE_UTTERANCE_ID'] ?? null) ? $GLOBALS['SCRIPTLINE_UTTERANCE_ID'] : null,
     'baseline_output_log' => $baselineOutputLog,
+    'opener_name' => $openerName,
+    'opener_source' => $openerSource,
+    'profile_id_opener' => $openerProfile,
 ]);
+if ($route === 'solo_reflection' && is_string($state['config_id'] ?? null) && is_string($state['actor_a_id'] ?? null)) {
+    try {
+        pcv_solo_inflight_mark($state['config_id'], $state['actor_a_id']);
+    } catch (Throwable) {
+        // Classification aid only; registration and evaluation never depend on it.
+    }
+}
 pcvRoutingLogDetail(
     'preprocessing',
     $route === 'solo_reflection' ? 'solo_reflection_routed'

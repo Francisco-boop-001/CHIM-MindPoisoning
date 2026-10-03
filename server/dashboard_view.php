@@ -46,7 +46,7 @@ function renderDashboard(array $model, array $filters): void
     $levelOptions = ['debug' => 'Debug', 'info' => 'Info', 'warning' => 'Warning', 'error' => 'Error'];
     $safeLogFields = array_fill_keys([
         'schema_version', 'plugin', 'version', 'timestamp', 'request_id', 'level', 'event',
-        'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind', 'connector_id', 'utterance_id',
+        'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'opinion_owner_id', 'source_kind', 'connector_id', 'utterance_id',
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
         'commit_state', 'elapsed_ms', 'model_ms', 'persistence_ms', 'payload_bytes', 'subject_count',
         'speech_bytes', 'changed_count', 'delta', 'subject', 'committed', 'cleanup_failed', 'changes',
@@ -270,6 +270,11 @@ function renderDashboard(array $model, array $filters): void
                                             <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Solo reflection</h4>
                                         <?php else: ?>
                                             <h4><?= $escape($text($interaction['speaker'] ?? null)) ?><span class="exchange-arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><?= $escape($text($interaction['listener'] ?? null)) ?></h4>
+                                            <?php if (($interaction['listener_role'] ?? null) === 'addressed'): ?>
+                                                <p class="exposure-label">Addressed listener</p>
+                                            <?php elseif (($interaction['listener_role'] ?? null) === 'overheard'): ?>
+                                                <p class="exposure-label">Roster-listed overhearer evaluation · addressed to <?= $escape($text($interaction['addressed_listener'] ?? null)) ?>; playback is not verified</p>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </div>
                                     <span class="status <?= $escape($outcomeClass($eventOutcome)) ?>"><?= $escape($outcomeLabel($eventOutcome)) ?></span>

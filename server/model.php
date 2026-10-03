@@ -45,8 +45,11 @@ function positiveConnectorId(mixed $value): ?int
     return is_int($id) && $id > 0 ? $id : null;
 }
 
-function requestJudgments(array $messages): string
+function requestJudgments(array $messages, int $maxTokens = 1024): string
 {
+    if (!in_array($maxTokens, [1024, 4096], true)) {
+        throw new \InvalidArgumentException('Invalid Mind Poisoning model token budget.');
+    }
     $globalNames = [
         'CONNECTOR', 'HTTP_TIMEOUT', 'FORCE_MAX_TOKENS', 'DEBUG_DATA',
         'PATCH_PROMPT_ENFORCE_ACTIONS', 'COMMAND_PROMPT_ENFORCE_ACTIONS',
@@ -107,8 +110,8 @@ function requestJudgments(array $messages): string
 
         $connector = $llmConnector->getConnector($row);
         $GLOBALS['HTTP_TIMEOUT'] = 12;
-        $GLOBALS['FORCE_MAX_TOKENS'] = 1024;
-        $response = $connector->fast_request($messages, ['MAX_TOKENS' => 1024], 'mind_poisoning');
+        $GLOBALS['FORCE_MAX_TOKENS'] = $maxTokens;
+        $response = $connector->fast_request($messages, ['MAX_TOKENS' => $maxTokens], 'mind_poisoning');
         if (!is_string($response)) {
             throw new ModelRequestFailure('model_response_invalid_type');
         }

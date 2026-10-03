@@ -16,6 +16,8 @@
     let rememberedActorB = '';
     let rememberedPlayerExclusion = null;
     let lastSoloMode = false;
+    let lastFreeMode = false;
+    let rememberedFreePlayerExclusion = null;
     const reportedFailures = new Set();
 
     function reportRefreshFailure(code) {
@@ -50,6 +52,32 @@
             && typeof element.replaceChildren === 'function';
     }
 
+    // Optional group members (0.1.11). Absent controls are simply skipped.
+    const EXTRA_MEMBERS = ['#actor-c', '#actor-d'];
+
+    function extraMembersValid(actorA, actorB) {
+        const chosen = [actorA.value, actorB.value];
+        for (const selector of EXTRA_MEMBERS) {
+            const select = documentRef.querySelector(selector);
+            if (!select || select.value === '') {
+                continue;
+            }
+            if (!available(select, select.value) || chosen.includes(select.value)) {
+                return false;
+            }
+            chosen.push(select.value);
+        }
+        return true;
+    }
+
+    function freeChecked() {
+        return Boolean(documentRef.querySelector('#free-mode')?.checked);
+    }
+
+    function eligibleOptionCount(select) {
+        return Array.from(select.options).filter((option) => option.value !== '').length;
+    }
+
     function updateArmButton() {
         const armButton = documentRef.querySelector('#arm-button');
         const actorA = documentRef.querySelector('#actor-a');
@@ -59,8 +87,13 @@
             return;
         }
         const solo = soloMode.checked;
+        if (freeChecked()) {
+            // Free scene (0.1.12): members are chosen at activation; ARM needs two eligible NPCs.
+            armButton.disabled = !serverAllowsArm || eligibleOptionCount(actorA) < 2;
+            return;
+        }
         const hasA = available(actorA, actorA.value);
-        const hasPair = available(actorB, actorB.value) && actorA.value !== actorB.value;
+        const hasPair = available(actorB, actorB.value) && actorA.value !== actorB.value && extraMembersValid(actorA, actorB);
         armButton.disabled = !serverAllowsArm || !hasA || (!solo && !hasPair);
     }
 
@@ -81,16 +114,27 @@
         }
 
         const solo = soloMode.checked;
+        const free = !solo && freeChecked();
         const rosterReady = serverAllowsArm;
-        const hasTwo = Array.from(actorA.options).filter((option) => option.value !== '').length >= 2;
-        actorA.disabled = !rosterReady;
-        actorB.disabled = !rosterReady || !hasTwo || solo;
+        const hasTwo = eligibleOptionCount(actorA) >= 2;
+        actorA.disabled = !rosterReady || free;
+        actorB.disabled = !rosterReady || !hasTwo || solo || free;
+        for (const selector of [...EXTRA_MEMBERS, '#opener']) {
+            const control = documentRef.querySelector(selector);
+            if (control) {
+                control.disabled = !rosterReady || !hasTwo || solo || free;
+            }
+        }
         soloMode.disabled = !rosterReady;
+        const freeMode = documentRef.querySelector('#free-mode');
+        if (freeMode) {
+            freeMode.disabled = !rosterReady;
+        }
         if (bystanderMode) {
             bystanderMode.disabled = false;
         }
         if (playerCheckbox) {
-            if (solo) {
+            if (solo || free) {
                 playerCheckbox.checked = true;
                 playerCheckbox.disabled = true;
             } else {
@@ -104,7 +148,7 @@
             actorBLabel.textContent = solo ? 'Second NPC (pair mode only)' : 'NPC B';
         }
         if (armHeading) {
-            armHeading.textContent = solo ? 'Solo reflection' : 'Choose the pair';
+            armHeading.textContent = solo ? 'Solo reflection' : (free ? 'Free scene' : 'Choose the pair');
         }
         if (pageIntro) {
             pageIntro.textContent = solo
@@ -130,6 +174,12 @@
         }
 
         const solo = soloMode.checked;
+        const freeMode = documentRef.querySelector('#free-mode');
+        if (solo && freeMode?.checked) {
+            // Solo and free are exclusive: leaving free restores the player draft first.
+            freeMode.checked = false;
+            leaveFree(playerCheckbox);
+        }
         if (solo && !lastSoloMode) {
             rememberedActorB = available(actorB, actorB.value) && actorB.value !== actorA.value
                 ? actorB.value : '';
@@ -145,6 +195,34 @@
             rememberedPlayerExclusion = null;
         }
         lastSoloMode = solo;
+        updateModePresentation();
+    }
+
+    function leaveFree(playerCheckbox) {
+        if (lastFreeMode && rememberedFreePlayerExclusion !== null) {
+            playerCheckbox.checked = rememberedFreePlayerExclusion;
+        }
+        rememberedFreePlayerExclusion = null;
+        lastFreeMode = false;
+    }
+
+    function handleFreeChange() {
+        const freeMode = documentRef.querySelector('#free-mode');
+        const soloMode = documentRef.querySelector('#solo-mode');
+        const playerCheckbox = documentRef.querySelector('input[name="exclude_player"]');
+        if (!freeMode || !playerCheckbox) {
+            return;
+        }
+        if (freeMode.checked && soloMode?.checked) {
+            soloMode.checked = false;
+            handleModeChange();
+        }
+        if (freeMode.checked && !lastFreeMode) {
+            rememberedFreePlayerExclusion = playerCheckbox.checked;
+            lastFreeMode = true;
+        } else if (!freeMode.checked) {
+            leaveFree(playerCheckbox);
+        }
         updateModePresentation();
     }
 
@@ -214,6 +292,26 @@
             rememberedActorB = '';
         }
 
+        // Optional group controls: refresh options and keep a draft only while it is eligible and distinct.
+        const taken = [currentA.value, currentB.value];
+        for (const selector of [...EXTRA_MEMBERS, '#opener']) {
+            const current = documentRef.querySelector(selector);
+            const next = snapshot.querySelector(selector);
+            if (!isSelectElement(current) || !isSelectElement(next)) {
+                continue;
+            }
+            const draft = identityChanged ? '' : current.value;
+            current.replaceChildren(...Array.from(next.options, (option) => option.cloneNode(true)));
+            if (selector === '#opener') {
+                current.value = available(current, draft) ? draft : 'auto';
+                continue;
+            }
+            current.value = available(current, draft) && !taken.includes(draft) ? draft : '';
+            if (current.value !== '') {
+                taken.push(current.value);
+            }
+        }
+
         currentBadge.className = nextBadge.className;
         currentBadge.textContent = nextBadge.textContent;
         currentStatus.innerHTML = nextStatus.innerHTML;
@@ -281,6 +379,7 @@
     const initialArm = documentRef.querySelector('#arm-button');
     serverAllowsArm = Boolean(initialArm && initialArm.dataset.rosterReady === '1');
     lastSoloMode = Boolean(documentRef.querySelector('#solo-mode')?.checked);
+    lastFreeMode = freeChecked();
     updateModePresentation();
 
     globalThis.setInterval(() => {
@@ -299,6 +398,10 @@
     });
     documentRef.querySelector('#actor-a')?.addEventListener('change', updateArmButton);
     documentRef.querySelector('#actor-b')?.addEventListener('change', updateArmButton);
+    for (const selector of EXTRA_MEMBERS) {
+        documentRef.querySelector(selector)?.addEventListener('change', updateArmButton);
+    }
     documentRef.querySelector('#solo-mode')?.addEventListener('change', handleModeChange);
+    documentRef.querySelector('#free-mode')?.addEventListener('change', handleFreeChange);
     void refresh();
 })();

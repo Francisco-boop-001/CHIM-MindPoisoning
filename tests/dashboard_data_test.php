@@ -82,6 +82,26 @@ dashboardDataAssert(
         && !dashboardRecordMatches($parsed, ['tab' => 'diagnostics', 'q' => '', 'outcome' => 'unconfirmed', 'level' => '']),
     'Diagnostics outcome filtering did not match normalized zero-change state.'
 );
+$exposureWireRecord = clone $wireRecord;
+$exposureWireRecord->speaker_kind = 'npc';
+$exposureWireRecord->listener_role = 'overheard';
+$exposureWireRecord->addressed_listener_id = 9;
+$exposureWireRecord->batch_id = $wireRecord->request_id;
+$exposureParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($exposureWireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($exposureParsed)
+        && ($exposureParsed['listener_role'] ?? null) === 'overheard'
+        && ($exposureParsed['addressed_listener_id'] ?? null) === '9'
+        && ($exposureParsed['batch_id'] ?? null) === $wireRecord->request_id,
+    'A well-formed per-listener exposure record should retain its safe role and batch link.'
+);
+$forgedExposure = clone $exposureWireRecord;
+$forgedExposure->listener_role = 'addressed';
+$forgedParsed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($forgedExposure, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+dashboardDataAssert(
+    is_array($forgedParsed) && !isset($forgedParsed['listener_role'], $forgedParsed['addressed_listener_id'], $forgedParsed['batch_id']),
+    'A mismatched addressed-listener identity must not survive dashboard log sanitization.'
+);
 $wireRecord->commit_state = 'unconfirmed';
 $unconfirmed = dashboardParseLogLine('[2026-09-27 16:00:00] [' . $wireLevel . '] ' . json_encode($wireRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 dashboardDataAssert(is_array($unconfirmed) && dashboardNormalizedOutcome($unconfirmed) === 'unconfirmed', 'Unconfirmed commit state was not normalized.');
@@ -207,7 +227,7 @@ $event = [
 $database = [
     'active_playthrough' => $active,
     'player_name' => 'Player One',
-    'identities' => ['7' => 'Listener', '8' => 'Speaker', '9' => 'Subject'],
+    'identities' => ['7' => 'Listener', '8' => 'Speaker', '9' => 'Subject', '22' => 'Addressee'],
     'rows' => [[
         'id' => '7',
         'extended_data' => (object)['relationships' => (object)['Subject' => (object)['aff' => 2]]],
@@ -225,6 +245,9 @@ $baseRecord = [
     'playthrough_id' => $active,
     'speaker_id' => '8',
     'listener_id' => '7',
+    'listener_role' => 'overheard',
+    'addressed_listener_id' => '22',
+    'batch_id' => 'abcdef0123456789abcdef01',
 ];
 $records = [
     $baseRecord + [
@@ -262,6 +285,9 @@ dashboardDataAssert(
     $interactions[0]['outcome'] === 'committed'
         && $interactions[0]['speaker'] === 'Speaker'
         && $interactions[0]['listener'] === 'Listener'
+        && $interactions[0]['listener_role'] === 'overheard'
+        && $interactions[0]['addressed_listener'] === 'Addressee'
+        && $interactions[0]['batch_id'] === 'abcdef0123456789abcdef01'
         && $interactions[0]['changes'][0]['before'] === 0
         && $interactions[0]['changes'][0]['after'] === 2
         && $interactions[0]['changes'][0]['applied'] === 2,
@@ -480,6 +506,17 @@ dashboardDataAssert(
         && str_contains($interactionHtml, 'Player<span class="exchange-arrow"')
         && str_contains($interactionHtml, 'Listener'),
     'Input row correlation IDs or pair speaker/listener presentation changed in the dashboard.'
+);
+$exposureViewModel = $dashboardModel;
+$exposureViewModel['interactions'] = $interactions;
+ob_start();
+renderDashboard($exposureViewModel, ['tab' => 'interactions']);
+$exposureHtml = ob_get_clean();
+dashboardDataAssert(
+    is_string($exposureHtml)
+        && str_contains($exposureHtml, 'Roster-listed overhearer evaluation')
+        && str_contains($exposureHtml, 'addressed to Addressee; playback is not verified'),
+    'The interaction view should label the listener role without implying proven playback.'
 );
 $sharedViewModel = $dashboardModel;
 $sharedViewModel['scope_label'] = 'Shared server';

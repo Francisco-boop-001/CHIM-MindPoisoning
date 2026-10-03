@@ -83,6 +83,32 @@ function pcvScopeEligibleMapFromPresence(array $actors, array $rows, ?string $pl
     return $eligible;
 }
 
+/**
+ * Catalog IDs of the eligible NPCs ordered nearest first from the input's presence actors (free scenes).
+ * Ties keep the lower catalog ID first.
+ */
+function pcvScopeFreeCandidateOrder(array $actors, array $eligibleMap): array
+{
+    $idByName = [];
+    foreach ($eligibleMap as $id => $name) {
+        $idByName[pcv_scope_name_key((string)$name)] = (string)$id;
+    }
+    $candidates = [];
+    foreach ($actors as $actor) {
+        $name = is_array($actor) && is_string($actor['name'] ?? null) ? $actor['name'] : '';
+        $distance = is_array($actor) && (is_int($actor['distance'] ?? null) || is_float($actor['distance'] ?? null))
+            ? (float)$actor['distance'] : null;
+        $id = $idByName[pcv_scope_name_key($name)] ?? null;
+        if ($id !== null && $distance !== null && !isset($candidates[$id])) {
+            $candidates[$id] = $distance;
+        }
+    }
+    $ids = array_map('strval', array_keys($candidates));
+    usort($ids, static fn(string $x, string $y): int => ($candidates[$x] <=> $candidates[$y])
+        ?: (strlen($x) <=> strlen($y) ?: strcmp($x, $y)));
+    return $ids;
+}
+
 function pcvRoutingLogType(string $requestType): string
 {
     return in_array($requestType, pcv_log_enum_values('request_type'), true) ? $requestType : 'other';
@@ -139,16 +165,116 @@ function pcvSoloReflectionRequest(array $requestScope): bool
         && ($requestScope['route'] ?? null) === 'solo_reflection';
 }
 
+/**
+ * Opener for a group turn: the member named earliest in the direction (full name, or a first word that is unique
+ * among the members; whole words, case-insensitive), else the picked opener, else the first member.
+ * Returns ['name' => member name, 'source' => named|picker|first].
+ */
+function pcvGroupPickOpener(string $direction, array $members, ?string $pickerName, ?string $targetName = null,
+    bool $free = false): array
+{
+    $members = array_values(array_filter($members, static fn($name) => is_string($name) && trim($name) !== ''));
+    $firstWord = static function (string $name): string {
+        $parts = preg_split('/\s+/u', trim($name));
+        return is_array($parts) ? (string)$parts[0] : '';
+    };
+    $wordCounts = [];
+    foreach ($members as $name) {
+        $key = pcv_scope_name_key($firstWord($name));
+        $wordCounts[$key] = ($wordCounts[$key] ?? 0) + 1;
+    }
+    $best = null;
+    foreach ($members as $name) {
+        $patterns = [trim($name)];
+        $word = $firstWord($name);
+        if ($word !== '' && $word !== trim($name) && ($wordCounts[pcv_scope_name_key($word)] ?? 0) === 1) {
+            $patterns[] = $word;
+        }
+        foreach ($patterns as $pattern) {
+            $regex = '/(?<![\p{L}\p{N}])' . preg_quote($pattern, '/') . '(?![\p{L}\p{N}])/iu';
+            if (preg_match($regex, $direction, $match, PREG_OFFSET_CAPTURE) !== 1) {
+                continue;
+            }
+            $position = $match[0][1];
+            $length = strlen($pattern);
+            if ($best === null || $position < $best['position'] || ($position === $best['position'] && $length > $best['length'])) {
+                $best = ['name' => $name, 'position' => $position, 'length' => $length];
+            }
+        }
+    }
+    if ($best !== null) {
+        return ['name' => $best['name'], 'source' => 'named'];
+    }
+    if ($free) {
+        // Free scenes (0.1.12): the NPC the player is facing, if a member, else the nearest (first) member.
+        foreach ($members as $name) {
+            if (is_string($targetName) && pcv_scope_name_key($targetName) === pcv_scope_name_key($name)) {
+                return ['name' => $name, 'source' => 'target'];
+            }
+        }
+        return ['name' => $members[0] ?? '', 'source' => 'nearest'];
+    }
+    if (is_string($pickerName) && in_array($pickerName, $members, true)) {
+        return ['name' => $pickerName, 'source' => 'picker'];
+    }
+    return ['name' => $members[0] ?? '', 'source' => 'first'];
+}
+
+/** The NPC the player targets directly, from CHIM's decoded routing snapshot (listener with target_mode direct). */
+function pcvSnapshotDirectTarget(array $snapshot): ?string
+{
+    $listener = $snapshot['listener'] ?? null;
+    return ($snapshot['target_mode'] ?? null) === 'direct' && is_string($listener) && trim($listener) !== ''
+        ? trim($listener) : null;
+}
+
+/** Catalog IDs of a stored config; mirrors pcv_config_actor_ids for callers that load scope.php without state.php. */
+function pcvScopeConfigActorIds(array $config): array
+{
+    if (function_exists('pcv_config_actor_ids')) {
+        return pcv_config_actor_ids($config);
+    }
+    if (($config['scene_mode'] ?? 'pair') === 'solo') {
+        return [$config['actor_a'] ?? null];
+    }
+    return is_array($config['actor_ids'] ?? null) ? array_values($config['actor_ids'])
+        : [$config['actor_a'] ?? null, $config['actor_b'] ?? null];
+}
+
+/** Largest member count for a scope: six for free scenes (0.1.12), else four. */
+function pcvScopeMaxMembers(array $scope): int
+{
+    if (($scope['free'] ?? false) === true) {
+        return defined('PCV_FREE_MAX_MEMBERS') ? PCV_FREE_MAX_MEMBERS : 6;
+    }
+    return defined('PCV_GROUP_MAX_MEMBERS') ? PCV_GROUP_MAX_MEMBERS : 4;
+}
+
+/** Member names of a resolved scope: the group list, or A/B for scopes resolved before 0.1.11; solo: A. */
+function pcvScopeMembers(array $scope): array
+{
+    if (is_array($scope['members'] ?? null)) {
+        return array_values(array_filter($scope['members'], static fn($name) => is_string($name) && $name !== ''));
+    }
+    $members = [];
+    foreach (['actor_a', 'actor_b'] as $key) {
+        if (is_string($scope[$key] ?? null) && $scope[$key] !== '') {
+            $members[] = $scope[$key];
+        }
+    }
+    return $members;
+}
+
 function pcvPairRoutedRequest(array $requestScope): bool
 {
     $scope = $requestScope['scope'] ?? null;
     $type = $requestScope['origin_request_type'] ?? null;
     $route = $requestScope['route'] ?? null;
+    $members = is_array($scope) ? pcvScopeMembers($scope) : [];
     if (($requestScope['status'] ?? null) !== 'active' || !is_array($scope)
         || ($scope['scene_mode'] ?? null) !== 'pair'
-        || !is_string($scope['actor_a'] ?? null) || $scope['actor_a'] === ''
-        || !is_string($scope['actor_b'] ?? null) || $scope['actor_b'] === ''
-        || $scope['actor_a'] === $scope['actor_b']
+        || count($members) < 2 || count($members) > pcvScopeMaxMembers($scope)
+        || count(array_unique(array_map('pcv_scope_name_key', $members))) !== count($members)
         || !is_bool($scope['exclude_player'] ?? null)
         || ($requestScope['origin_mode'] ?? null) !== 'STANDARD') {
         return false;
@@ -174,6 +300,7 @@ function pcvRoutingLogStart(string $requestType): void
     $GLOBALS['PCV_ROUTING_LOG_STARTED'] = true;
     $GLOBALS['PCV_ROUTING_LOG_REQUEST_TYPE'] = $type;
     pcv_log_begin_request();
+    pcv_log_set_request_type($type);
     pcv_log_event('routing.request_started', 'info', 'ok', null, ['request_type' => $type]);
 }
 
@@ -208,6 +335,11 @@ function pcvRoutingLogSpeakerId(?string $speaker, ?array $scopeState = null): ?s
 {
     if (!is_string($speaker) || !is_array($scopeState)) {
         return null;
+    }
+    foreach (is_array($scopeState['member_ids'] ?? null) ? $scopeState['member_ids'] : [] as $memberName => $memberId) {
+        if (is_string($memberName) && strcasecmp(trim($speaker), $memberName) === 0 && is_string($memberId)) {
+            return $memberId;
+        }
     }
     if (strcasecmp(trim($speaker), (string)($scopeState['scope']['actor_a'] ?? '')) === 0
         && is_string($scopeState['actor_a_id'] ?? null)) {
@@ -328,6 +460,7 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
     $rows = null;
     $playerName = null;
     $eligibleMap = null;
+    $freeOrder = null;
     $failureReason = null;
 
     if ($needsEligibility) {
@@ -362,6 +495,7 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
                     if (is_string($playerName) && trim($playerName) !== '') {
                         $rows = pcvScopeLoadNpcCatalog();
                         $eligibleMap = pcvScopeEligibleMapFromPresence($actors, $rows, $playerName);
+                        $freeOrder = pcvScopeFreeCandidateOrder($actors, $eligibleMap);
                     }
                 } catch (Throwable $error) {
                     // Do not replace a missing current report with a cached report.
@@ -384,8 +518,27 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
         }
     }
 
+    // An already active scene tolerates a participant briefly out of close range (grace, wide report,
+    // baseline report after a gap). Activation keeps the strict map.
+    $activeMap = null;
+    $activeCheck = null;
+    if ($active && !$pendingEnd && is_array($observed['scope'] ?? null)) {
+        try {
+            $playerName ??= pcv_current_player_name();
+            if (is_string($playerName) && trim($playerName) !== '') {
+                $rows ??= pcvScopeLoadNpcCatalog();
+                $sceneIds = array_values(array_filter(pcv_config_actor_ids($observed['scope']), 'is_string'));
+                $inScene = pcv_read_active_scene_npcs($key, $rows, $playerName, $sceneIds);
+                $activeMap = ($eligibleMap ?? []) + $inScene['known_npcs'];
+                $activeCheck = $inScene['missing'] === [] ? null : (string)reset($inScene['missing']);
+            }
+        } catch (Throwable $error) {
+            pcv_log_exception('state.unavailable', 'error', 'unavailable', 'catalog_unavailable', $error, ['operation' => 'begin']);
+        }
+    }
+
     // The state lock rechecks the observed state and rejects any concurrent enabled config without a map.
-    $result = pcv_begin_request($key, $eligible, null, $eligibleMap);
+    $result = pcv_begin_request($key, $eligible, null, $eligibleMap, $activeMap, $activeCheck, $freeOrder);
     if (($result['status'] ?? null) === 'unavailable' && $failureReason !== null
         && !in_array($failureReason, ['presence_missing', 'presence_stale'], true)) {
         $result['reason'] = $failureReason;
@@ -393,7 +546,8 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
     if (($result['status'] ?? null) !== 'active') {
         return pcvResolveLiveScopeState($result);
     }
-    return pcvResolveLiveScopeState($result, $rows, $playerName, $eligibleMap);
+    // A scene activated by this request used the strict map; one kept active may rely on the in-scene map.
+    return pcvResolveLiveScopeState($result, $rows, $playerName, $activeMap ?? $eligibleMap);
 }
 
 /** Resolve the stored scene IDs against the current catalog and presence map. */
@@ -419,15 +573,16 @@ function pcvResolveLiveScopeState(
         return $result;
     }
     $sceneMode = array_key_exists('scene_mode', $storedScope) ? $storedScope['scene_mode'] : 'pair';
-    $idA = $storedScope['actor_a'] ?? null;
-    $idB = $storedScope['actor_b'] ?? null;
     if (!is_array($state['scope'] ?? null) || !is_array($rows)
         || !is_string($playerName) || trim($playerName) === '' || !is_array($eligibleMap)
         || !in_array($sceneMode, ['pair', 'solo'], true)
-        || !is_string($idA) || !array_key_exists($idA, $eligibleMap)
-        || ($sceneMode === 'pair' && (!is_string($idB) || !array_key_exists($idB, $eligibleMap)))
-        || ($sceneMode === 'solo' && $idB !== null)) {
+        || ($sceneMode === 'solo' && ($storedScope['actor_b'] ?? null) !== null)) {
         return array_replace($result, ['status' => 'unavailable']);
+    }
+    foreach (pcvScopeConfigActorIds($state['scope']) as $memberId) {
+        if (!is_string($memberId) || !array_key_exists($memberId, $eligibleMap)) {
+            return array_replace($result, ['status' => 'unavailable']);
+        }
     }
     $knownNpcs = pcvScopeKnownNpcs($rows, $playerName);
     $scope = pcvResolveScopeNames($state['scope'], $knownNpcs, $playerName);
@@ -435,22 +590,41 @@ function pcvResolveLiveScopeState(
         return array_replace($result, ['status' => 'unavailable']);
     }
 
-    $profileIdA = null;
-    $actorAId = (string)($state['scope']['actor_a'] ?? '');
-    foreach ($rows as $row) {
-        if (!is_array($row) || (string)($row['id'] ?? '') !== $actorAId) {
-            continue;
+    // A needs exactly one valid profile row (as before 0.1.11). Other members' profiles are collected when they
+    // are unambiguous so an auto or picked opener can start; an opener without one falls back to A.
+    $memberNames = pcvScopeMembers($scope);
+    $profiles = [];
+    foreach (pcvScopeConfigActorIds($state['scope']) as $index => $memberId) {
+        $profile = null;
+        $ambiguous = false;
+        foreach ($rows as $row) {
+            if (!is_array($row) || (string)($row['id'] ?? '') !== (string)$memberId) {
+                continue;
+            }
+            $candidate = filter_var($row['profile_id'] ?? null, FILTER_VALIDATE_INT);
+            if ($candidate === false || $candidate < 1 || $profile !== null) {
+                $ambiguous = true;
+                break;
+            }
+            $profile = $candidate;
         }
-        $candidate = filter_var($row['profile_id'] ?? null, FILTER_VALIDATE_INT);
-        if ($candidate === false || $candidate < 1 || $profileIdA !== null) {
+        if ($index === 0 && ($ambiguous || !is_int($profile))) {
             return array_replace($result, ['status' => 'unavailable']);
         }
-        $profileIdA = $candidate;
+        if (!$ambiguous && is_int($profile) && isset($memberNames[$index])) {
+            $profiles[$memberNames[$index]] = $profile;
+        }
     }
-    if (!is_int($profileIdA) || $profileIdA < 1) {
-        return array_replace($result, ['status' => 'unavailable']);
+    $memberIds = [];
+    foreach (pcvScopeConfigActorIds($state['scope']) as $index => $memberId) {
+        if (isset($memberNames[$index]) && is_string($memberId)) {
+            $memberIds[$memberNames[$index]] = $memberId;
+        }
     }
-    return array_replace($result, ['status' => 'active', 'scope' => $scope, 'profile_id_a' => $profileIdA]);
+    return array_replace($result, [
+        'status' => 'active', 'scope' => $scope, 'profile_id_a' => $profiles[$scope['actor_a']], 'profiles' => $profiles,
+        'member_ids' => $memberIds,
+    ]);
 }
 
 /** Load one current catalog snapshot for the entire request. */
@@ -517,44 +691,70 @@ function pcvResolveScopeNames(array $storedScope, array $knownNpcs, ?string $pla
         return null;
     }
 
-    $idA = $storedScope['actor_a'] ?? null;
-    $idB = $storedScope['actor_b'] ?? null;
-    if (!is_string($idA) || $idA === '' || !is_string($knownNpcs[$idA] ?? null)) {
+    // Group scenes (0.1.11) list 2-4 members; legacy pairs are A and B; solo is A only.
+    $ids = pcvScopeConfigActorIds($storedScope);
+    $maxMembers = pcvScopeMaxMembers($storedScope);
+    if ($sceneMode === 'pair' && (count($ids) < 2 || count($ids) > $maxMembers)) {
         return null;
     }
-    if ($sceneMode === 'pair'
-        && (!is_string($idB) || $idB === '' || $idA === $idB || !is_string($knownNpcs[$idB] ?? null))) {
-        return null;
-    }
-
-    $nameA = trim($knownNpcs[$idA]);
-    $nameB = $sceneMode === 'pair' ? trim($knownNpcs[$idB]) : null;
-    if ($nameA === '' || preg_match('//u', $nameA) !== 1
-        || preg_match('/[\x00-\x1f\x7f]/', $nameA) === 1
-        || ($sceneMode === 'pair' && (!is_string($nameB) || $nameB === '' || preg_match('//u', $nameB) !== 1
-            || preg_match('/[\x00-\x1f\x7f]/', $nameB) === 1))) {
-        return null;
-    }
-
-    $keyA = pcv_scope_name_key($nameA);
-    $keyB = is_string($nameB) ? pcv_scope_name_key($nameB) : '';
     $playerKey = is_string($playerName) && trim($playerName) !== '' ? pcv_scope_name_key($playerName) : '';
-    $reserved = ['player', 'the player', 'player character', 'the player character', 'dragonborn', 'the dragonborn', 'the narrator', 'explicit_disable_rechat'];
-    if (($sceneMode === 'pair' && $keyA === $keyB) || $keyA === $playerKey || ($sceneMode === 'pair' && $keyB === $playerKey)
-        || str_contains($nameA, '|') || (is_string($nameB) && str_contains($nameB, '|'))
-        || (is_string($playerName) && str_contains($playerName, '|'))
-        || in_array($keyA, $reserved, true) || ($sceneMode === 'pair' && in_array($keyB, $reserved, true))) {
+    if (is_string($playerName) && str_contains($playerName, '|')) {
         return null;
     }
+    $reserved = ['player', 'the player', 'player character', 'the player character', 'dragonborn', 'the dragonborn', 'the narrator', 'explicit_disable_rechat'];
+    $names = [];
+    $keys = [];
+    foreach ($ids as $id) {
+        if (!is_string($id) || $id === '' || isset($names[$id]) || !is_string($knownNpcs[$id] ?? null)) {
+            return null;
+        }
+        $name = trim($knownNpcs[$id]);
+        if ($name === '' || preg_match('//u', $name) !== 1 || preg_match('/[\x00-\x1f\x7f]/', $name) === 1
+            || str_contains($name, '|')) {
+            return null;
+        }
+        $key = pcv_scope_name_key($name);
+        if (isset($keys[$key]) || $key === $playerKey || in_array($key, $reserved, true)) {
+            return null;
+        }
+        $keys[$key] = true;
+        $names[$id] = $name;
+    }
+    $members = array_values($names);
 
-    return [
+    $opener = $members[0];
+    if ($sceneMode === 'pair' && array_key_exists('opener', $storedScope)) {
+        $opener = $storedScope['opener'] === 'auto' ? null : ($names[$storedScope['opener']] ?? null);
+        if ($storedScope['opener'] !== 'auto' && $opener === null) {
+            return null;
+        }
+    }
+
+    if ($sceneMode === 'solo') {
+        // Solo keeps its pre-0.1.11 shape; reflection code relies on it.
+        return [
+            'enabled' => true,
+            'scene_mode' => 'solo',
+            'actor_a' => $members[0],
+            'actor_b' => null,
+            'exclude_player' => $storedScope['exclude_player'],
+            'bystander_mode' => $storedScope['bystander_mode'],
+        ];
+    }
+    $resolved = [
         'enabled' => true,
         'scene_mode' => $sceneMode,
-        'actor_a' => $nameA,
-        'actor_b' => $nameB,
+        'actor_a' => $members[0],
+        'actor_b' => $members[1],
+        'members' => $members,
+        'opener' => $opener,
         'exclude_player' => $storedScope['exclude_player'],
         'bystander_mode' => $storedScope['bystander_mode'],
     ];
+    if (($storedScope['free'] ?? false) === true) {
+        $resolved['free'] = true;
+    }
+    return $resolved;
 }
 
 /**
@@ -650,12 +850,23 @@ function pcvScopeRoutingSnapshot(array $snapshot, array $resolvedScope, string $
     if ($sceneMode === 'solo') {
         $snapshot['audience'] = '|' . $nameA . '|';
     } else {
-        $snapshot['audience'] = ($resolvedScope['exclude_player'] ?? true) === true
-            ? '|' . $nameA . '|' . $nameB . '|'
-            : '|' . $playerName . '|' . $nameA . '|' . $nameB . '|';
+        // Exactly the members (plus the player when included): this is also each line's witness list.
+        $people = pcvScopeMembers($resolvedScope);
+        if (($resolvedScope['exclude_player'] ?? true) !== true) {
+            array_unshift($people, $playerName);
+        }
+        $snapshot['audience'] = '|' . implode('|', $people) . '|';
     }
     $snapshot['present_actors'] = [];
     return $snapshot;
+}
+
+/** Who a group speaker may address: every other member, in member order. */
+function pcvGroupListeners(string $speaker, array $resolvedScope): array
+{
+    $speakerKey = pcv_scope_name_key($speaker);
+    return array_values(array_filter(pcvScopeMembers($resolvedScope),
+        static fn(string $member) => pcv_scope_name_key($member) !== $speakerKey));
 }
 
 /** Add the selected pair as the sole set of eligible rechat speakers. */
@@ -670,10 +881,8 @@ function pcvClampRechatActiveAgents(?string $rawJson, array $resolvedScope, ?str
     } catch (JsonException) {
         return null;
     }
-    if (!is_array($payload)
-        || !is_string($resolvedScope['actor_a'] ?? null)
-        || !is_string($resolvedScope['actor_b'] ?? null)
-        || $resolvedScope['actor_a'] === '' || $resolvedScope['actor_b'] === '') {
+    $members = pcvScopeMembers($resolvedScope);
+    if (!is_array($payload) || ($resolvedScope['scene_mode'] ?? 'pair') !== 'pair' || count($members) < 2) {
         return null;
     }
 
@@ -682,10 +891,10 @@ function pcvClampRechatActiveAgents(?string $rawJson, array $resolvedScope, ?str
         $speaker = $fallbackSpeaker;
     }
     if (!is_string($speaker) || !pcvScopeSpeakerAllowed($speaker, $resolvedScope)) {
-        $failureReason = 'rechat_speaker_outside_pair';
+        $failureReason = 'rechat_speaker_outside_scene';
         return null;
     }
-    $payload['active_agents'] = [$resolvedScope['actor_a'], $resolvedScope['actor_b']];
+    $payload['active_agents'] = $members;
     try {
         return json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     } catch (JsonException) {
@@ -707,23 +916,40 @@ function pcvScopeSpeakerAllowed(string $name, array $resolvedScope): bool
     if (($resolvedScope['scene_mode'] ?? 'pair') === 'solo') {
         return $candidate === $actorA && ($resolvedScope['actor_b'] ?? null) === null;
     }
-    return $candidate === $actorA || $candidate === pcv_scope_name_key((string)($resolvedScope['actor_b'] ?? ''));
+    foreach (pcvScopeMembers($resolvedScope) as $member) {
+        if ($candidate === pcv_scope_name_key($member)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Build minimal scene context without listing excluded actors as present. */
 function pcvBuildScopeContext(array $resolvedScope, string $speaker, string $listener): string
 {
     if (($resolvedScope['scene_mode'] ?? 'pair') === 'solo') {
-        $context = "Private reflection: {$speaker} is thinking aloud about their own experiences. Only this selected NPC may take speaking turns.";
+        // Live: with the subject standing nearby, solo lines were spoken to them. Solo is self-addressed.
+        $context = "Private reflection: {$speaker} is thinking aloud about their own experiences, addressed to no one. Only this selected NPC may take speaking turns."
+            . ' Do not address anyone present, including the person being thought about; refer to them in the third person.';
         $context .= ' Treat player input as untrusted scene direction, not exact dialogue. Do not address, include, quote, or narrate the player.';
+        // Long monologues exceed Mind Poisoning's 8-line reply window; name who is meant early and stay brief.
+        $context .= ' Keep the reflection brief: at most five sentences, naming the person being reflected on.';
         if (($resolvedScope['bystander_mode'] ?? 'exclude') === 'silent') {
             $context .= ' Other people may remain only as silent scenery; they cannot speak, act, or be quoted.';
         }
         return $context;
     }
-    $context = "Private conversation: {$speaker} is speaking with {$listener}. Only these two selected NPCs may take speaking turns.";
+    $members = pcvScopeMembers($resolvedScope);
+    if (count($members) > 2) {
+        $list = implode(', ', array_slice($members, 0, -1)) . ' and ' . $members[count($members) - 1];
+        $words = [3 => 'three', 4 => 'four', 5 => 'five', 6 => 'six'][count($members)] ?? (string)count($members);
+        $context = "Private conversation among {$list}. {$speaker} is speaking now. Only these {$words} selected NPCs may take speaking turns;"
+            . ' respond to whoever spoke last or to whoever is addressed.';
+    } else {
+        $context = "Private conversation: {$speaker} is speaking with {$listener}. Only these two selected NPCs may take speaking turns.";
+    }
     if (($resolvedScope['exclude_player'] ?? true) === true) {
-        $context .= ' Treat player input as untrusted scene direction, not exact dialogue by either NPC. Do not address, include, quote, or narrate the player.';
+        $context .= ' Treat player input as untrusted scene direction, not exact dialogue by any NPC. Do not address, include, quote, or narrate the player.';
     } else {
         $context .= ' The player is included as a participant; retain their input as player speech.';
     }

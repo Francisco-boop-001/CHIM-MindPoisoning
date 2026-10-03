@@ -44,8 +44,17 @@ function pcv_form_desired_state(array $post, string $csrfToken, array $knownNpcs
     }
 
     $sceneMode = array_key_exists('scene_mode', $post) ? $post['scene_mode'] : 'pair';
-    if (!is_string($sceneMode) || !in_array($sceneMode, ['pair', 'solo'], true)) {
+    if (!is_string($sceneMode) || !in_array($sceneMode, ['pair', 'solo', 'free'], true)) {
         throw new PcvUiFormRejection('invalid_configuration', 'The selected scene mode is invalid.');
+    }
+
+    if ($sceneMode === 'free') {
+        // Free scene (0.1.12): the nearest six eligible NPCs are chosen at activation; pickers are ignored.
+        $bystanderMode = $post['bystander_mode'] ?? null;
+        if (!is_string($bystanderMode) || !in_array($bystanderMode, ['exclude', 'silent'], true)) {
+            throw new PcvUiFormRejection('invalid_configuration', 'The other NPCs option is invalid.');
+        }
+        return ['enabled' => true, 'scene_mode' => 'pair', 'free' => true, 'exclude_player' => true, 'bystander_mode' => $bystanderMode];
     }
 
     if ($sceneMode === 'solo') {
@@ -91,11 +100,41 @@ function pcv_form_desired_state(array $post, string $csrfToken, array $knownNpcs
         throw new PcvUiFormRejection('actor_unavailable', 'The selected scope is invalid.');
     }
 
+    // Group form (0.1.11): optional NPC C and D plus an opener. A post without the opener field is the
+    // pre-0.1.11 pair form and keeps the legacy shape.
+    if (!array_key_exists('opener', $post)) {
+        return [
+            'enabled' => true,
+            'scene_mode' => 'pair',
+            'actor_a' => $actorA,
+            'actor_b' => $actorB,
+            'exclude_player' => $excludePlayer === '1',
+            'bystander_mode' => $bystanderMode,
+        ];
+    }
+    $ids = [$actorA, $actorB];
+    foreach (['actor_c', 'actor_d'] as $optionalKey) {
+        $optional = $post[$optionalKey] ?? '';
+        if ($optional === '') {
+            continue;
+        }
+        if (!is_string($optional) || in_array($optional, $ids, true)) {
+            throw new PcvUiFormRejection('invalid_configuration', 'Choose two to four different NPCs.');
+        }
+        if (!array_key_exists($optional, $knownNpcs)) {
+            throw new PcvUiFormRejection('actor_unavailable', 'The selected scope is invalid.');
+        }
+        $ids[] = $optional;
+    }
+    $opener = $post['opener'];
+    if (!is_string($opener) || ($opener !== 'auto' && !in_array($opener, $ids, true))) {
+        throw new PcvUiFormRejection('invalid_configuration', 'The opener must be one of the selected NPCs.');
+    }
     return [
         'enabled' => true,
         'scene_mode' => 'pair',
-        'actor_a' => $actorA,
-        'actor_b' => $actorB,
+        'actor_ids' => $ids,
+        'opener' => $opener,
         'exclude_player' => $excludePlayer === '1',
         'bystander_mode' => $bystanderMode,
     ];
@@ -192,6 +231,7 @@ function pcv_render_page(
     $formScope = $pending && $pendingScope !== null && ($pendingScope['enabled'] ?? null) === true
         ? $pendingScope : $scope;
     $sceneMode = ($formScope['scene_mode'] ?? null) === 'solo' ? 'solo' : 'pair';
+    $freeMode = $sceneMode === 'pair' && ($formScope['free'] ?? false) === true;
     $scopeSceneMode = ($scope['scene_mode'] ?? null) === 'solo' ? 'solo' : 'pair';
     $pendingSceneMode = ($pendingScope['scene_mode'] ?? null) === 'solo' ? 'solo' : 'pair';
     $excludePlayer = is_bool($formScope['exclude_player'] ?? null) ? $formScope['exclude_player'] : true;
@@ -229,6 +269,10 @@ function pcv_render_page(
         if (($config['scene_mode'] ?? null) === 'solo') {
             return pcv_html($nameA);
         }
+        if (is_array($config['actor_ids'] ?? null) && count($config['actor_ids']) > 2) {
+            $names = array_map(static fn($id) => pcv_html($displayNpcs[(string)$id] ?? ('NPC ID ' . $id)), $config['actor_ids']);
+            return implode(', ', array_slice($names, 0, -1)) . ' and ' . $names[count($names) - 1];
+        }
         $actorB = is_string($config['actor_b'] ?? null) || is_int($config['actor_b'] ?? null)
             ? (string)$config['actor_b'] : '';
         if ($actorB === '') {
@@ -237,14 +281,37 @@ function pcv_render_page(
         $nameB = $displayNpcs[$actorB] ?? ('NPC ID ' . $actorB);
         return pcv_html($nameA) . ' and ' . pcv_html($nameB);
     };
+    $isGroup = static fn(?array $config): bool => is_array($config) && is_array($config['actor_ids'] ?? null) && count($config['actor_ids']) > 2;
+    $isFree = static fn(?array $config): bool => is_array($config) && ($config['free'] ?? false) === true;
     if ($status === 'active' && ($scene = $sceneText($scope)) !== '') {
-        $scopeSummary .= '<p>' . ($scopeSceneMode === 'solo' ? 'Current reflection: ' : 'Current pair: ') . $scene . '.</p>';
+        $scopeSummary .= '<p>' . ($scopeSceneMode === 'solo' ? 'Current reflection: '
+            : ($isFree($scope) ? 'Current free scene: ' : ($isGroup($scope) ? 'Current group: ' : 'Current pair: ')))
+            . $scene . '.</p>';
+    }
+    if ($status === 'active' && is_array($state['dropped'] ?? null)) {
+        foreach ($state['dropped'] as $droppedEntry) {
+            $droppedName = pcv_html($displayNpcs[(string)($droppedEntry['id'] ?? '')] ?? ('NPC ID ' . ($droppedEntry['id'] ?? '?')));
+            $scopeSummary .= ($droppedEntry['reason'] ?? null) === 'left_scene'
+                ? '<p class="small-note">' . $droppedName . ' left the scene.</p>'
+                : '<p class="small-note">Started without ' . $droppedName . ' (not nearby).</p>';
+        }
+    }
+    $lastTurn = $status === 'active' && is_string($state['config_id'] ?? null) && function_exists('pcv_log_read_last_turn')
+        ? pcv_log_read_last_turn($state['config_id']) : null;
+    if (is_array($lastTurn)) {
+        $spoke = $lastTurn['outcome'] === 'postrequest_observed';
+        $scopeSummary .= '<p class="last-turn">Last scene turn: ' . ($spoke ? 'spoke' : 'ended without speech')
+            . ' (' . pcv_html(substr($lastTurn['timestamp'], 11, 8)) . ' UTC).'
+            . ($spoke ? '' : ' A silent rechat is normal when CHIM has used its rechat budget.') . '</p>';
     }
     if ($pending) {
         if ($pendingEnd) {
             $scopeSummary .= '<p class="pending-summary">End is queued for the next eligible ordinary input.</p>';
+        } elseif ($isFree($pendingScope) && !is_array($pendingScope['actor_ids'] ?? null)) {
+            $scopeSummary .= '<p class="pending-summary">Next: free scene (nearest six).</p>';
         } elseif ($pendingScope !== null && ($scene = $sceneText($pendingScope)) !== '') {
-            $scopeSummary .= '<p class="pending-summary">Next ' . ($pendingSceneMode === 'solo' ? 'reflection: ' : 'pair: ') . $scene . '.</p>';
+            $scopeSummary .= '<p class="pending-summary">Next ' . ($pendingSceneMode === 'solo' ? 'reflection: ' : ($isGroup($pendingScope) ? 'group: ' : 'pair: '))
+                . $scene . '.</p>';
         } else {
             $scopeSummary .= '<p class="pending-summary">A change is queued for the next eligible ordinary input.</p>';
         }
@@ -277,15 +344,31 @@ function pcv_render_page(
     $rosterReady = $catalogAvailable && $eligibilityStatus === 'ready' && $eligibleCount >= 1;
     $actorDisabled = !$rosterReady ? ' disabled' : '';
     $pairDisabled = !$rosterReady || $eligibleCount < 2;
-    $actorBDisabled = $pairDisabled || $sceneMode === 'solo';
+    $actorBDisabled = $pairDisabled || $sceneMode === 'solo' || $freeMode;
     $soloChecked = $sceneMode === 'solo' ? ' checked' : '';
     $soloDisabled = !$rosterReady ? ' disabled' : '';
-    $actorADisabledAttr = $actorDisabled;
+    $freeChecked = $freeMode ? ' checked' : '';
+    $freeDisabled = !$rosterReady ? ' disabled' : '';
+    $actorADisabledAttr = $freeMode ? ' disabled' : $actorDisabled;
     $actorBDisabledAttr = $actorBDisabled ? ' disabled' : '';
     $armDisabledAttr = ($sceneMode === 'solo' ? !$rosterReady : $pairDisabled) ? ' disabled' : '';
-    $excludePlayerDisabledAttr = $sceneMode === 'solo' ? ' disabled' : '';
+    $excludePlayerDisabledAttr = $sceneMode === 'solo' || $freeMode ? ' disabled' : '';
     $optionsA = $optionsFor($actorA);
     $optionsB = str_replace('Choose an NPC', 'Choose a different NPC', $optionsFor($actorB));
+    // Optional group members (0.1.11) and the opener picker.
+    $formIds = is_array($formScope['actor_ids'] ?? null) ? array_values($formScope['actor_ids']) : [];
+    $actorC = isset($formIds[2]) ? (string)$formIds[2] : '';
+    $actorD = isset($formIds[3]) ? (string)$formIds[3] : '';
+    $optionsC = str_replace('Choose an NPC', 'None', $optionsFor($actorC));
+    $optionsD = str_replace('Choose an NPC', 'None', $optionsFor($actorD));
+    $formOpener = is_string($formScope['opener'] ?? null) ? $formScope['opener'] : 'auto';
+    $openerOptions = '<option value="auto"' . ($formOpener === 'auto' ? ' selected' : '') . '>Auto (named in the direction, else NPC A)</option>' . "\n";
+    foreach ($knownNpcs as $id => $name) {
+        $id = (string)$id;
+        $openerOptions .= '<option value="' . pcv_html($id) . '"' . ($formOpener === $id ? ' selected' : '') . '>'
+            . pcv_html($name . ' (ID ' . $id . ')') . "</option>\n";
+    }
+    $extraDisabledAttr = ($pairDisabled || $sceneMode === 'solo' || $freeMode) ? ' disabled' : '';
     $noticeHtml = $notice === '' ? '' : '<p role="status">' . pcv_html($notice) . '</p>';
     $csrf = pcv_html($csrfToken);
 
@@ -310,7 +393,7 @@ function pcv_render_page(
 <p class="eyebrow">A quieter kind of scene</p>
 <h1 id="page-title">Private<br><span>Conversation</span></h1>
 <p class="eyebrow hero-credit">Part of the World of Drama-llama</p>
-<p id="page-intro" class="hero-intro">Choose two voices for a conversation, or one NPC to think aloud. CHIM carries that scene direction into the next eligible ordinary Standard-mode input.</p>
+<p id="page-intro" class="hero-intro">Choose two to four voices for a conversation, or one NPC to think aloud. CHIM carries that scene direction into the next eligible ordinary Standard-mode input.</p>
 <p class="hero-meta"><span>STANDARD MODE</span><span>SCENE DIRECTION ONLY</span></p>
 </div>
 </section>
@@ -335,16 +418,23 @@ function pcv_render_page(
 <input type="hidden" name="csrf" value="' . $csrf . '">
 <input type="hidden" name="action" value="arm">
 <p class="checkbox-field"><label><input type="checkbox" id="solo-mode" name="scene_mode" value="solo"' . $soloChecked . $soloDisabled . '> <span>Solo reflection</span></label></p>
+<p class="checkbox-field"><label><input type="checkbox" id="free-mode" name="scene_mode" value="free"' . $freeChecked . $freeDisabled . '> <span>Free scene (the nearest six NPCs, player excluded)</span></label></p>
 <p id="mode-guidance" class="small-note"' . ($sceneMode === 'solo' ? '' : ' hidden') . '>Solo reflection asks the NPC to think aloud. Opinion changes require compatible Mind Poisoning support.</p>
 <p class="field"><label id="actor-a-label" for="actor-a">' . ($sceneMode === 'solo' ? 'Reflecting NPC' : 'NPC A') . '</label><select id="actor-a" name="actor_a" required' . $actorADisabledAttr . '>
 ' . $optionsA . '</select></p>
 <p class="field"><label id="actor-b-label" for="actor-b">' . ($sceneMode === 'solo' ? 'Second NPC (pair mode only)' : 'NPC B') . '</label><select id="actor-b" name="actor_b" required' . $actorBDisabledAttr . '>
 ' . $optionsB . '</select></p>
+<p class="field group-field"><label for="actor-c">NPC C (optional)</label><select id="actor-c" name="actor_c"' . $extraDisabledAttr . '>
+' . $optionsC . '</select></p>
+<p class="field group-field"><label for="actor-d">NPC D (optional)</label><select id="actor-d" name="actor_d"' . $extraDisabledAttr . '>
+' . $optionsD . '</select></p>
+<p class="field group-field"><label for="opener">Who speaks first</label><select id="opener" name="opener"' . $extraDisabledAttr . '>
+' . $openerOptions . '</select></p>
 <p class="field"><label for="bystander-mode">Other NPCs</label><select id="bystander-mode" name="bystander_mode">
 <option value="exclude"' . ($mode === 'exclude' ? ' selected' : '') . '>Exclude from this conversation</option>
 <option value="silent"' . ($mode === 'silent' ? ' selected' : '') . '>Present but silent</option>
 </select></p>
-<p class="checkbox-field"><label><input type="checkbox" name="exclude_player" value="1"' . ($sceneMode === 'solo' || $excludePlayer ? ' checked' : '') . $excludePlayerDisabledAttr . '> <span>Exclude the player</span></label></p>
+<p class="checkbox-field"><label><input type="checkbox" name="exclude_player" value="1"' . ($sceneMode === 'solo' || $freeMode || $excludePlayer ? ' checked' : '') . $excludePlayerDisabledAttr . '> <span>Exclude the player</span></label></p>
 <button id="arm-button" class="primary-button" type="submit" data-roster-ready="' . ($rosterReady ? '1' : '0') . '"' . $armDisabledAttr . '>Arm or update on next input</button>
 </form>
 </section>
@@ -386,16 +476,52 @@ function pcv_send_text(int $statusCode, string $body, array $extraHeaders = []):
     echo $body;
 }
 
-function pcv_ui_logs_access_allowed(array $server): bool
+/**
+ * The Windows host as seen from a WSL2 NAT guest: the single private IPv4 default gateway in
+ * /proc/net/route. Missing, ambiguous or public data trusts nothing.
+ */
+function pcv_ui_wsl_host_address(string $routeTable): ?string
+{
+    $gateways = [];
+    foreach (preg_split('/\r?\n/', $routeTable) ?: [] as $line) {
+        $fields = preg_split('/\s+/', trim($line));
+        if (!is_array($fields) || count($fields) < 3 || $fields[1] !== '00000000'
+            || preg_match('/\A[0-9A-Fa-f]{8}\z/', $fields[2]) !== 1) {
+            continue;
+        }
+        $octets = array_reverse(array_map('hexdec', str_split($fields[2], 2)));
+        $gateways[implode('.', $octets)] = true;
+    }
+    if (count($gateways) !== 1) {
+        return null;
+    }
+    $address = (string)array_key_first($gateways);
+    $isIpv4 = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+    $isPrivate = $isIpv4
+        && filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE) === false
+        && filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_RES_RANGE) !== false;
+    return $isPrivate ? $address : null;
+}
+
+/**
+ * Diagnostics are local-only: direct loopback, the WSL host (the player's own Windows browser), or a
+ * server-authenticated REMOTE_USER. Any forwarding header disqualifies the address checks.
+ */
+function pcv_ui_logs_access_allowed(array $server, ?string $hostAddress = null, bool $resolveHost = false): bool
 {
     $forwarded = array_key_exists('HTTP_FORWARDED', $server)
         || array_key_exists('HTTP_X_FORWARDED_FOR', $server)
         || array_key_exists('HTTP_X_REAL_IP', $server);
     $remoteAddress = $server['REMOTE_ADDR'] ?? null;
-    $loopback = !$forwarded && is_string($remoteAddress) && in_array($remoteAddress, ['127.0.0.1', '::1'], true);
+    if ($resolveHost && $hostAddress === null && !$forwarded) {
+        $routes = @file_get_contents('/proc/net/route');
+        $hostAddress = is_string($routes) ? pcv_ui_wsl_host_address($routes) : null;
+    }
+    $local = !$forwarded && is_string($remoteAddress)
+        && (in_array($remoteAddress, ['127.0.0.1', '::1'], true) || ($hostAddress !== null && $remoteAddress === $hostAddress));
     $remoteUser = $server['REMOTE_USER'] ?? null;
     $authenticatedUser = is_string($remoteUser) && trim($remoteUser) !== '';
-    return $loopback || $authenticatedUser;
+    return $local || $authenticatedUser;
 }
 
 function pcv_ui_diagnostics_rejected(string $reason, string $operation): void
@@ -466,14 +592,19 @@ function pcv_ui_logs_send_html(int $statusCode, string $html): void
     echo $html;
 }
 
-function pcv_render_logs_locked_page(): string
+function pcv_render_logs_locked_page(array $server = []): string
 {
+    $port = preg_match('/\A[0-9]{1,5}\z/', (string)($server['SERVER_PORT'] ?? '')) === 1 ? (string)$server['SERVER_PORT'] : '8081';
+    $script = preg_match('~\A/[A-Za-z0-9_./-]{1,200}\z~', (string)($server['SCRIPT_NAME'] ?? '')) === 1
+        ? (string)$server['SCRIPT_NAME'] : '/HerikaServer/ext/private_conversation/index.php';
+    $localUrl = "http://127.0.0.1:{$port}{$script}?view=logs";
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<title>CHIM Private Conversation — Operational Logs</title><link rel="stylesheet" href="assets/style.css"></head>'
         . '<body class="page"><main class="page-frame logs-page"><header class="topbar"><p class="wordmark">CHIM / SCENE NOTES</p>'
         . '<a href="?">Return to Private Conversation</a></header><section class="logs-panel"><h1>Operational logs</h1>'
         . '<p role="status">Logs access is locked. Open this page directly on the CHIM host or use a web server that sets a trusted REMOTE_USER.</p>'
-        . '<p>Diagnostic access accepts direct loopback requests without forwarding headers, or a nonempty server-authenticated REMOTE_USER.</p>'
+        . '<p>Diagnostic access accepts direct loopback requests without forwarding headers, the Windows PC hosting this WSL server, or a nonempty server-authenticated REMOTE_USER.</p>'
+        . '<p>On the PC running this server, open: <a href="' . pcv_html($localUrl) . '">' . pcv_html($localUrl) . '</a></p>'
         . '</section></main></body></html>';
 }
 
@@ -571,11 +702,11 @@ function pcv_render_logs_page(string $csrfToken, array $filters, ?array $result 
 
 function pcv_run_logs_route(string $method): void
 {
-    if (!pcv_ui_logs_access_allowed($_SERVER)) {
+    if (!pcv_ui_logs_access_allowed($_SERVER, null, true)) {
         pcv_ui_diagnostics_rejected('access_denied', pcv_ui_logs_operation($_POST['action'] ?? null));
         http_response_code(403);
         header('Content-Type: text/html; charset=UTF-8');
-        echo pcv_render_logs_locked_page();
+        echo pcv_render_logs_locked_page($_SERVER);
         return;
     }
     require_once __DIR__ . '/log_reader.php';

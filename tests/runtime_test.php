@@ -8,6 +8,7 @@ require_once __DIR__ . '/../server/prerequest.php';
 use ChimMindPoisoning\StoreDb;
 use ChimMindPoisoning\PostgresStoreDb;
 use ChimMindPoisoning\RequestLog;
+use ChimMindPoisoning\WitnessSnapshotStoreDb;
 use function ChimMindPoisoning\assertIdleTransactionStatus;
 use function ChimMindPoisoning\assertPgSqlConnection;
 use function ChimMindPoisoning\eventAlreadyProcessed;
@@ -333,7 +334,7 @@ final class ProfileContextQueryDb
     }
 }
 
-final class MemoryStoreDb implements StoreDb
+final class MemoryStoreDb implements StoreDb, WitnessSnapshotStoreDb
 {
     public array $npcs = [];
     public array $events = [];
@@ -345,6 +346,10 @@ final class MemoryStoreDb implements StoreDb
     public bool $failSnapshot = false;
     public bool $failRelease = false;
     public bool $failCommit = false;
+    public ?int $throwNpcLookupId = null;
+    public array $failWrites = [];
+    public int $eventByIdWithPeopleCalls = 0;
+    public $onBegin = null;
     public int $beginCalls = 0;
     public int $activePlaythroughCalls = 0;
     private bool $transaction = false;
@@ -364,6 +369,16 @@ final class MemoryStoreDb implements StoreDb
             }
         }
         return null;
+    }
+
+    public function acknowledgedEventWithPeople(string $utteranceId): ?array
+    {
+        $event = $this->acknowledgedEvent($utteranceId);
+        if (!is_array($event)) {
+            return null;
+        }
+        $event['source_people'] = $event['people'] ?? null;
+        return $event;
     }
 
     public function playerInputEvent(array $source): ?array
@@ -414,8 +429,25 @@ final class MemoryStoreDb implements StoreDb
         return ($event['utterance_id'] ?? null) === $utteranceId ? $event : null;
     }
 
+    public function eventByIdWithPeople(int $eventId, string $utteranceId): ?array
+    {
+        $this->eventByIdWithPeopleCalls++;
+        if (str_starts_with($utteranceId, 'input_')) {
+            return null;
+        }
+        $event = $this->eventById($eventId, $utteranceId);
+        if (!is_array($event)) {
+            return null;
+        }
+        $event['source_people'] = $event['people'] ?? null;
+        return $event;
+    }
+
     public function npcById(int $npcId, bool $forUpdate = false): ?array
     {
+        if ($this->throwNpcLookupId === $npcId) {
+            throw new RuntimeException('PRIVATE_SYNTHETIC_LOOKUP_DETAIL');
+        }
         return $this->npcs[$npcId] ?? null;
     }
 
@@ -438,6 +470,9 @@ final class MemoryStoreDb implements StoreDb
         if ($this->busy || $this->transaction || !isset($this->npcs[$listenerId])) {
             return false;
         }
+        if (is_callable($this->onBegin)) {
+            ($this->onBegin)($listenerId, $this);
+        }
         $this->before = unserialize(serialize([$this->npcs, $this->history]));
         $this->transaction = true;
         return true;
@@ -445,7 +480,7 @@ final class MemoryStoreDb implements StoreDb
 
     public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool
     {
-        if (!$this->transaction || !isset($this->npcs[$npcId])) {
+        if (!$this->transaction || !isset($this->npcs[$npcId]) || isset($this->failWrites[$npcId])) {
             return false;
         }
         $extendedData = $this->npcs[$npcId]['extended_data'];

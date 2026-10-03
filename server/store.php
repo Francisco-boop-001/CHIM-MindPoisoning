@@ -29,6 +29,13 @@ interface StoreDb
     public function release(): void;
 }
 
+/** Optional exact eventlog.people snapshots for the guarded NPC overhearing path. */
+interface WitnessSnapshotStoreDb
+{
+    public function acknowledgedEventWithPeople(string $utteranceId): ?array;
+    public function eventByIdWithPeople(int $eventId, string $utteranceId): ?array;
+}
+
 function resolvePlaythroughContext(array $profileRows, mixed $playerName): ?array
 {
     $name = static fn(mixed $value): string => is_string($value) ? trim($value) : '';
@@ -218,7 +225,7 @@ function sameJsonValue(mixed $left, mixed $right): bool
     return jsonValueKey($left) === jsonValueKey($right);
 }
 
-function normalizeEventRow(array $row): ?array
+function normalizeEventRow(array $row, bool $includePeople = false): ?array
 {
     $eventId = filter_var($row['rowid'] ?? null, FILTER_VALIDATE_INT);
     $utteranceId = $row['utterance_id'] ?? null;
@@ -236,13 +243,18 @@ function normalizeEventRow(array $row): ?array
         return null;
     }
 
-    return [
+    $event = [
         'event_id' => (int)$eventId,
         'utterance_id' => $utteranceId,
         'gamets' => (float)$gamets,
         'source_data' => $sourceData,
         'delivery_state' => $deliveryState,
     ];
+    if ($includePeople) {
+        $event['source_people'] = $row['people'] ?? null;
+        $event['source_people_oversized'] = filter_var($row['people_oversized'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+    return $event;
 }
 
 function playerInputTypes(): array
@@ -599,7 +611,8 @@ function persistJudgments(
     StoreDb $store,
     ?RequestLog $requestLog = null,
     ?callable $revalidateReflection = null,
-    ?array $registration = null
+    ?array $registration = null,
+    ?callable $revalidateListenerScope = null
 ): string
 {
     $startedAt = hrtime(true);
@@ -614,6 +627,8 @@ function persistJudgments(
     $stage = 'validation';
     $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
     $reflection = ($event['source_kind'] ?? null) === 'reflection';
+    $hasListenerRole = array_key_exists('listener_role', $event);
+    $listenerRole = $event['listener_role'] ?? null;
     $hasReplySources = array_key_exists('reflection_sources', $event);
     $replySources = $event['reflection_sources'] ?? null;
     $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
@@ -689,6 +704,23 @@ function persistJudgments(
             || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
             || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
             || !is_string($event['source_data'] ?? null)
+            || ($hasListenerRole && !in_array($listenerRole, ['addressed', 'overheard'], true))
+            || ($hasListenerRole && (
+                !is_int($event['addressed_listener_id'] ?? null) || $event['addressed_listener_id'] < 1
+                || !is_string($event['addressed_listener_name'] ?? null) || trim($event['addressed_listener_name']) === ''
+                || !is_int($event['listener_id'] ?? null)
+                || ($listenerRole === 'addressed' && (
+                    $event['listener_id'] !== $event['addressed_listener_id']
+                    || !sameActorName($event['listener_name'] ?? null, $event['addressed_listener_name'])
+                ))
+                || ($listenerRole === 'overheard' && (
+                    $event['listener_id'] === $event['addressed_listener_id']
+                    || !is_string($event['source_people'] ?? null)
+                    || !in_array($event['source_delivery_state'] ?? null, ['emitted', 'spoken'], true)
+                    || !($store instanceof WitnessSnapshotStoreDb)
+                    || !is_callable($revalidateListenerScope)
+                ))
+            ))
             || !$replySourcesValid
             || !validSubjectsAndJudgments($subjects, $judgments, $event)
         ) {
@@ -713,7 +745,11 @@ function persistJudgments(
         $stage = 'revalidate-event';
         $listener = $store->npcById($ownerId, true);
         $active = $store->activePlaythrough();
-        $currentEvent = $store->eventById($event['event_id'], $event['utterance_id']);
+        $currentEvent = $listenerRole === 'overheard'
+            ? ($store instanceof WitnessSnapshotStoreDb
+                ? $store->eventByIdWithPeople($event['event_id'], $event['utterance_id'])
+                : null)
+            : $store->eventById($event['event_id'], $event['utterance_id']);
         if (
             !is_array($listener)
             || !is_array($active)
@@ -792,6 +828,9 @@ function persistJudgments(
         $actors = $reflection
             ? [$event['opinion_owner_id'] => $event['speaker_name']]
             : [$event['listener_id'] => $event['listener_name']];
+        if ($hasListenerRole && $listenerRole === 'overheard') {
+            $actors[$event['addressed_listener_id']] = $event['addressed_listener_name'];
+        }
         if (!$playerSpeaker && !$reflection) {
             $actors[$event['speaker_id']] = $event['speaker_name'];
         }
@@ -828,6 +867,13 @@ function persistJudgments(
             $speaker = $store->npcById($event['speaker_id']);
             if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
                 return $done('stale', 'speaker-stale');
+            }
+        }
+
+        if ($listenerRole === 'overheard') {
+            $stage = 'listener-scope-revalidate';
+            if (!$revalidateListenerScope($event, $currentEvent, $active)) {
+                return $done('stale', 'listener-scope-stale');
             }
         }
 
@@ -981,6 +1027,12 @@ function persistJudgments(
                 return $done('stale', 'reflection-source-stale');
             }
         }
+        if ($listenerRole === 'overheard') {
+            $stage = 'listener-scope-precommit';
+            if (!$revalidateListenerScope($event, $currentEvent, $active)) {
+                return $done('stale', 'listener-scope-stale');
+            }
+        }
         $stage = 'commit';
         $commitAttempted = true;
         if (!$store->commit()) {
@@ -1066,6 +1118,19 @@ function sameEvent(array $expected, ?array $current): bool
         return false;
     }
 
+    if (
+        array_key_exists('source_people', $expected)
+        && ($current['source_people'] ?? null) !== $expected['source_people']
+    ) {
+        return false;
+    }
+    if (
+        array_key_exists('source_delivery_state', $expected)
+        && !deliveryStateNotRegressed($expected['source_delivery_state'], $current['delivery_state'] ?? null)
+    ) {
+        return false;
+    }
+
     if (($expected['speaker_kind'] ?? 'npc') === 'player') {
         foreach ([
             'speaker_kind', 'speaker_id', 'source_kind', 'source_type', 'source_ts',
@@ -1097,7 +1162,14 @@ function sameEvent(array $expected, ?array $current): bool
         && in_array($current['delivery_state'] ?? null, ['emitted', 'spoken'], true);
 }
 
-final class PostgresStoreDb implements StoreDb
+function deliveryStateNotRegressed(mixed $expected, mixed $current): bool
+{
+    return $expected === 'emitted'
+        ? in_array($current, ['emitted', 'spoken'], true)
+        : ($expected === 'spoken' && $current === 'spoken');
+}
+
+final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb
 {
     private object $db;
     private ?RequestLog $requestLog;
@@ -1120,6 +1192,13 @@ final class PostgresStoreDb implements StoreDb
     public function cleanupFailed(): bool
     {
         return $this->cleanupFailed;
+    }
+
+    public function setRequestLog(?RequestLog $requestLog): ?RequestLog
+    {
+        $previous = $this->requestLog;
+        $this->requestLog = $requestLog;
+        return $previous;
     }
 
     public function activePlaythrough(): ?array
@@ -1179,6 +1258,30 @@ final class PostgresStoreDb implements StoreDb
             return null;
         }
         return normalizeEventRow($events[0]);
+    }
+
+    public function acknowledgedEventWithPeople(string $utteranceId): ?array
+    {
+        if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/', $utteranceId) !== 1) {
+            return null;
+        }
+        $row = $this->one(
+            "SELECT COALESCE(jsonb_agg(to_jsonb(e) ORDER BY e.rowid), '[]'::jsonb) AS events
+             FROM (SELECT rowid, type, utterance_id, delivery_state, gamets, data,
+                          CASE WHEN octet_length(people) <= 2048 THEN people ELSE NULL END AS people,
+                          (people IS NOT NULL AND octet_length(people) > 2048)::int AS people_oversized
+                   FROM eventlog WHERE type = 'chat' AND utterance_id = $1 ORDER BY rowid LIMIT 2) e",
+            [$utteranceId]
+        );
+        try {
+            $events = json_decode((string)($row['events'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return null;
+        }
+        if (!is_array($events) || count($events) !== 1 || !is_array($events[0])) {
+            return null;
+        }
+        return normalizeEventRow($events[0], true);
     }
 
     public function reflectionHistory(string $actorName, int $beforeEventId): array
@@ -1290,6 +1393,23 @@ final class PostgresStoreDb implements StoreDb
                 FOR SHARE OF e";
         $row = $this->one($sql, [$eventId, $utteranceId]);
         return $row ? normalizeEventRow($row) : null;
+    }
+
+    public function eventByIdWithPeople(int $eventId, string $utteranceId): ?array
+    {
+        if (preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $utteranceId) !== 1) {
+            return null;
+        }
+        $sql = "SELECT e.rowid, e.type, e.utterance_id, e.delivery_state, e.gamets, e.data,
+                       CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS people,
+                       (e.people IS NOT NULL AND octet_length(e.people) > 2048)::int AS people_oversized
+                FROM eventlog e
+                WHERE e.rowid = $1 AND e.type = 'chat' AND e.utterance_id = $2
+                  AND (SELECT count(*) FROM eventlog exact_event
+                       WHERE exact_event.type = 'chat' AND exact_event.utterance_id = $2) = 1
+                FOR SHARE OF e";
+        $row = $this->one($sql, [$eventId, $utteranceId]);
+        return $row ? normalizeEventRow($row, true) : null;
     }
 
     public function npcIdentities(): array

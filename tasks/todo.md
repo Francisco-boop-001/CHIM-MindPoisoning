@@ -1,5 +1,28 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Mind Poisoning 0.1.17 publication — 2026-10-03
+
+- [ ] Inspect source/evidence, remote state and protected edits.
+- [ ] Prepare and review PRE-ALPHA metadata and release notes.
+- [ ] Verify exact clean staged source and build/tag reproducibility.
+- [ ] Commit, push tag, verify draft/public packages, publish and advance update branches.
+- [ ] Record final receipt, limitations and preserved state.
+
+Authorization and gates: [release-v0.1.17-plan.md](release-v0.1.17-plan.md). Publication does not authorize installation or gaming-distro/provider/database work.
+
+## Overheard gossip and PCV 0.1.12 hub update — 2026-10-03
+
+- [x] Confirm approved scope, current source/pins and protected edits; assign exclusive owners.
+- [x] Assess defensive-programming claim against concrete baseline call paths and counterarguments.
+- [x] Verify and import the immutable published PCV0.1.12 snapshot; update hub descriptions/links.
+- [x] Extend existing NPC evaluation to one opt-in bounded witness batch with per-listener persistence and diagnostics.
+- [x] Run focused isolated behavior/integration checks and changed-file syntax checks in the authorized PHP environment.
+- [x] Review every diff and output, return defects, and record final evidence and limits.
+
+Plan: [overheard-gossip-2026-10-03.md](overheard-gossip-2026-10-03.md). Published MP pin remains 0.1.16 PRE-ALPHA. No installation or publication is part of this implementation task.
+
+Review: Three exclusive gpt-6-luna/Max owners/reviewer completed the scoped work using Ponytail FULL; lead wrote no product code. Default-off NPC ACK overhearing uses one model call for the addressed NPC and up to four eligible extras, with closed response validation and independent atomic listener commits/diagnostics. Returned prompt-shape, Player lookup, observer, cleanup attribution, duplicate-preflight and failure-classification defects were corrected and reviewed. Eight focused isolated runtime/integration fixtures and eleven changed-PHP syntax checks passed against the frozen source in the explicitly authorized test clone. It was stopped afterward; the gaming distro was never entered and its VHD metadata is unchanged. The hub's PCV 0.1.12 snapshot/packages were verified against the immutable tag and actual public downloads; the protected dirty plan and unrelated files remain intact. New overhearing is UNRELEASED, with real provider/database/game acceptance pending and no concurrent provider-call reservation promised. Details and defensive-programming judgment are in the linked plan and [assessment](defensive-programming-review-2026-10-03.md).
+
 ## Mind Poisoning 0.1.16 publication — 2026-10-02
 
 - [x] Inspect pending correction and review evidence; confirm both remote main refs and preserve unrelated work.

@@ -267,6 +267,21 @@ function dashboardParseLogLine(string $line): ?array
     if ($speakerKind === 'player') {
         unset($clean['speaker_id']);
     }
+    $listenerRole = $record->listener_role ?? null;
+    $addressedListenerId = dashboardId($record->addressed_listener_id ?? null);
+    $batchId = $record->batch_id ?? null;
+    if (
+        $sourceKind === null && $speakerKind === 'npc'
+        && in_array($listenerRole, ['addressed', 'overheard'], true)
+        && isset($clean['listener_id']) && $addressedListenerId !== null
+        && (($listenerRole === 'addressed' && $clean['listener_id'] === $addressedListenerId)
+            || ($listenerRole === 'overheard' && $clean['listener_id'] !== $addressedListenerId))
+        && is_string($batchId) && preg_match('/\A(?:[a-f0-9]{24}|fallback-[1-9][0-9]*)\z/D', $batchId) === 1
+    ) {
+        $clean['listener_role'] = $listenerRole;
+        $clean['addressed_listener_id'] = $addressedListenerId;
+        $clean['batch_id'] = $batchId;
+    }
     $utteranceId = dashboardUtteranceId($record->utterance_id ?? null);
     if ($utteranceId !== null) {
         $clean['utterance_id'] = $utteranceId;
@@ -893,6 +908,10 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
 
     $speakerId = dashboardId($request['speaker_id'] ?? $persistence['speaker_id'] ?? null);
     $speakerKind = $request['speaker_kind'] ?? $persistence['speaker_kind'] ?? null;
+    $listenerRole = in_array($request['listener_role'] ?? null, ['addressed', 'overheard'], true)
+        ? $request['listener_role']
+        : null;
+    $addressedListenerId = dashboardId($request['addressed_listener_id'] ?? null);
     $speaker = $reflection
         ? $opinionOwner
         : ($speakerKind === 'player' ? 'Player' : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)));
@@ -905,6 +924,11 @@ function dashboardLedgerInteraction(array $candidate, array $recordIndex, array 
         'timestamp' => $request['timestamp'] ?? $persistence['timestamp'] ?? null,
         'speaker' => $speaker,
         'listener' => $reflection ? null : ($names[$candidate['listener_id']] ?? 'NPC #' . $candidate['listener_id']),
+        'listener_role' => $listenerRole,
+        'addressed_listener' => $listenerRole === 'overheard' && $addressedListenerId !== null
+            ? ($names[$addressedListenerId] ?? 'NPC #' . $addressedListenerId)
+            : null,
+        'batch_id' => $listenerRole === null ? null : ($request['batch_id'] ?? null),
         'outcome' => $outcome,
         'reason' => $request['reason'] ?? $persistence['persistence_reason'] ?? 'ledger_recorded',
         'model_ms' => $request['model_ms'] ?? null,
@@ -1115,6 +1139,10 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     $opinionOwner = $reflection && $opinionOwnerId !== null
         ? ($names[$opinionOwnerId] ?? 'NPC #' . $opinionOwnerId)
         : null;
+    $listenerRole = in_array($record['listener_role'] ?? null, ['addressed', 'overheard'], true)
+        ? $record['listener_role']
+        : null;
+    $addressedListenerId = dashboardId($record['addressed_listener_id'] ?? null);
     $interaction = [
         'request_id' => $record['request_id'] ?? null,
         'event_id' => $eventId,
@@ -1124,6 +1152,11 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
         'timestamp' => $record['timestamp'] ?? null,
         'speaker' => $speaker,
         'listener' => $reflection ? null : ($listenerId === null ? null : ($names[$listenerId] ?? 'NPC #' . $listenerId)),
+        'listener_role' => $listenerRole,
+        'addressed_listener' => $listenerRole === 'overheard' && $addressedListenerId !== null
+            ? ($names[$addressedListenerId] ?? 'NPC #' . $addressedListenerId)
+            : null,
+        'batch_id' => $listenerRole === null ? null : ($record['batch_id'] ?? null),
         'outcome' => $outcome,
         'reason' => $record['reason'] ?? $persistence['persistence_reason'] ?? null,
         'model_ms' => $record['model_ms'] ?? null,

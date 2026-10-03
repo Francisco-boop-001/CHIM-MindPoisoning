@@ -270,6 +270,8 @@ try {
         'scene_mode' => 'pair',
         'actor_a' => 'Aela',
         'actor_b' => 'Bryn',
+        'members' => ['Aela', 'Bryn'],
+        'opener' => 'Aela',
         'exclude_player' => true,
         'bystander_mode' => 'exclude',
     ], 'A valid stable-ID pair did not resolve to its current canonical names.');
@@ -914,7 +916,7 @@ try {
     include $hookDir . '/preprocessing.php';
     scopeCheck(scopeCheckHookStops($hookDir . '/context_pre.php'),
         'A stamped private route generated from an NPC outside the selected pair.');
-    $outsiderBlocked = array_values(array_filter(scopeCheckLogEntries(), static fn(array $entry): bool => ($entry['event'] ?? null) === 'routing.request_blocked' && ($entry['reason'] ?? null) === 'speaker_outside_pair'));
+    $outsiderBlocked = array_values(array_filter(scopeCheckLogEntries(), static fn(array $entry): bool => ($entry['event'] ?? null) === 'routing.request_blocked' && ($entry['reason'] ?? null) === 'speaker_outside_scene'));
     scopeCheck(($outsiderBlocked[0]['context']['phase'] ?? null) === 'context_pre',
         'The scoped outsider-speaker guard did not identify its actual terminal phase.');
 

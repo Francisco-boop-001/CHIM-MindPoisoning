@@ -10,6 +10,17 @@ const PCV_REFLECTION_REGISTRY_MAX_BYTES = 8192;
 const PCV_REFLECTION_REGISTRY_TTL = 600;
 // Direct ACKs keep the full lifetime until a newer output supersedes an unclaimed registration.
 const PCV_REFLECTION_REGISTERED_SUPERSESSION_TTL = 60;
+// Mind Poisoning 0.1.16 accepts up to 24 reply lines (0.1.15: 8); its own declared cap wins when lower.
+const PCV_REFLECTION_REPLY_MAX_LINES = 24;
+const PCV_REFLECTION_REPLY_SCAN_ROWS = 128;
+
+function pcv_reflection_reply_max_lines(): int
+{
+    $mindPoisoningCap = defined('ChimMindPoisoning\\MIND_POISONING_REFLECTION_REPLY_MAX_LINES')
+        ? constant('ChimMindPoisoning\\MIND_POISONING_REFLECTION_REPLY_MAX_LINES') : 8;
+    return is_int($mindPoisoningCap) && $mindPoisoningCap > 0
+        ? min(PCV_REFLECTION_REPLY_MAX_LINES, $mindPoisoningCap) : 8;
+}
 
 function pcvReflectionRegisterLastOutput(array $requestScope): void
 {
@@ -41,8 +52,27 @@ function pcvReflectionEvaluateAck(array $gameRequest): void
     if ($tuple === null) {
         return;
     }
+    // Cheap gate: only a stored active solo scene (catalog ID) can make this ACK relevant.
     $cheapScope = pcv_reflection_active_solo_precheck();
-    if ($cheapScope === null || pcv_scope_name_key($tuple['speaker']) !== pcv_scope_name_key($cheapScope['actor_name'])) {
+    if ($cheapScope === null) {
+        return;
+    }
+    // Other lines (bystanders, the actor's ordinary dialogue) stay quiet; only the registered reflection line is reported.
+    $isRegisteredLine = static function () use ($tuple): bool {
+        $registered = pcv_reflection_registry_probe();
+        return $registered['kind'] === 'ready'
+            && $registered['record']['registration']['utterance_id'] === $tuple['utterance_id'];
+    };
+    $scope = pcv_reflection_current_solo_scope();
+    if ($scope === null || ($scope['config_id'] ?? null) !== $cheapScope['config_id']
+        || ($scope['pcv_key'] ?? null) !== $cheapScope['pcv_key']
+        || !is_string($scope['actor_a_id'] ?? null) || $scope['actor_a_id'] !== $cheapScope['actor_id']) {
+        if ($isRegisteredLine()) {
+            pcv_reflection_log('reflection.ack_skipped', 'ack', 'scope_changed', $cheapScope);
+        }
+        return;
+    }
+    if (pcv_scope_name_key($tuple['speaker']) !== pcv_scope_name_key((string)($scope['scope']['actor_a'] ?? ''))) {
         return;
     }
 
@@ -51,11 +81,10 @@ function pcvReflectionEvaluateAck(array $gameRequest): void
         pcv_reflection_log('reflection.ack_skipped', 'ack', 'interaction_stale', $cheapScope);
         return;
     }
-    $scope = pcv_reflection_current_solo_scope();
-    if ($scope === null || ($scope['config_id'] ?? null) !== $cheapScope['config_id']
-        || ($scope['pcv_key'] ?? null) !== $cheapScope['pcv_key']
-        || pcv_scope_name_key((string)($scope['scope']['actor_a'] ?? '')) !== pcv_scope_name_key($cheapScope['actor_name'])
-        || !pcv_reflection_ack_matches_solo_scope($gameRequest, $scope)) {
+    if (!pcv_reflection_ack_matches_solo_scope($gameRequest, $scope)) {
+        if ($isRegisteredLine()) {
+            pcv_reflection_log('reflection.ack_skipped', 'ack', 'ack_mismatch', $scope);
+        }
         return;
     }
     $utteranceId = $tuple['utterance_id'];
@@ -65,6 +94,9 @@ function pcvReflectionEvaluateAck(array $gameRequest): void
         'tuple_digest' => pcv_reflection_ack_tuple_digest($tuple),
     ];
     $probe = pcv_reflection_registry_probe();
+    if ($probe['kind'] === 'ready' && pcv_reflection_is_non_final_line($probe['record'], $utteranceId)) {
+        return; // An earlier line of a registered full reply; only the final line's ACK triggers evaluation.
+    }
     if ($probe['kind'] === 'ready' && $probe['record']['registration']['utterance_id'] === $utteranceId) {
         if ($probe['record']['status'] !== 'registered') {
             pcv_reflection_log('reflection.ack_skipped', 'ack', 'claim_taken', $probe['record']);
@@ -94,6 +126,19 @@ function pcvReflectionEvaluateAck(array $gameRequest): void
         return;
     }
 
+    // An ACK for a line older than the registered final line can never trigger evaluation. Ignore it quietly
+    // instead of parking a receipt: earlier lines used to fill the receipt map and log registration_missing.
+    if ($probe['kind'] === 'ready' && pcv_reflection_record_fresh($probe['record'])) {
+        try {
+            if (pcv_reflection_load_mind_poisoning()
+                && pcv_reflection_ack_predates_registration(new \ChimMindPoisoning\PostgresStoreDb(), $probe['record'], $utteranceId)) {
+                return;
+            }
+        } catch (Throwable) {
+            // Fall through to the existing receipt path.
+        }
+    }
+
     $storedReceipt = pcv_reflection_store_ack_receipt($tuple, $scope, $ackGeneration);
     if ($storedReceipt['kind'] !== 'ready') {
         $event = in_array($storedReceipt['kind'], ['invalid', 'unavailable'], true)
@@ -112,7 +157,12 @@ function pcvReflectionEvaluateAck(array $gameRequest): void
     $receipt = $storedReceipt['receipt'];
     if ($probe['kind'] === 'missing'
         || ($probe['kind'] === 'ready' && $probe['record']['registration']['utterance_id'] !== $utteranceId)) {
-        pcv_reflection_log('reflection.ack_skipped', 'ack', 'registration_missing', $scope);
+        // The real client ACKs early lines while CHIM is still generating; registration comes at postrequest.
+        $inFlight = $probe['kind'] === 'missing' && function_exists('pcv_solo_inflight_matches')
+            && is_string($scope['config_id'] ?? null) && is_string($scope['actor_a_id'] ?? null)
+            && pcv_solo_inflight_matches($scope['config_id'], $scope['actor_a_id']);
+        pcv_reflection_log($inFlight ? 'reflection.ack_pending' : 'reflection.ack_skipped', 'ack',
+            $inFlight ? 'reply_in_progress' : 'registration_missing', $scope);
         pcvReflectionQueueAckReconciliation($gameRequest, $receipt);
         return;
     }
@@ -153,13 +203,14 @@ function pcv_reflection_active_solo_from_state(array $state): ?array
         || ($config['exclude_player'] ?? null) !== true
         || !is_int($active['expires_at'] ?? null) || $active['expires_at'] <= time()
         || !is_string($active['config_id'] ?? null) || !pcv_log_valid_uuid($active['config_id'])
-        || !is_string($config['actor_a'] ?? null) || trim($config['actor_a']) === '') {
+        || !is_string($config['actor_a'] ?? null) || preg_match('/\A[1-9][0-9]*\z/D', $config['actor_a']) !== 1) {
         return null;
     }
+    // Stored state holds catalog IDs, never display names; names are resolved from the live catalog later.
     return [
         'pcv_key' => $state['key'],
         'config_id' => $active['config_id'],
-        'actor_name' => $config['actor_a'],
+        'actor_id' => $config['actor_a'],
     ];
 }
 
@@ -276,6 +327,173 @@ function pcv_reflection_mind_poisoning_api_compatible(): bool
         && class_exists('ChimMindPoisoning\\PostgresStoreDb');
 }
 
+/** Mind Poisoning's opt-in full-reply evaluator (v2); v1 stays the fallback. */
+function pcv_reflection_mind_poisoning_reply_api_compatible(): bool
+{
+    return defined('ChimMindPoisoning\\MIND_POISONING_REFLECTION_REPLY_API_VERSION')
+        && constant('ChimMindPoisoning\\MIND_POISONING_REFLECTION_REPLY_API_VERSION') === 2
+        && function_exists('ChimMindPoisoning\\mindPoisoningEvaluateReflectionReply')
+        && function_exists('ChimMindPoisoning\\chatSourceParts')
+        && function_exists('ChimMindPoisoning\\reflectionSourceParts');
+}
+
+function pcv_reflection_mp_evaluator(array $registration): string
+{
+    return array_key_exists('lines', $registration)
+        ? 'ChimMindPoisoning\\mindPoisoningEvaluateReflectionReply'
+        : 'ChimMindPoisoning\\mindPoisoningEvaluateReflection';
+}
+
+/** True when the ACK's eventlog row precedes the registered final line (an earlier line of that reply or older). */
+function pcv_reflection_ack_predates_registration(\ChimMindPoisoning\StoreDb $store, array $record, string $utteranceId): bool
+{
+    $registeredEventId = $record['registration']['event_id'] ?? null;
+    if (!is_int($registeredEventId) || $utteranceId === ($record['registration']['utterance_id'] ?? null)) {
+        return false;
+    }
+    try {
+        $event = $store->acknowledgedEvent($utteranceId);
+    } catch (Throwable) {
+        return false;
+    }
+    return is_array($event) && is_int($event['event_id'] ?? null) && $event['event_id'] < $registeredEventId;
+}
+
+/** True when the ACK is for an earlier registered line of a full reply (only the final line triggers). */
+function pcv_reflection_is_non_final_line(array $record, string $utteranceId): bool
+{
+    $lines = $record['registration']['lines'] ?? null;
+    if (!is_array($lines) || count($lines) < 2) {
+        return false;
+    }
+    foreach (array_slice($lines, 0, -1) as $line) {
+        if (is_array($line) && ($line['utterance_id'] ?? null) === $utteranceId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Prove which emitted lines belong to this request's solo reply. The window starts at this request's own
+ * `instruction` row (same client ts) and ends at the registered final line; any other request inside it, an
+ * actor line to someone else, an aborted line or more than the cap means grouping is unproven (null), and the
+ * caller keeps the single final-line registration. Digests use Mind Poisoning's own source parser.
+ */
+function pcv_reflection_reply_lines(
+    \ChimMindPoisoning\StoreDb $store,
+    string $actorName,
+    int $finalEventId,
+    string $finalUtteranceId,
+    string $requestTs,
+    ?callable $rowsReader = null
+): ?array {
+    try {
+        $window = $rowsReader !== null
+            ? $rowsReader($requestTs, $finalEventId)
+            : pcv_reflection_read_reply_rows($requestTs, $finalEventId);
+    } catch (Throwable) {
+        return null;
+    }
+    if (!is_array($window) || ($window['anchor_count'] ?? null) !== 1 || !is_array($window['rows'] ?? null)
+        || !array_is_list($window['rows']) || $window['rows'] === []
+        || count($window['rows']) > PCV_REFLECTION_REPLY_SCAN_ROWS) {
+        return null;
+    }
+    $requestTypes = ['instruction', 'user_input', 'inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s',
+        'rechat', 'continue', 'continue_group'];
+    $lines = [];
+    $previousRowId = 0;
+    try {
+        foreach ($window['rows'] as $row) {
+            $rowId = is_array($row) ? ($row['rowid'] ?? null) : null;
+            $type = is_array($row) ? ($row['type'] ?? null) : null;
+            if (!is_int($rowId) || $rowId <= $previousRowId || $rowId > $finalEventId || !is_string($type)
+                || in_array($type, $requestTypes, true)) {
+                return null;
+            }
+            $previousRowId = $rowId;
+            $utteranceId = $row['utterance_id'] ?? null;
+            if ($type !== 'chat' || !is_string($utteranceId) || $utteranceId === '') {
+                continue;
+            }
+            $event = $store->acknowledgedEvent($utteranceId);
+            if (!is_array($event) || ($event['event_id'] ?? null) !== $rowId
+                || ($event['utterance_id'] ?? null) !== $utteranceId || !is_string($event['source_data'] ?? null)) {
+                return null;
+            }
+            $parts = \ChimMindPoisoning\chatSourceParts($event['source_data']);
+            if (!is_array($parts) || !is_string($parts['speaker'] ?? null)) {
+                return null;
+            }
+            if (pcv_scope_name_key($parts['speaker']) !== pcv_scope_name_key($actorName)) {
+                continue; // another NPC's line interleaved with this reply
+            }
+            $reflection = \ChimMindPoisoning\reflectionSourceParts($event['source_data']);
+            if (!is_array($reflection) || !is_string($reflection['text'] ?? null)
+                || !in_array($event['delivery_state'] ?? null, ['emitted', 'spoken'], true)) {
+                return null;
+            }
+            $lines[] = ['event_id' => $rowId, 'utterance_id' => $utteranceId, 'speech_hash' => hash('sha256', $reflection['text'])];
+            if (count($lines) > pcv_reflection_reply_max_lines()) {
+                return null;
+            }
+        }
+    } catch (Throwable) {
+        return null;
+    }
+    $final = $lines === [] ? null : $lines[array_key_last($lines)];
+    return is_array($final) && $final['event_id'] === $finalEventId && $final['utterance_id'] === $finalUtteranceId
+        ? $lines : null;
+}
+
+/** Read this request's reply window from CHIM's eventlog: unique instruction anchor, then rows up to the final line. */
+function pcv_reflection_read_reply_rows(string $requestTs, int $finalEventId): ?array
+{
+    if (preg_match('/\A[1-9][0-9]{0,19}\z/D', $requestTs) !== 1 || $finalEventId < 1) {
+        return null;
+    }
+    $connection = null;
+    try {
+        $connection = pcv_reflection_open_native_connection();
+        if ($connection === null || $connection === false) {
+            return null;
+        }
+        $anchors = @pg_query_params($connection,
+            "SELECT rowid FROM public.eventlog WHERE type = 'instruction' AND ts::text = $1 AND rowid < $2 ORDER BY rowid DESC LIMIT 2",
+            [$requestTs, $finalEventId]);
+        if ($anchors === false) {
+            return null;
+        }
+        $anchorRows = pg_fetch_all($anchors) ?: [];
+        if (count($anchorRows) !== 1) {
+            return ['anchor_count' => count($anchorRows), 'rows' => []];
+        }
+        $result = @pg_query_params($connection,
+            'SELECT rowid, type, utterance_id FROM public.eventlog WHERE rowid > $1 AND rowid <= $2 ORDER BY rowid LIMIT '
+                . (PCV_REFLECTION_REPLY_SCAN_ROWS + 1),
+            [(int)$anchorRows[0]['rowid'], $finalEventId]);
+        if ($result === false) {
+            return null;
+        }
+        $rows = [];
+        foreach (pg_fetch_all($result) ?: [] as $row) {
+            $rows[] = [
+                'rowid' => (int)$row['rowid'],
+                'type' => (string)$row['type'],
+                'utterance_id' => $row['utterance_id'] === null ? null : (string)$row['utterance_id'],
+            ];
+        }
+        return ['anchor_count' => 1, 'rows' => $rows];
+    } catch (Throwable) {
+        return null;
+    } finally {
+        if ($connection !== null && $connection !== false && function_exists('pg_close')) {
+            @pg_close($connection);
+        }
+    }
+}
+
 function pcv_reflection_mind_poisoning_unavailable_reason(): string
 {
     $path = dirname(__DIR__, 2) . '/ext/mind_poisoning/reflection.php';
@@ -337,6 +555,10 @@ function pcv_reflection_log(
     }
     if ($event === 'reflection.observer_unavailable') {
         pcv_log_event($event, 'info', 'unavailable', $reason, $context);
+        return;
+    }
+    if ($event === 'reflection.ack_pending') {
+        pcv_log_event($event, 'debug', 'skipped', $reason, $context);
         return;
     }
     pcv_log_event($event, 'info', 'skipped', $reason, $context);
@@ -452,7 +674,8 @@ function pcv_reflection_register_with_store(
     ?string $stateDirectory = null,
     ?callable $freshScopeReader = null,
     ?callable $nativeAckReader = null,
-    ?callable $requestModel = null
+    ?callable $requestModel = null,
+    ?callable $replyRowsReader = null
 ): string {
     if (($requestScope['route'] ?? null) !== 'solo_reflection') {
         return 'not_applicable';
@@ -599,6 +822,16 @@ function pcv_reflection_register_with_store(
         'rechat_target_hint' => 'explicit_disable_rechat',
         'speech_hash' => hash('sha256', $wire['subtitle']),
     ];
+    // With Mind Poisoning's reply API, register every proven line of this reply; otherwise keep the final line.
+    if (pcv_reflection_mind_poisoning_reply_api_compatible()) {
+        $requestTs = $GLOBALS['gameRequest'][1] ?? null;
+        $lines = pcv_reflection_reply_lines($store, $expectedRecord['actor_name'], $source['event_id'], $utteranceId,
+            is_string($requestTs) ? $requestTs : (is_int($requestTs) ? (string)$requestTs : ''), $replyRowsReader);
+        // The final tuple digests the parsed source text; it must equal the subtitle digest the ACK carries.
+        if (is_array($lines) && $lines[array_key_last($lines)]['speech_hash'] === $registration['speech_hash']) {
+            $registration['lines'] = $lines;
+        }
+    }
     $record = $expectedRecord;
     $record['registration'] = $registration;
     if (!pcv_reflection_valid_record($record)) {
@@ -634,6 +867,9 @@ function pcv_reflection_register_with_store(
                 } elseif ($existingRecord['status'] === 'claimed') {
                     $skipReason = 'claim_taken';
                 } elseif ($existingRecord['status'] === 'registered'
+                    // A registration from another scope (ended or re-armed scene) can never be evaluated.
+                    && $existingRecord['config_id'] === $record['config_id']
+                    && $existingRecord['pcv_key'] === $record['pcv_key']
                     && time() - $existingRecord['created_at'] < PCV_REFLECTION_REGISTERED_SUPERSESSION_TTL) {
                     $skipReason = 'registration_busy';
                 } else {
@@ -1045,7 +1281,11 @@ function pcv_reflection_evaluate_with_store(
         if (!pcv_reflection_attach_mp_observer($requestLog)) {
             pcv_reflection_log('reflection.observer_unavailable', 'ack', 'observer_unsupported', $record);
         }
-        $status = \ChimMindPoisoning\mindPoisoningEvaluateReflection(
+        $evaluator = pcv_reflection_mp_evaluator($record['registration']);
+        if (!function_exists($evaluator)) {
+            throw new RuntimeException('The Mind Poisoning evaluator for this registration is unavailable.');
+        }
+        $status = $evaluator(
             $record['registration'],
             $gameRequest,
             $store,
@@ -1231,11 +1471,50 @@ function pcv_reflection_registration_matches(array $left, array $right): bool
             return false;
         }
     }
+    // A full reply's ordered line list is part of its identity (Mind Poisoning revalidates it).
+    if (array_key_exists('lines', $left) !== array_key_exists('lines', $right)
+        || ($left['lines'] ?? null) !== ($right['lines'] ?? null)) {
+        return false;
+    }
     return pcv_reflection_valid_registration($left) && pcv_reflection_valid_registration($right);
+}
+
+/** 1–8 exact tuples, strictly increasing event IDs, unique utterances, final tuple equal to the top level. */
+function pcv_reflection_valid_reply_lines(mixed $lines, array $registration): bool
+{
+    if (!is_array($lines) || !array_is_list($lines) || $lines === [] || count($lines) > PCV_REFLECTION_REPLY_MAX_LINES) {
+        return false;
+    }
+    $previous = 0;
+    $seen = [];
+    foreach ($lines as $line) {
+        $keys = is_array($line) ? array_keys($line) : [];
+        sort($keys, SORT_STRING);
+        if ($keys !== ['event_id', 'speech_hash', 'utterance_id']
+            || !is_int($line['event_id']) || $line['event_id'] <= $previous
+            || !is_string($line['utterance_id']) || preg_match('/\\Autt_[A-Za-z0-9_-]{8,128}\\z/D', $line['utterance_id']) !== 1
+            || isset($seen[$line['utterance_id']])
+            || !is_string($line['speech_hash']) || preg_match('/\\A[a-f0-9]{64}\\z/D', $line['speech_hash']) !== 1) {
+            return false;
+        }
+        $previous = $line['event_id'];
+        $seen[$line['utterance_id']] = true;
+    }
+    $final = $lines[array_key_last($lines)];
+    return $final['event_id'] === ($registration['event_id'] ?? null)
+        && $final['utterance_id'] === ($registration['utterance_id'] ?? null)
+        && $final['speech_hash'] === ($registration['speech_hash'] ?? null);
 }
 
 function pcv_reflection_valid_registration(array $registration): bool
 {
+    if (array_key_exists('lines', $registration)) {
+        $lines = $registration['lines'];
+        unset($registration['lines']);
+        if (!pcv_reflection_valid_reply_lines($lines, $registration)) {
+            return false;
+        }
+    }
     $keys = ['event_id', 'utterance_id', 'actor_id', 'actor_name', 'playthrough_id', 'config_id', 'rechat_target_hint', 'speech_hash'];
     $actual = array_keys($registration);
     sort($actual, SORT_STRING);

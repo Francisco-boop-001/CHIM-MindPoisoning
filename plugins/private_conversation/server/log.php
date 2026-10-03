@@ -68,6 +68,13 @@ function &pcv_log_request_context(): array
     return $request;
 }
 
+/** Remember the request type so a request ending without speech can say what kind it was. */
+function pcv_log_set_request_type(string $requestType): void
+{
+    $request =& pcv_log_request_context();
+    $request['request_type'] = in_array($requestType, pcv_log_enum_values('request_type'), true) ? $requestType : 'other';
+}
+
 function pcv_log_begin_request(?string $configId = null): void
 {
     $request =& pcv_log_request_context();
@@ -148,10 +155,11 @@ function pcv_log_valid_uuid(string $value): bool
 function pcv_log_event_rules(): array
 {
     static $rules = [
-        'state.scope_staged' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
-        'state.scope_activated' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
+        'state.scope_staged' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode', 'free_scene']],
+        'state.scope_activated' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode', 'member_count', 'dropped_count', 'free_scene']],
+        'state.scope_members_dropped' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['drop_reason', 'dropped_count', 'member_count']],
         'state.scope_ended' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['action', 'scene_mode', 'actor_a_id', 'actor_b_id', 'exclude_player', 'bystander_mode']],
-        'state.scope_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['operation', 'scene_mode']],
+        'state.scope_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['operation', 'scene_mode', 'presence_check', 'missing_count']],
         'state.scope_expired' => ['severity' => 'info', 'outcome' => 'expired', 'context' => ['target']],
         'state.scope_invalidated' => ['severity' => 'warning', 'outcome' => 'invalidated', 'context' => ['active_config_id', 'pending_config_id']],
         'state.unavailable' => ['severity' => 'error', 'outcome' => 'unavailable', 'context' => ['operation']],
@@ -163,13 +171,14 @@ function pcv_log_event_rules(): array
         'ui.scope_stage_rejected' => ['severity' => 'warning', 'outcome' => 'rejected', 'context' => []],
         'ui.scope_stage_failed' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['action', 'operation']],
         'routing.request_started' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['request_type']],
-        'routing.request_prepared' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['phase', 'route', 'actor_a_id', 'actor_b_id', 'speaker_id', 'exclude_player', 'bystander_mode']],
+        'routing.request_prepared' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['phase', 'route', 'actor_a_id', 'actor_b_id', 'speaker_id', 'exclude_player', 'bystander_mode', 'member_count', 'opener_source', 'free_scene']],
         'routing.request_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['phase', 'request_type', 'state_status', 'mode']],
         'routing.request_blocked' => ['severity' => 'warning', 'outcome' => 'blocked', 'context' => ['phase', 'request_type', 'actor_a_id', 'actor_b_id']],
         'routing.request_error' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['phase', 'request_type', 'actor_a_id', 'actor_b_id']],
         'routing.request_detail' => ['severity' => 'debug', 'outcome' => 'ok', 'context' => ['phase', 'decision', 'request_type', 'actor_a_id', 'actor_b_id', 'speaker_id', 'audience_before_count', 'audience_after_count', 'present_before_count', 'present_after_count']],
         'reflection.registration_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['phase', 'route', 'actor_a_id']],
         'reflection.ack_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['phase', 'route', 'actor_a_id']],
+        'reflection.ack_pending' => ['severity' => 'debug', 'outcome' => 'skipped', 'context' => ['phase', 'route', 'actor_a_id']],
         'reflection.registration_error' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['phase', 'route', 'actor_a_id']],
         'reflection.ack_error' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['phase', 'route', 'actor_a_id']],
         'reflection.output_registered' => ['severity' => 'info', 'outcome' => 'accepted', 'context' => ['phase', 'route', 'actor_a_id']],
@@ -181,7 +190,7 @@ function pcv_log_event_rules(): array
                 'postrequest_observed' => [],
                 'skipped' => ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible', 'scope_ineligible'],
                 'blocked' => ['unsupported_special_mode', 'invalid_input_prefix', 'invalid_input_encoding', 'empty_input', 'malformed_rechat',
-                    'rechat_speaker_outside_pair', 'speaker_outside_pair', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'],
+                    'rechat_speaker_outside_pair', 'speaker_outside_pair', 'rechat_speaker_outside_scene', 'speaker_outside_scene', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'],
                 'failed' => ['state_unavailable', 'actors_unavailable', 'player_identity_unavailable', 'profile_switch_failed', 'actions_unavailable', 'context_unavailable', 'hook_exception', 'fatal_error'],
                 'unobserved' => ['request_unobserved'],
             ],
@@ -245,7 +254,8 @@ function pcv_log_event_rules(): array
 function pcv_log_reason_codes(): array
 {
     return [
-        'active_ttl', 'pending_ttl', 'invalid_state_key', 'identity_unavailable', 'state_unavailable',
+        'active_ttl', 'pending_ttl', 'invalid_state_key', 'identity_unavailable', 'state_unavailable', 'reply_in_progress',
+        'left_scene', 'not_eligible_at_start', 'speaker_outside_scene', 'rechat_speaker_outside_scene',
         'corrupt_state', 'symlinked_state', 'not_regular_file', 'state_stat_failed', 'state_too_large',
         'state_read_failed', 'invalid_json', 'invalid_state', 'state_stage_failed', 'state_transition_failed', 'profile_lookup_failed',
         'session_unavailable', 'catalog_unavailable', 'readback_mismatch',
@@ -328,6 +338,12 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
     if ($event === 'state.scope_skipped') {
         return $reason === 'scene_not_eligible';
     }
+    if ($event === 'reflection.ack_pending') {
+        return $reason === 'reply_in_progress';
+    }
+    if ($event === 'state.scope_members_dropped') {
+        return $reason === 'left_scene';
+    }
     if ($event === 'state.presence_rejected') {
         return $reason === 'presence_stale';
     }
@@ -347,7 +363,7 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
         return in_array($reason, ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible'], true);
     }
     if ($event === 'routing.request_blocked') {
-        return in_array($reason, ['unsupported_special_mode', 'invalid_input_prefix', 'invalid_input_encoding', 'empty_input', 'malformed_rechat', 'rechat_speaker_outside_pair', 'speaker_outside_pair', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'], true);
+        return in_array($reason, ['unsupported_special_mode', 'invalid_input_prefix', 'invalid_input_encoding', 'empty_input', 'malformed_rechat', 'rechat_speaker_outside_pair', 'speaker_outside_pair', 'rechat_speaker_outside_scene', 'speaker_outside_scene', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'], true);
     }
     if ($event === 'routing.request_error') {
         return in_array($reason, ['state_unavailable', 'actors_unavailable', 'player_identity_unavailable', 'profile_switch_failed', 'actions_unavailable', 'context_unavailable', 'hook_exception'], true);
@@ -407,6 +423,9 @@ function pcv_log_enum_values(string $key): array
         'model_outcome' => ['valid', 'invalid', 'failed', 'not_called'],
         'persistence_outcome' => ['committed', 'invalid', 'stale', 'failed'],
         'commit_state' => ['confirmed', 'unconfirmed', 'not_attempted'],
+        'presence_check' => ['close', 'grace_expired', 'wide_absent', 'wide_unavailable'],
+        'drop_reason' => ['not_eligible_at_start', 'left_scene'],
+        'opener_source' => ['named', 'picker', 'first', 'target', 'nearest'],
         'decision' => ['non_candidate_request', 'director_excluded', 'scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'input_rewritten', 'player_speech_preserved', 'solo_reflection_routed', 'rechat_clamped', 'continuation_routed', 'responder_selected', 'context_prepared', 'action_constraints_refreshed', 'action_instructions_removed'],
     ];
     if ($key === 'source_reason') {
@@ -505,7 +524,7 @@ function pcv_log_clean_context(string $event, array $context): array
             if (pcv_log_valid_actor_id($value)) {
                 $clean[$key] = $value;
             }
-        } elseif (in_array($key, ['exclude_player', 'pending', 'committed', 'cleanup_failed'], true)) {
+        } elseif (in_array($key, ['exclude_player', 'pending', 'committed', 'cleanup_failed', 'free_scene'], true)) {
             if (is_bool($value)) {
                 $clean[$key] = $value;
             }
@@ -527,7 +546,7 @@ function pcv_log_clean_context(string $event, array $context): array
             if ((is_int($value) || is_float($value)) && is_finite((float)$value) && $value >= 0 && $value <= 86400000) {
                 $clean[$key] = is_int($value) ? $value : round($value, 2);
             }
-        } elseif (in_array($key, ['action', 'scene_mode', 'bystander_mode', 'target', 'operation', 'status', 'request_type', 'phase', 'route', 'state_status', 'mode', 'decision', 'source', 'model_outcome', 'persistence_outcome', 'commit_state', 'source_reason'], true)) {
+        } elseif (in_array($key, ['action', 'scene_mode', 'bystander_mode', 'target', 'operation', 'status', 'request_type', 'phase', 'route', 'state_status', 'mode', 'decision', 'source', 'model_outcome', 'persistence_outcome', 'commit_state', 'source_reason', 'presence_check', 'drop_reason', 'opener_source'], true)) {
             if (is_string($value) && in_array($value, pcv_log_enum_values($key), true)) {
                 $clean[$key] = $value;
             }
@@ -1088,8 +1107,62 @@ function pcv_log_event(string $event, string $severity, string $outcome, ?string
             return;
         }
         pcv_log_write_line($line);
+        if ($event === 'routing.request_finished' && in_array($outcome, ['postrequest_observed', 'unobserved'], true)
+            && is_string($entry['config_id'])) {
+            pcv_log_record_last_turn($entry['config_id'], $outcome, $timestamp);
+        }
     } catch (Throwable) {
         pcv_log_fallback_once('append_failed');
+    }
+}
+
+/** Keep the last scene turn's outcome (no dialogue) so the plugin page need not scan the log. Best effort. */
+function pcv_log_record_last_turn(string $configId, string $outcome, string $timestamp): void
+{
+    try {
+        $directory = pcv_log_resolve_directory(false);
+        if (!is_string($directory)) {
+            return;
+        }
+        $path = $directory . DIRECTORY_SEPARATOR . 'last_turn.json';
+        if (is_link($path)) {
+            return;
+        }
+        $contents = json_encode(['config_id' => $configId, 'outcome' => $outcome, 'timestamp' => $timestamp], JSON_THROW_ON_ERROR);
+        $temporary = tempnam($directory, '.last-turn-');
+        if ($temporary === false) {
+            return;
+        }
+        if (file_put_contents($temporary, $contents) === strlen($contents)) {
+            @chmod($temporary, 0600);
+            @rename($temporary, $path);
+        }
+        if (is_file($temporary)) {
+            @unlink($temporary);
+        }
+    } catch (Throwable) {
+        // The status line is optional; logging continues without it.
+    }
+}
+
+/** Read the last scene turn written by pcv_log_record_last_turn, if it belongs to $configId. */
+function pcv_log_read_last_turn(string $configId): ?array
+{
+    try {
+        $directory = pcv_log_resolve_directory(false);
+        $path = is_string($directory) ? $directory . DIRECTORY_SEPARATOR . 'last_turn.json' : null;
+        if ($path === null || !is_file($path) || is_link($path) || (int)@filesize($path) > 512) {
+            return null;
+        }
+        $turn = json_decode((string)@file_get_contents($path), true, 4);
+        if (!is_array($turn) || ($turn['config_id'] ?? null) !== $configId
+            || !in_array($turn['outcome'] ?? null, ['postrequest_observed', 'unobserved'], true)
+            || !is_string($turn['timestamp'] ?? null) || preg_match('/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/', $turn['timestamp']) !== 1) {
+            return null;
+        }
+        return $turn;
+    } catch (Throwable) {
+        return null;
     }
 }
 
@@ -1162,11 +1235,14 @@ function pcv_log_shutdown_terminal(): void
     if ($request['terminal_emitted'] || !$request['shutdown_registered']) {
         return;
     }
+    // CHIM can end a request without speech on purpose (e.g. its rechat budget, which plugins cannot
+    // observe), so record the request type to tell an ended rechat chain from a failed input.
     $terminal = $request['terminal'] ?? [
         'severity' => 'warning',
         'outcome' => 'unobserved',
         'reason' => 'request_unobserved',
-        'context' => ['phase' => 'shutdown'],
+        'context' => array_filter(['phase' => 'shutdown', 'request_type' => $request['request_type'] ?? null],
+            static fn($value) => $value !== null),
     ];
     $lastError = error_get_last();
     if (is_array($lastError) && in_array($lastError['type'] ?? null, [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true)) {

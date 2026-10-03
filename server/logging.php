@@ -6,7 +6,7 @@ namespace ChimMindPoisoning;
 final class RequestLog
 {
     private const CONTEXT_FIELDS = [
-        'event_id', 'utterance_id', 'config_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'opinion_owner_id', 'source_kind',
+        'event_id', 'utterance_id', 'config_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'opinion_owner_id', 'source_kind',
     ];
     private const CODE_FIELDS = [
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
@@ -20,7 +20,7 @@ final class RequestLog
     private $sink;
     /** @var callable|null */
     private $observer = null;
-    private bool $observing = false;
+    private \stdClass $observerState;
     private bool $diagnostic;
     private string $requestId;
     private string $version;
@@ -33,6 +33,7 @@ final class RequestLog
     {
         $this->sink = $sink;
         $this->diagnostic = $diagnostic ?? self::diagnosticEnabled();
+        $this->observerState = (object)['observing' => false];
         $this->requestId = self::newRequestId();
         $this->version = self::readVersion();
         try {
@@ -51,6 +52,22 @@ final class RequestLog
             }
         } catch (\Throwable) {
         }
+    }
+
+    public function fork(array $context = []): self
+    {
+        $fork = new self($this->sink, $this->diagnostic);
+        $fork->observer = $this->observer;
+        $fork->observerState = $this->observerState;
+        $fork->context($this->context);
+        $fork->context(['batch_id' => $this->requestId]);
+        $fork->context($context);
+        return $fork;
+    }
+
+    public function markBatch(): void
+    {
+        $this->context(['batch_id' => $this->requestId]);
     }
 
     public function observe(?callable $observer): void
@@ -207,7 +224,9 @@ final class RequestLog
             'payload_json_invalid', 'payload_root_invalid', 'payload_field_missing', 'payload_field_type_invalid',
             'payload_field_oversized', 'payload_field_empty', 'payload_invalid_utf8', 'payload_utterance_id_missing',
             'payload_utterance_id_type_invalid', 'payload_utterance_id_invalid', 'payload_raw_oversized', 'payload_raw_type_invalid',
-            'pause_control_invalid',
+            'pause_control_invalid', 'audience_snapshot_unavailable', 'audience_people_invalid',
+            'audience_people_oversized', 'audience_speaker_invalid', 'audience_cap_reached',
+            'overhearing_prompt_invalid', 'listener-scope-stale',
         ];
         if (in_array($outcome, $warnings, true) || in_array($reason, $warnings, true)) {
             return 'warning';
@@ -246,6 +265,13 @@ final class RequestLog
     private static function sanitizeConfigId(mixed $value): ?string
     {
         return is_string($value) && preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/iD', $value) === 1
+            ? $value
+            : null;
+    }
+
+    private static function sanitizeBatchId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/\A(?:[a-f0-9]{24}|fallback-[1-9][0-9]*)\z/D', $value) === 1
             ? $value
             : null;
     }
@@ -340,6 +366,12 @@ final class RequestLog
             if ($key === 'source_kind') {
                 return $value === 'reflection' ? $value : null;
             }
+            if ($key === 'listener_role') {
+                return in_array($value, ['addressed', 'overheard'], true) ? $value : null;
+            }
+            if ($key === 'batch_id') {
+                return self::sanitizeBatchId($value);
+            }
             if ($key === 'playthrough_id' && $value === 'unprofiled') {
                 return $value;
             }
@@ -409,18 +441,18 @@ final class RequestLog
         } catch (\Throwable) {
         }
 
-        if ($this->observing || !is_callable($this->observer)) {
+        if ($this->observerState->observing || !is_callable($this->observer)) {
             return;
         }
         $observerRecord = $record;
         unset($observerRecord['model_reason']);
         $observer = $this->observer;
-        $this->observing = true;
+        $this->observerState->observing = true;
         try {
             @$observer($observerRecord, $level);
         } catch (\Throwable) {
         } finally {
-            $this->observing = false;
+            $this->observerState->observing = false;
         }
     }
 }

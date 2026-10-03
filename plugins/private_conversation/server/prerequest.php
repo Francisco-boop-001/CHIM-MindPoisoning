@@ -2,22 +2,6 @@
 declare(strict_types=1);
 
 $gameRequest = $GLOBALS['gameRequest'] ?? null;
-if (is_array($gameRequest) && ($gameRequest[0] ?? null) === 'ext_pcv_presence') {
-    require_once __DIR__ . '/state.php';
-    try {
-        pcv_capture_autonomous_presence_report(
-            pcv_current_playthrough_key(),
-            $gameRequest[3] ?? null,
-            pcv_current_player_name(),
-            $gameRequest[1] ?? null
-        );
-    } catch (Throwable $error) {
-        pcv_invalidate_eligible_npcs();
-        pcv_log_exception('state.unavailable', 'error', 'unavailable', 'presence_unavailable', $error, ['operation' => 'presence_capture']);
-    }
-    terminate();
-    return;
-}
 
 require_once __DIR__ . '/scope.php';
 
@@ -47,8 +31,9 @@ if (!is_array($requestScope)
     return;
 }
 
-$speaker = $requestScope['scope']['actor_a'] ?? null;
-$profileId = $requestScope['profile_id_a'] ?? null;
+// Group scenes start with the auto or picked opener; pairs and solo start with actor A as before.
+$speaker = $requestScope['opener_name'] ?? ($requestScope['scope']['actor_a'] ?? null);
+$profileId = $requestScope['profile_id_opener'] ?? ($requestScope['profile_id_a'] ?? null);
 pcvRoutingLogSetState($requestScope);
 pcvRoutingLogStart(pcvRoutingLogCurrentType());
 if (!pcvRequestScopeModeMatches($requestScope)) {
@@ -75,7 +60,7 @@ if (!$switched) {
     pcvBlockRequest('Private Conversation could not select the starting NPC; request stopped for safety.', 'profile_switch_failed', 'prerequest', $requestScope, true);
 }
 
-// The eligible ordinary input always starts with actor A. This selects the generated
+// The eligible ordinary input starts with the opener (A for pairs and solo). This selects the generated
 // responder only; the input remains an unattributed scene direction, never actor speech.
 $GLOBALS['PCV_REQUEST_SCOPE']['start'] = false;
 pcvRoutingLogDetail('prerequest', 'responder_selected', pcvRoutingLogCurrentType(), $requestScope);

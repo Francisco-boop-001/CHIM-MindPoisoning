@@ -5,6 +5,8 @@ namespace ChimMindPoisoning;
 
 use Throwable;
 
+const MIND_POISONING_NPC_ACK_OVERHEARING_API_VERSION = 1;
+
 function speechAckInteractionStatus(?string &$reason = null): string
 {
     $reason = 'interaction_off';

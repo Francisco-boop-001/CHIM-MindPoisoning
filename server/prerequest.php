@@ -145,6 +145,11 @@ function handleSpeechAck(
     $requestLog?->event('ack_started', 'debug', ['stage' => 'preflight']);
 
     $status = evaluateInfluenceRequest($gameRequest, $store, $requestModel, $requestLog, $logFields);
+    $finishedByBatch = ($logFields['_finished_by_batch'] ?? false) === true;
+    unset($logFields['_finished_by_batch']);
+    if ($finishedByBatch) {
+        return $status;
+    }
     return finishInfluenceRequest($status, $logFields, $requestLog);
 }
 
@@ -156,14 +161,603 @@ function finishInfluenceRequest(string $status, array $logFields, ?RequestLog $r
     if ($status === 'committed') {
         $outcome = 'committed';
         $reason = 'committed';
+    } elseif ($status === 'model-invalid' || ($status === 'failed' && ($logFields['model_outcome'] ?? null) === 'invalid')) {
+        $outcome = 'rejected';
     } elseif ($status === 'failed') {
         $outcome = 'failed';
         $reason = $logFields['reason'] ?? 'evaluation_failed';
-    } elseif ($status === 'model-invalid') {
-        $outcome = 'rejected';
     }
     $requestLog?->finish($outcome, $reason, $logFields);
     return $status;
+}
+
+function overhearingSettingEnabled(): bool
+{
+    if (!function_exists('chimGetGeneralSettingBool')) {
+        return false;
+    }
+    try {
+        return \chimGetGeneralSettingBool('mind_poisoning_overhearing_enabled', false) === true;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+/** Parse only a small, literal eventlog.people list; malformed snapshots only suppress extras. */
+function overhearingPeopleNames(mixed $raw, ?string &$reason = null): ?array
+{
+    $reason = 'audience_people_invalid';
+    if (is_string($raw) && strlen($raw) > 2048) {
+        $reason = 'audience_people_oversized';
+        return null;
+    }
+    if (!is_string($raw) || $raw === '' || preg_match('//u', $raw) !== 1 || !function_exists('parsePeoplePipeList')) {
+        return null;
+    }
+    $parts = explode('|', $raw);
+    if (count($parts) > 64) {
+        $reason = 'audience_people_oversized';
+        return null;
+    }
+    if (($parts[0] ?? null) !== null && trim($parts[0]) === '') {
+        array_shift($parts);
+    }
+    if ($parts !== [] && trim($parts[array_key_last($parts)]) === '') {
+        array_pop($parts);
+    }
+    if ($parts === []) {
+        return null;
+    }
+    $expected = [];
+    foreach ($parts as $name) {
+        $name = trim($name);
+        if (
+            $name === '' || strlen($name) > 256 || preg_match('//u', $name) !== 1
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
+        ) {
+            return null;
+        }
+        if (!in_array($name, $expected, true)) {
+            $expected[] = $name;
+        }
+    }
+    try {
+        $parsed = \parsePeoplePipeList($raw);
+    } catch (Throwable) {
+        return null;
+    }
+    if (!is_array($parsed) || !array_is_list($parsed) || $parsed !== $expected) {
+        return null;
+    }
+    $reason = null;
+    return $parsed;
+}
+
+/** Return the existing addressed-path preflight without letting it veto other listeners. */
+function inspectAckRecipient(
+    array $event,
+    array $listener,
+    StoreDb $store,
+    array $identities,
+    string $playerName
+): array {
+    $extended = $listener['extended_data'] ?? null;
+    if (!$extended instanceof \stdClass) {
+        return ['status' => 'listener-invalid', 'reason' => 'listener_extended_data_invalid'];
+    }
+    if (!empty($extended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
+        return ['status' => 'locked', 'reason' => 'relationship_locked'];
+    }
+    $relationships = $extended->relationships ?? new \stdClass();
+    if (!$relationships instanceof \stdClass) {
+        return ['status' => 'listener-invalid', 'reason' => 'listener_relationships_invalid'];
+    }
+    $dedupeReason = null;
+    if (eventAlreadyProcessed($listener, $event['playthrough_id'], $event['event_id'], $event['utterance_id'], $dedupeReason)) {
+        return ['status' => 'duplicate', 'reason' => $dedupeReason ?? 'duplicate'];
+    }
+    $subjects = findSubjects($event, $identities, $playerName);
+    if (count($subjects) > 8) {
+        return ['status' => 'too-many-subjects', 'reason' => 'too_many_subjects'];
+    }
+    if ($subjects === []) {
+        return ['status' => 'no-subjects', 'reason' => 'no_subjects'];
+    }
+    if (array_key_exists('player', $subjects)) {
+        try {
+            playerRelationshipKey($relationships, $playerName);
+        } catch (\RuntimeException) {
+            return ['status' => 'listener-invalid', 'reason' => 'player_alias_ambiguous'];
+        }
+    }
+    foreach ($subjects as $subject) {
+        if ($subject['id'] === null) {
+            continue;
+        }
+        $row = $store->npcById($subject['id']);
+        if (!is_array($row) || !sameActorName($row['npc_name'] ?? null, $subject['name'])) {
+            return ['status' => 'subject-stale', 'reason' => 'subject_stale'];
+        }
+    }
+    return ['status' => 'eligible', 'subjects' => $subjects];
+}
+
+/** Return null to keep using the legacy single-listener ACK path. */
+function evaluateOverhearingAck(
+    array $event,
+    array $source,
+    array $speaker,
+    array $listener,
+    array $identities,
+    string $playerName,
+    int $connectorId,
+    StoreDb $store,
+    ?callable $requestModel,
+    ?RequestLog $requestLog,
+    array &$logFields
+): ?string {
+    if (!overhearingSettingEnabled()) {
+        return null;
+    }
+    if (!$store instanceof WitnessSnapshotStoreDb) {
+        $requestLog?->event('overhearing_audience_skipped', 'warning', [
+            'stage' => 'preflight', 'reason' => 'audience_snapshot_unavailable',
+        ]);
+        return null;
+    }
+    $peopleReason = null;
+    if (!empty($source['source_people_oversized'])) {
+        $peopleReason = 'audience_people_oversized';
+        $people = null;
+    } else {
+        $people = overhearingPeopleNames($source['source_people'] ?? null, $peopleReason);
+    }
+    if (!is_array($people)) {
+        $requestLog?->event('overhearing_audience_skipped', 'warning', [
+            'stage' => 'preflight', 'reason' => $peopleReason ?? 'audience_people_invalid',
+        ]);
+        return null;
+    }
+    $speakerMembers = array_values(array_filter($people, static fn(string $name): bool => sameActorName($name, $event['speaker_name'])));
+    if (count($speakerMembers) !== 1) {
+        $requestLog?->event('overhearing_audience_skipped', 'warning', [
+            'stage' => 'preflight', 'reason' => 'audience_speaker_invalid',
+        ]);
+        return null;
+    }
+
+    $addressedId = $event['listener_id'];
+    $addressedName = $event['listener_name'];
+    $seenIds = [$event['speaker_id'] => true, $addressedId => true];
+    $eligibleExtras = [];
+    $filteredAny = false;
+    foreach ($people as $name) {
+        if (isPlayerName($name, $playerName)) {
+            $filteredAny = true;
+            continue;
+        }
+        $matches = array_values(array_filter(
+            $identities,
+            static fn(array $row): bool => sameActorName($row['npc_name'] ?? null, $name)
+        ));
+        if (count($matches) !== 1 || !is_int($matches[0]['id'] ?? null)) {
+            $filteredAny = true;
+            continue;
+        }
+        $identity = $matches[0];
+        $npcId = $identity['id'];
+        if (isset($seenIds[$npcId])) {
+            $filteredAny = true;
+            continue;
+        }
+        $seenIds[$npcId] = true;
+        try {
+            $row = $store->npcById($npcId);
+        } catch (Throwable) {
+            $requestLog?->event('overhearing_audience_skipped', 'error', [
+                'stage' => 'preflight', 'reason' => 'audience_lookup_failed',
+            ]);
+            continue;
+        }
+        if (!is_array($row) || !sameActorName($row['npc_name'] ?? null, $name)) {
+            $filteredAny = true;
+            continue;
+        }
+        $recipientEvent = $event;
+        $recipientEvent['listener_id'] = $npcId;
+        $recipientEvent['listener_name'] = $row['npc_name'];
+        $recipientEvent['listener_role'] = 'overheard';
+        $recipientEvent['addressed_listener_id'] = $addressedId;
+        $recipientEvent['addressed_listener_name'] = $addressedName;
+        $recipientEvent['source_people'] = $source['source_people'];
+        $recipientEvent['source_delivery_state'] = $source['delivery_state'] ?? null;
+        try {
+            $preflight = inspectAckRecipient($recipientEvent, $row, $store, $identities, $playerName);
+        } catch (Throwable) {
+            $requestLog?->event('overhearing_audience_skipped', 'error', [
+                'stage' => 'preflight', 'reason' => 'audience_preflight_failed',
+            ]);
+            continue;
+        }
+        if (($preflight['status'] ?? null) !== 'eligible') {
+            $filteredAny = true;
+            continue;
+        }
+        $eligibleExtras[] = [
+            'event' => $recipientEvent,
+            'listener' => $row,
+            'subjects' => $preflight['subjects'],
+        ];
+        if (count($eligibleExtras) > 4) {
+            if ($filteredAny) {
+                $requestLog?->event('overhearing_audience_filtered', 'debug', [
+                    'stage' => 'preflight', 'reason' => 'audience_members_filtered',
+                ]);
+            }
+            $requestLog?->event('overhearing_audience_skipped', 'warning', [
+                'stage' => 'preflight', 'reason' => 'audience_cap_reached',
+            ]);
+            return null;
+        }
+    }
+    if ($filteredAny) {
+        $requestLog?->event('overhearing_audience_filtered', 'debug', [
+            'stage' => 'preflight', 'reason' => 'audience_members_filtered',
+        ]);
+    }
+    if ($eligibleExtras === []) {
+        return null;
+    }
+    $addressedEvent = $event + [
+        'listener_role' => 'addressed',
+        'addressed_listener_id' => $addressedId,
+        'addressed_listener_name' => $addressedName,
+    ];
+    try {
+        $addressedPreflight = inspectAckRecipient($event, $listener, $store, $identities, $playerName);
+    } catch (Throwable) {
+        $requestLog?->event('overhearing_audience_skipped', 'error', [
+            'stage' => 'preflight', 'reason' => 'addressed_preflight_failed',
+        ]);
+        return null;
+    }
+    $selected = [];
+    if (($addressedPreflight['status'] ?? null) === 'eligible') {
+        $selected[] = [
+            'event' => $addressedEvent,
+            'listener' => $listener,
+            'subjects' => $addressedPreflight['subjects'],
+        ];
+    }
+    $selected = array_merge($selected, $eligibleExtras);
+
+    $speakerPrompt = promptNpcCopy($speaker);
+    try {
+        $promptRecipients = [];
+        foreach ($selected as $recipient) {
+            $recipient['listener'] = promptNpcCopy($recipient['listener']);
+            $promptRecipients[] = $recipient;
+        }
+        $messages = buildOverhearingMessages($event, $speakerPrompt, $promptRecipients);
+    } catch (Throwable) {
+        $requestLog?->event('overhearing_prompt_skipped', 'error', [
+            'stage' => 'preflight', 'reason' => 'overhearing_prompt_build_failed',
+        ]);
+        return null;
+    }
+    if (!overhearingSettingEnabled()) {
+        return null;
+    }
+
+    $primary = $selected[0];
+    $primaryEvent = $primary['event'];
+    $primaryId = $primaryEvent['listener_id'];
+    $addressedSelected = ($addressedPreflight['status'] ?? null) === 'eligible';
+    $addressedStatus = $addressedPreflight['status'] ?? 'listener-invalid';
+    $addressedReason = $addressedPreflight['reason'] ?? $addressedStatus;
+    $primaryContext = [
+        'event_id' => $event['event_id'],
+        'utterance_id' => $event['utterance_id'],
+        'playthrough_id' => $event['playthrough_id'],
+        'speaker_id' => $event['speaker_id'],
+        'speaker_kind' => 'npc',
+        'listener_id' => $primaryId,
+        'addressed_listener_id' => $addressedId,
+        'listener_role' => $primaryEvent['listener_role'],
+        'connector_id' => $connectorId,
+        'subject_count' => count($primary['subjects']),
+    ];
+    $requestLog?->markBatch();
+    $requestLog?->context($primaryContext);
+    $recipientLogs = [$primaryId => $requestLog];
+    foreach (array_slice($selected, 1) as $recipient) {
+        $recipientEvent = $recipient['event'];
+        $recipientId = $recipientEvent['listener_id'];
+        $recipientLogs[$recipientId] = $requestLog?->fork([
+            'event_id' => $event['event_id'],
+            'utterance_id' => $event['utterance_id'],
+            'playthrough_id' => $event['playthrough_id'],
+            'speaker_id' => $event['speaker_id'],
+            'speaker_kind' => 'npc',
+            'listener_id' => $recipientId,
+            'addressed_listener_id' => $addressedId,
+            'listener_role' => $recipientEvent['listener_role'],
+            'connector_id' => $connectorId,
+            'subject_count' => count($recipient['subjects']),
+        ]);
+    }
+    if (!$addressedSelected) {
+        $addressedLog = $requestLog?->fork([
+            'event_id' => $event['event_id'],
+            'utterance_id' => $event['utterance_id'],
+            'playthrough_id' => $event['playthrough_id'],
+            'speaker_id' => $event['speaker_id'],
+            'speaker_kind' => 'npc',
+            'listener_id' => $addressedId,
+            'addressed_listener_id' => $addressedId,
+            'listener_role' => 'addressed',
+            'connector_id' => $connectorId,
+        ]);
+        finishInfluenceRequest($addressedStatus, [
+            'stage' => 'preflight', 'model_outcome' => 'not_called',
+            'reason' => $addressedReason,
+        ], $addressedLog);
+    }
+    $finishBatch = static function (string $primaryStatus, array $primaryFields) use (
+        &$logFields,
+        $requestLog,
+        $addressedSelected,
+        $addressedStatus
+    ): string {
+        $logFields = array_merge($logFields, $primaryFields);
+        $logFields['_finished_by_batch'] = true;
+        finishInfluenceRequest($primaryStatus, $primaryFields, $requestLog);
+        return $addressedSelected ? $primaryStatus : $addressedStatus;
+    };
+
+    $logFields = array_merge($logFields, [
+        'stage' => 'model',
+        'model_outcome' => 'not_called',
+        'connector_id' => $connectorId,
+        'subject_count' => count($primary['subjects']),
+    ]);
+    $requestLog?->event('overhearing_batch_started', 'info', [
+        'stage' => 'model', 'connector_id' => $connectorId,
+        'subject_count' => count($primary['subjects']),
+    ]);
+    $requestLog?->event('model_started', 'debug', [
+        'stage' => 'model', 'connector_id' => $connectorId,
+        'subject_count' => count($primary['subjects']),
+    ]);
+    $requestModel ??= static fn(array $batchMessages): string => requestJudgments($batchMessages, 4096);
+    $modelStarted = hrtime(true);
+    $response = null;
+    $modelFailure = null;
+    try {
+        $response = $requestModel($messages);
+    } catch (Throwable $error) {
+        $modelFailure = $error instanceof ModelRequestFailure ? $error->reasonCode : 'model_request_failed';
+    }
+    $modelMs = RequestLog::elapsedMs($modelStarted);
+    $logFields['model_ms'] = $modelMs;
+    $subjectsByListener = [];
+    $modelStatus = 'committed';
+    $modelReason = null;
+    $modelOutcome = 'validated';
+    if ($modelFailure !== null) {
+        $modelStatus = 'failed';
+        $modelReason = $modelFailure;
+        $modelOutcome = 'failed';
+    } elseif (!is_string($response)) {
+        $modelStatus = 'failed';
+        $modelReason = 'model_response_invalid';
+        $modelOutcome = 'invalid';
+    } else {
+        try {
+            $subjectsByListener = parseOverhearingJudgments($response, $selected, $event['text']);
+        } catch (JudgmentValidationFailure $error) {
+            $modelStatus = 'model-invalid';
+            $modelReason = $error->reasonCode;
+            $modelOutcome = 'invalid';
+        } catch (Throwable) {
+            $modelStatus = 'failed';
+            $modelReason = 'judgment_parser_internal_failed';
+            $modelOutcome = 'failed';
+        }
+    }
+    $logFields['model_outcome'] = $modelOutcome;
+    if ($modelReason !== null) {
+        $logFields['reason'] = $modelReason;
+    }
+    $modelLevel = $modelOutcome === 'failed' ? 'error' : ($modelOutcome === 'invalid' ? 'warning' : 'info');
+    $requestLog?->event('model_finished', $modelLevel, [
+        'stage' => 'model_validation',
+        'model_outcome' => $modelOutcome,
+        'reason' => $modelReason,
+        'model_ms' => $modelMs,
+    ]);
+
+    $finishNonPrimary = static function (
+        string $status,
+        array $fields,
+        ?RequestLog $log
+    ): void {
+        if ($log !== null) {
+            finishInfluenceRequest($status, $fields, $log);
+        }
+    };
+    if ($modelStatus !== 'committed') {
+        foreach (array_slice($selected, 1) as $recipient) {
+            $id = $recipient['event']['listener_id'];
+            $log = $recipientLogs[$id] ?? null;
+            $log?->event('batch_model_result', $modelOutcome === 'failed' ? 'error' : 'warning', [
+                'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
+                'reason' => $modelReason, 'model_ms' => $modelMs,
+            ]);
+            $finishNonPrimary($modelStatus, [
+                'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
+                'reason' => $modelReason ?? $modelStatus, 'model_ms' => $modelMs,
+            ], $log);
+        }
+        $logFields['reason'] = $modelReason ?? $modelStatus;
+        return $finishBatch($modelStatus, [
+            'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
+            'reason' => $modelReason ?? $modelStatus, 'model_ms' => $modelMs,
+        ]);
+    }
+    $logFields['model_outcome'] = 'validated';
+    $requestLog?->event('model_batch_validated', 'info', [
+        'stage' => 'model_validation', 'model_outcome' => 'validated', 'model_ms' => $modelMs,
+    ]);
+
+    $interactionReason = null;
+    $interactionStatus = speechAckInteractionStatus($interactionReason);
+    $pauseReason = null;
+    $pauseStatus = mindPoisoningPauseStatus($pauseReason);
+    if ($interactionStatus !== 'ok' || $pauseStatus !== 'enabled') {
+        $gateStatus = $interactionStatus !== 'ok' ? $interactionStatus : $pauseStatus;
+        $gateReason = $interactionStatus !== 'ok' ? $interactionReason : $pauseReason;
+        foreach (array_slice($selected, 1) as $recipient) {
+            $id = $recipient['event']['listener_id'];
+            $finishNonPrimary($gateStatus, [
+                'stage' => 'post_model_gate', 'model_outcome' => 'validated',
+                'reason' => $gateReason ?? $gateStatus, 'model_ms' => $modelMs,
+            ], $recipientLogs[$id] ?? null);
+        }
+        $logFields['stage'] = 'post_model_gate';
+        $logFields['reason'] = $gateReason ?? $gateStatus;
+        return $finishBatch($gateStatus, [
+            'stage' => 'post_model_gate', 'model_outcome' => 'validated',
+            'reason' => $gateReason ?? $gateStatus, 'model_ms' => $modelMs,
+        ]);
+    }
+
+    $settingStillEnabled = overhearingSettingEnabled();
+    $writeCandidates = array_values(array_filter($selected, static fn(array $recipient): bool =>
+        ($recipient['event']['listener_role'] ?? null) === 'addressed'
+        || $settingStillEnabled
+    ));
+    $writeIds = array_fill_keys(array_map(static fn(array $recipient): int => $recipient['event']['listener_id'], $writeCandidates), true);
+    foreach (array_slice($selected, 1) as $recipient) {
+        $id = $recipient['event']['listener_id'];
+        $log = $recipientLogs[$id] ?? null;
+        if (!isset($writeIds[$id])) {
+            $finishNonPrimary('disabled', [
+                'stage' => 'post_model_gate', 'model_outcome' => 'validated',
+                'reason' => 'overhearing_disabled', 'model_ms' => $modelMs,
+            ], $log);
+            continue;
+        }
+        $log?->event('batch_model_result', 'info', [
+            'stage' => 'model_validation', 'model_outcome' => 'validated', 'model_ms' => $modelMs,
+        ]);
+    }
+    if ($writeCandidates === []) {
+        $logFields['stage'] = 'post_model_gate';
+        $logFields['reason'] = 'overhearing_disabled';
+        return $finishBatch('disabled', [
+            'stage' => 'post_model_gate', 'model_outcome' => 'validated',
+            'reason' => 'overhearing_disabled', 'model_ms' => $modelMs,
+        ]);
+    }
+
+    $primaryResult = 'failed';
+    $primaryFields = [];
+    foreach ($writeCandidates as $index => $recipient) {
+        $recipientEvent = $recipient['event'];
+        $id = $recipientEvent['listener_id'];
+        $recipientLog = $recipientLogs[$id] ?? null;
+        $recipientFields = [
+            'stage' => 'persistence',
+            'model_outcome' => 'validated',
+            'model_ms' => $modelMs,
+            'subject_count' => count($recipient['subjects']),
+        ];
+        if (($recipientEvent['listener_role'] ?? null) === 'overheard' && !overhearingSettingEnabled()) {
+            $recipientStatus = 'disabled';
+            $recipientFields['reason'] = 'overhearing_disabled';
+        } else {
+            $scopeCheck = null;
+            if (($recipientEvent['listener_role'] ?? null) === 'overheard') {
+                $scopeCheck = static function (
+                    array $expected,
+                    array $current,
+                    array $active
+                ): bool {
+                    if (
+                        !overhearingSettingEnabled()
+                        || ($active['id'] ?? null) !== ($expected['playthrough_id'] ?? null)
+                        || ($current['source_people'] ?? null) !== ($expected['source_people'] ?? null)
+                        || !deliveryStateNotRegressed($expected['source_delivery_state'] ?? null, $current['delivery_state'] ?? null)
+                    ) {
+                        return false;
+                    }
+                    $reason = null;
+                    $members = overhearingPeopleNames($current['source_people'] ?? null, $reason);
+                    if (!is_array($members)) {
+                        return false;
+                    }
+                    $listenerMembers = array_values(array_filter($members, static fn(string $name): bool =>
+                        sameActorName($name, $expected['listener_name'] ?? null)
+                    ));
+                    if (count($listenerMembers) !== 1 || !function_exists('extractTalkTargetMetadata') || !function_exists('talkTargetsIncludeName')) {
+                        return false;
+                    }
+                    try {
+                        $sourceSpeaker = \extractSpeakerNameFromChatEvent($current['source_data'] ?? '');
+                        $target = \extractTalkTargetMetadata($current['source_data'] ?? '');
+                    } catch (Throwable) {
+                        return false;
+                    }
+                    if (
+                        !is_string($sourceSpeaker) || !sameActorName($sourceSpeaker, $expected['speaker_name'] ?? null)
+                        || !is_array($target) || empty($target['hasExplicitTarget']) || !empty($target['isBroadcast'])
+                        || !\talkTargetsIncludeName($target['targets'] ?? [], $expected['addressed_listener_name'] ?? null)
+                    ) {
+                        return false;
+                    }
+                    return true;
+                };
+            }
+            $persistenceStarted = hrtime(true);
+            $previousStoreLog = $store instanceof PostgresStoreDb
+                ? $store->setRequestLog($recipientLog)
+                : null;
+            try {
+                $recipientStatus = persistJudgments(
+                    $recipientEvent,
+                    $recipient['subjects'],
+                    $subjectsByListener[$id],
+                    $store,
+                    $recipientLog,
+                    null,
+                    null,
+                    $scopeCheck
+                );
+            } catch (Throwable) {
+                $recipientStatus = 'failed';
+                $recipientFields['reason'] = 'persistence_failed';
+                $recipientFields['persistence_outcome'] = 'failed';
+            } finally {
+                if ($store instanceof PostgresStoreDb) {
+                    $store->setRequestLog($previousStoreLog);
+                }
+            }
+            $recipientFields['persistence_ms'] = RequestLog::elapsedMs($persistenceStarted);
+            $recipientFields['persistence_outcome'] ??= $recipientStatus;
+            if ($recipientStatus === 'failed' && !isset($recipientFields['reason'])) {
+                $recipientFields['reason'] = 'persistence_failed';
+            }
+        }
+        if ($index > 0 && $recipientLog !== null) {
+            finishInfluenceRequest($recipientStatus, $recipientFields, $recipientLog);
+        }
+        if ($id === $primaryId) {
+            $primaryResult = $recipientStatus;
+            $primaryFields = $recipientFields;
+        }
+    }
+    return $finishBatch($primaryResult, $primaryFields);
 }
 
 /**
@@ -472,7 +1066,10 @@ function evaluateInfluenceRequest(
                 return 'player-actor';
             }
 
-            $source = $store->acknowledgedEvent($utteranceId);
+            $overhearingRequested = overhearingSettingEnabled();
+            $source = $overhearingRequested && $store instanceof WitnessSnapshotStoreDb
+                ? $store->acknowledgedEventWithPeople($utteranceId)
+                : $store->acknowledgedEvent($utteranceId);
             $sourceData = is_array($source) ? ($source['source_data'] ?? null) : null;
             if (!is_string($sourceData) || strlen($sourceData) > 16384) {
                 return 'event-unmatched';
@@ -507,20 +1104,6 @@ function evaluateInfluenceRequest(
                 'speaker_id' => $speakerIdentity['id'],
                 'listener_id' => $listenerIdentity['id'],
             ]);
-            $listenerExtended = $listener['extended_data'] ?? null;
-            if (!$listenerExtended instanceof \stdClass) {
-                $logFields['reason'] = 'listener_extended_data_invalid';
-                return 'listener-invalid';
-            }
-            if (!empty($listenerExtended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
-                return 'locked';
-            }
-            $dedupeReason = null;
-            if (eventAlreadyProcessed($listener, $profile['id'], $source['event_id'], $utteranceId, $dedupeReason)) {
-                $logFields['reason'] = $dedupeReason ?? 'duplicate';
-                return 'duplicate';
-            }
-
             $event = [
                 'utterance_id' => $utteranceId,
                 'speaker_id' => $speakerIdentity['id'],
@@ -534,6 +1117,37 @@ function evaluateInfluenceRequest(
                 'player_name' => $playerName,
                 'source_data' => $sourceData,
             ];
+            if ($overhearingRequested) {
+                $batchStatus = evaluateOverhearingAck(
+                    $event,
+                    $source,
+                    $speaker,
+                    $listener,
+                    $identities,
+                    $playerName,
+                    $connectorId,
+                    $store,
+                    $requestModel,
+                    $requestLog,
+                    $logFields
+                );
+                if ($batchStatus !== null) {
+                    return $batchStatus;
+                }
+            }
+            $listenerExtended = $listener['extended_data'] ?? null;
+            if (!$listenerExtended instanceof \stdClass) {
+                $logFields['reason'] = 'listener_extended_data_invalid';
+                return 'listener-invalid';
+            }
+            if (!empty($listenerExtended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
+                return 'locked';
+            }
+            $dedupeReason = null;
+            if (eventAlreadyProcessed($listener, $profile['id'], $source['event_id'], $utteranceId, $dedupeReason)) {
+                $logFields['reason'] = $dedupeReason ?? 'duplicate';
+                return 'duplicate';
+            }
         }
         $subjects = findSubjects($event, $identities, $playerName);
         $logFields['subject_count'] = count($subjects);
@@ -612,15 +1226,24 @@ function evaluateInfluenceRequest(
         }
         try {
             $judgments = parseJudgments($response, $subjects, $event['text']);
-        } catch (Throwable $error) {
-            $validationReason = $error instanceof JudgmentValidationFailure
-                ? $error->reasonCode
-                : 'judgment_validation_failed';
+        } catch (JudgmentValidationFailure $error) {
+            $validationReason = $error->reasonCode;
             $logFields['model_outcome'] = 'invalid';
             $logFields['reason'] = $validationReason;
             $requestLog?->event('model_finished', 'warning', [
                 'stage' => 'model_validation',
                 'model_outcome' => 'invalid',
+                'reason' => $validationReason,
+                'model_ms' => $logFields['model_ms'],
+            ]);
+            return 'failed';
+        } catch (Throwable) {
+            $validationReason = 'judgment_parser_internal_failed';
+            $logFields['model_outcome'] = 'failed';
+            $logFields['reason'] = $validationReason;
+            $requestLog?->event('model_finished', 'error', [
+                'stage' => 'model_validation',
+                'model_outcome' => 'failed',
                 'reason' => $validationReason,
                 'model_ms' => $logFields['model_ms'],
             ]);

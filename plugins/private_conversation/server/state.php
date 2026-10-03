@@ -7,7 +7,22 @@ const PCV_STATE_VERSION = 1;
 const PCV_PENDING_TTL = 900;
 const PCV_ACTIVE_TTL = 3600;
 const PCV_PRESENCE_TTL = 45;
+// observed_at has whole-second resolution and activity is reported just after its heartbeat,
+// so a same-second read can compute a slightly negative age; tolerate up to one second of it.
+const PCV_PRESENCE_CLOCK_TOLERANCE = 1;
+// Busy places report many actors (live maximum seen: 79); generic duplicates are kept so names stay ambiguous.
+const PCV_PRESENCE_MAX_ACTORS = 128;
+// Room for the actor list plus the bounded recent-name map (both at most 128 names).
+const PCV_PRESENCE_DOCUMENT_MAX_BYTES = 131072;
 const PCV_BACKGROUND_PRESENCE_VERSION = 1;
+// Inside an active scene a participant may be out of the close report this long (live: partners wander mid-scene).
+const PCV_PRESENCE_ACTIVE_GRACE = 60;
+const PCV_WIDE_PRESENCE_VERSION = 1;
+// An early-line ACK within this window of a solo request start is "reply in progress", not "registration missing".
+const PCV_SOLO_INFLIGHT_TTL = 180;
+// Group scenes (0.1.11) hold 2 to 4 members.
+const PCV_GROUP_MAX_MEMBERS = 4;
+const PCV_FREE_MAX_MEMBERS = 6;
 
 function pcv_shared_server_identity($playerName): array
 {
@@ -244,8 +259,10 @@ function pcv_state_validate_legacy_directory(string $directory): void
     $files = [
         'state.lock' => 4096,
         'state.json' => 16384,
-        'presence.json' => 32768,
-        'background_presence.json' => 32768,
+        'presence.json' => PCV_PRESENCE_DOCUMENT_MAX_BYTES,
+        'background_presence.json' => PCV_PRESENCE_DOCUMENT_MAX_BYTES,
+        'background_wide_presence.json' => PCV_PRESENCE_DOCUMENT_MAX_BYTES,
+        'solo_inflight.json' => 512,
         'reflection.json' => 8192,
         'reflection_receipts.json' => 8192,
     ];
@@ -269,9 +286,9 @@ function pcv_state_validate_legacy_directory(string $directory): void
             }
             continue;
         }
-        if (preg_match('/\\A\\.(?:state|background-presence|presence|reflection|reflection-receipts)-[A-Za-z0-9]{6}\\z/D', $name) === 1) {
+        if (preg_match('/\\A\\.(?:state|background-presence|wide-presence|solo-inflight|presence|reflection|reflection-receipts)-[A-Za-z0-9]{6}\\z/D', $name) === 1) {
             $size = @filesize($path);
-            if (!is_int($size) || $size > 65536) {
+            if (!is_int($size) || $size > PCV_PRESENCE_DOCUMENT_MAX_BYTES) {
                 throw new RuntimeException('Legacy state temporary file is unavailable.');
             }
             continue;
@@ -443,20 +460,59 @@ function pcv_valid_config($config, bool $allowDisabled): bool
             && ($config['actor_b'] ?? null) === '';
     }
 
+    // Free scene (0.1.12): members are chosen at activation; the player is always excluded.
+    $free = array_key_exists('free', $config);
+    if ($free) {
+        if ($config['free'] !== true || $sceneMode !== 'pair' || $config['exclude_player'] !== true) {
+            return false;
+        }
+        if (!array_key_exists('actor_a', $config) && !array_key_exists('actor_b', $config)
+            && !array_key_exists('actor_ids', $config) && !array_key_exists('opener', $config)) {
+            return true;
+        }
+        if (!array_key_exists('actor_ids', $config)) {
+            return false;
+        }
+    }
+
     $actorA = $config['actor_a'] ?? null;
     $actorB = $config['actor_b'] ?? null;
-    $validActorA = is_string($actorA) && $actorA !== '' && strlen($actorA) <= 256
+    $validActorA =is_string($actorA) && $actorA !== '' && strlen($actorA) <= 256
         && preg_match('//u', $actorA) === 1 && preg_match('/[\x00-\x1f\x7f]/', $actorA) !== 1;
     if (!$validActorA) {
         return false;
     }
     if ($sceneMode === 'solo') {
-        return array_key_exists('actor_b', $config) && $actorB === null && $config['exclude_player'] === true;
+        return array_key_exists('actor_b', $config) && $actorB === null && $config['exclude_player'] === true
+            && !array_key_exists('actor_ids', $config) && !array_key_exists('opener', $config);
     }
-    return is_string($actorB) && $actorB !== '' && strlen($actorB) <= 256
+    $validB = is_string($actorB) && $actorB !== '' && strlen($actorB) <= 256
         && $actorA !== $actorB
         && preg_match('//u', $actorB) === 1
         && preg_match('/[\x00-\x1f\x7f]/', $actorB) !== 1;
+    if (!$validB) {
+        return false;
+    }
+    // Legacy two-member pair: no member list and no opener.
+    if (!array_key_exists('actor_ids', $config)) {
+        return !array_key_exists('opener', $config);
+    }
+    // Group (0.1.11): 2-4 ordered members; actor_a/actor_b mirror the first two.
+    $ids = $config['actor_ids'];
+    if (!is_array($ids) || !array_is_list($ids) || count($ids) < 2 || count($ids) > ($free ? PCV_FREE_MAX_MEMBERS : PCV_GROUP_MAX_MEMBERS)
+        || ($ids[0] ?? null) !== $actorA || ($ids[1] ?? null) !== $actorB) {
+        return false;
+    }
+    foreach ($ids as $id) {
+        if (!is_string($id) || preg_match('/\A[1-9][0-9]{0,18}\z/D', $id) !== 1) {
+            return false;
+        }
+    }
+    if (count(array_unique($ids)) !== count($ids)) {
+        return false;
+    }
+    $opener = $config['opener'] ?? null;
+    return $opener === 'auto' || (is_string($opener) && in_array($opener, $ids, true));
 }
 
 function pcv_valid_stored_state(array $state): bool
@@ -473,6 +529,19 @@ function pcv_valid_stored_state(array $state): bool
             || $active['activated_at'] < 1 || $active['expires_at'] <= $active['activated_at']
             || $active['expires_at'] > $active['activated_at'] + PCV_ACTIVE_TTL) {
             return false;
+        }
+        if (array_key_exists('dropped', $active)) {
+            $dropped = $active['dropped'];
+            if (!is_array($dropped) || !array_is_list($dropped) || count($dropped) > PCV_FREE_MAX_MEMBERS) {
+                return false;
+            }
+            foreach ($dropped as $entry) {
+                if (!is_array($entry) || count($entry) !== 2
+                    || !is_string($entry['id'] ?? null) || preg_match('/\A[1-9][0-9]{0,18}\z/D', $entry['id']) !== 1
+                    || !in_array($entry['reason'] ?? null, ['not_eligible_at_start', 'left_scene'], true)) {
+                    return false;
+                }
+            }
         }
     }
 
@@ -560,7 +629,8 @@ function pcv_presence_result(string $status, array $actors = [], ?float $radius 
     return ['status' => $status, 'actors' => $actors, 'radius' => $radius, 'observed_at' => $observedAt, 'reason' => $reason];
 }
 
-function pcv_presence_observed_result(string $source, array $result): array
+/** Log the observation unless it is a routine success the caller marked as unchanged. */
+function pcv_presence_observed_result(string $source, array $result, bool $logRoutineSuccess = true): array
 {
     $observation = is_array($result['_pcv_observation'] ?? null) ? $result['_pcv_observation'] : [];
     unset($result['_pcv_observation']);
@@ -587,7 +657,9 @@ function pcv_presence_observed_result(string $source, array $result): array
         }
     }
     $actors = $result['known_npcs'] ?? $result['actors'] ?? [];
-    pcv_log_presence_observed($source, $status, is_array($actors) ? count($actors) : 0, $reason);
+    if ($logRoutineSuccess || !in_array($status, ['available', 'empty'], true)) {
+        pcv_log_presence_observed($source, $status, is_array($actors) ? count($actors) : 0, $reason);
+    }
     return $result;
 }
 
@@ -626,7 +698,7 @@ function pcv_parse_presence_snapshot($raw): array
     $radius = $payload['audience_radius_units'] ?? null;
     if ((!is_int($radius) && !is_float($radius)) || !is_finite((float)$radius) || $radius <= 0
         || !is_array($payload['present_actors'] ?? null) || !array_is_list($payload['present_actors'])
-        || count($payload['present_actors']) > 32) {
+        || count($payload['present_actors']) > PCV_PRESENCE_MAX_ACTORS) {
         return pcv_presence_result('unavailable', reason: 'presence_invalid');
     }
 
@@ -653,58 +725,6 @@ function pcv_parse_presence_snapshot($raw): array
     return pcv_presence_result($actors === [] ? 'empty' : 'ready', $actors, (float)$radius);
 }
 
-/** Parse the distinct no-dialogue producer; its event type is the source marker. */
-function pcv_parse_autonomous_presence_report($raw): array
-{
-    if (!is_string($raw) || $raw === '' || strlen($raw) > 32768) {
-        return pcv_presence_result('unavailable', reason: 'presence_invalid');
-    }
-    try {
-        $payload = json_decode($raw, true, 12, JSON_THROW_ON_ERROR);
-    } catch (JsonException) {
-        return pcv_presence_result('unavailable', reason: 'presence_invalid');
-    }
-    if (!is_array($payload) || ($payload['version'] ?? null) !== 1
-        || !is_string($payload['player_name'] ?? null)
-        || !is_bool($payload['overflow'] ?? null) || $payload['overflow']
-        || (!is_int($payload['radius'] ?? null) && !is_float($payload['radius'] ?? null))
-        || !is_array($payload['actors'] ?? null) || !array_is_list($payload['actors'])
-        || count($payload['actors']) > 32) {
-        return pcv_presence_result('unavailable', reason: 'presence_invalid');
-    }
-
-    $playerName = trim($payload['player_name']);
-    $radius = (float)$payload['radius'];
-    if ($playerName === '' || strlen($playerName) > 256 || preg_match('//u', $playerName) !== 1
-        || preg_match('/[\x00-\x1f\x7f]/', $playerName) === 1
-        || !is_finite($radius) || $radius <= 0) {
-        return pcv_presence_result('unavailable', reason: 'presence_invalid');
-    }
-
-    $actors = [];
-    foreach ($payload['actors'] as $actor) {
-        if (!is_array($actor) || !is_string($actor['name'] ?? null)
-            || (!is_int($actor['distance'] ?? null) && !is_float($actor['distance'] ?? null))) {
-            return pcv_presence_result('unavailable', reason: 'presence_invalid');
-        }
-        $name = trim($actor['name']);
-        $distance = (float)$actor['distance'];
-        if ($name === '' || strlen($name) > 256 || preg_match('//u', $name) !== 1
-            || preg_match('/[\x00-\x1f\x7f]/', $name) === 1
-            || !is_finite($distance) || $distance < 0) {
-            return pcv_presence_result('unavailable', reason: 'presence_invalid');
-        }
-        if ($distance <= $radius) {
-            $actors[] = ['name' => $name, 'distance' => $distance];
-        }
-    }
-
-    return array_replace(
-        pcv_presence_result($actors === [] ? 'empty' : 'ready', $actors, $radius),
-        ['player_name' => $playerName]
-    );
-}
-
 /** Parse the native request timestamp without treating it as a wall-clock age. */
 function pcv_parse_presence_request_timestamp($value): ?int
 {
@@ -728,7 +748,8 @@ function pcv_parse_background_presence_report($raw, ?string $currentPlayerName):
     }
 
     $tokens = preg_split('/\//u', trim($raw));
-    if (!is_array($tokens) || count($tokens) > 33) {
+    // Raw reports contain empty tokens ("Name//Player"), so allow them on top of the actor bound.
+    if (!is_array($tokens) || count($tokens) > 2 * PCV_PRESENCE_MAX_ACTORS + 1) {
         return pcv_presence_result('unavailable', reason: 'presence_invalid');
     }
     if (!function_exists('pcv_scope_name_key')) {
@@ -762,7 +783,7 @@ function pcv_parse_background_presence_report($raw, ?string $currentPlayerName):
             continue;
         }
         $actors[] = ['name' => $name];
-        if (count($actors) > 32) {
+        if (count($actors) > PCV_PRESENCE_MAX_ACTORS) {
             return pcv_presence_result('unavailable', reason: 'presence_invalid');
         }
     }
@@ -867,7 +888,7 @@ function pcv_invalidate_eligible_npcs(?string $stateDirectory = null): array
         if ($handle === null) {
             return ['status' => 'missing', 'reason' => 'presence_missing'];
         }
-        foreach (['presence.json', 'background_presence.json'] as $name) {
+        foreach (['presence.json', 'background_presence.json', 'background_wide_presence.json'] as $name) {
             $path = $directory . DIRECTORY_SEPARATOR . $name;
             if (is_link($path) || (file_exists($path) && (!is_file($path) || !@unlink($path)))) {
                 pcv_log_event('state.unavailable', 'error', 'unavailable', 'presence_unavailable', ['operation' => 'presence_invalidate']);
@@ -883,49 +904,18 @@ function pcv_invalidate_eligible_npcs(?string $stateDirectory = null): array
     }
 }
 
-/** Read a recent per-source ordering marker while the state lock is held. */
-function pcv_presence_order_marker(string $path, string $key, int $now): ?array
-{
-    if (is_link($path) || !is_file($path)) {
-        return null;
-    }
-    $size = @filesize($path);
-    if (!is_int($size) || $size > 32768) {
-        return null;
-    }
-    $contents = @file_get_contents($path);
-    if (!is_string($contents)) {
-        return null;
-    }
-    $document = json_decode($contents, true, 16);
-    $marker = is_array($document) ? ($document['autonomous_order'] ?? null) : null;
-    if (!is_array($document) || !is_string($document['key'] ?? null) || !hash_equals($key, $document['key'])
-        || !is_array($marker) || !is_int($marker['request_timestamp'] ?? null)
-        || $marker['request_timestamp'] < 1 || !is_int($marker['observed_at'] ?? null)
-        || $marker['observed_at'] > $now || $marker['observed_at'] < $now - PCV_PRESENCE_TTL) {
-        return null;
-    }
-    return $marker;
-}
-
 /** Cache bounded presence metadata and receipt time under the current playthrough key. */
-function pcv_store_presence_snapshot(
-    ?string $key,
-    array $parsed,
-    ?string $stateDirectory = null,
-    ?int $requestTimestamp = null,
-    bool $autonomous = false
-): array
+function pcv_store_presence_snapshot(?string $key, array $parsed, ?string $stateDirectory = null): array
 {
     if (!is_string($key) || !pcv_valid_key($key) || !in_array($parsed['status'], ['ready', 'empty'], true)) {
         $cleared = pcv_invalidate_ordinary_presence_snapshot($stateDirectory);
         if (($cleared['status'] ?? null) === 'unavailable') {
-            return pcv_presence_observed_result($autonomous ? 'autonomous_capture' : 'ordinary_capture', pcv_presence_result('unavailable', reason: 'presence_unavailable'));
+            return pcv_presence_observed_result('ordinary_capture', pcv_presence_result('unavailable', reason: 'presence_unavailable'));
         }
         if (!is_string($key) || !pcv_valid_key($key)) {
-            return pcv_presence_observed_result($autonomous ? 'autonomous_capture' : 'ordinary_capture', pcv_presence_result('unavailable', reason: 'identity_unavailable'));
+            return pcv_presence_observed_result('ordinary_capture', pcv_presence_result('unavailable', reason: 'identity_unavailable'));
         }
-        return pcv_presence_observed_result($autonomous ? 'autonomous_capture' : 'ordinary_capture', $parsed);
+        return pcv_presence_observed_result('ordinary_capture', $parsed);
     }
 
     $handle = null;
@@ -937,12 +927,6 @@ function pcv_store_presence_snapshot(
         if (is_link($path)) {
             throw new RuntimeException('Presence report is not safe.');
         }
-        $previousOrder = pcv_presence_order_marker($path, $key, $observedAt);
-        if ($autonomous && $previousOrder !== null && $requestTimestamp !== null
-            && $requestTimestamp <= $previousOrder['request_timestamp']) {
-            pcv_log_event('state.presence_rejected', 'warning', 'rejected', 'presence_stale', ['operation' => 'presence_capture']);
-            return pcv_presence_observed_result('autonomous_capture', pcv_presence_result('stale', reason: 'presence_stale'));
-        }
         $document = [
             'version' => 1,
             'key' => $key,
@@ -950,15 +934,6 @@ function pcv_store_presence_snapshot(
             'radius' => $parsed['radius'],
             'actors' => $parsed['actors'],
         ];
-        if ($autonomous) {
-            $document['autonomous_order'] = [
-                'request_timestamp' => $requestTimestamp,
-                'observed_at' => $observedAt,
-            ];
-        } elseif ($previousOrder !== null) {
-            // Ordinary snapshots refresh shared presence without extending the autonomous clock window.
-            $document['autonomous_order'] = $previousOrder;
-        }
         $contents = json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
         $temporary = tempnam($directory, '.presence-');
         if ($temporary === false) {
@@ -978,21 +953,16 @@ function pcv_store_presence_snapshot(
             }
         }
         pcv_log_set_playthrough_ref($key);
-        if ($autonomous) {
-            pcv_log_event('state.presence_refreshed', 'debug', 'accepted', null, [
-                'actor_count' => count($parsed['actors']),
-            ]);
-        }
-        return pcv_presence_observed_result($autonomous ? 'autonomous_capture' : 'ordinary_capture', pcv_presence_result($parsed['status'], $parsed['actors'], $parsed['radius'], $observedAt));
+        return pcv_presence_observed_result('ordinary_capture', pcv_presence_result($parsed['status'], $parsed['actors'], $parsed['radius'], $observedAt));
     } catch (Throwable $error) {
         pcv_log_exception('state.unavailable', 'error', 'unavailable', 'presence_unavailable', $error, ['operation' => 'presence_capture']);
-        return pcv_presence_observed_result($autonomous ? 'autonomous_capture' : 'ordinary_capture', pcv_presence_result('unavailable', reason: 'presence_unavailable'));
+        return pcv_presence_observed_result('ordinary_capture', pcv_presence_result('unavailable', reason: 'presence_unavailable'));
     } finally {
         pcv_unlock_state($handle);
     }
 }
 
-/** Cache a validated ordinary player-routing snapshot, preserving the no-chat clock marker. */
+/** Cache a validated ordinary player-routing snapshot. */
 function pcv_capture_presence_snapshot(
     ?string $key,
     $raw,
@@ -1011,48 +981,27 @@ function pcv_capture_presence_snapshot(
         }
         return pcv_presence_observed_result('ordinary_capture', $parsed);
     }
-    return pcv_store_presence_snapshot($key, $parsed, $stateDirectory, $requestTimestamp);
+    return pcv_store_presence_snapshot($key, $parsed, $stateDirectory);
 }
 
-/** Capture a distinct autonomous report; invalid matching events clear stale eligibility. */
-function pcv_capture_autonomous_presence_report(
-    ?string $key,
-    $raw,
-    ?string $currentPlayerName,
-    $requestTimestamp,
-    ?string $stateDirectory = null
-): array
+/** Merge names seen now into the bounded recent map, dropping entries older than the grace window. */
+function pcv_presence_recent_merge(array $previous, array $actors, int $now): array
 {
-    $parsed = pcv_parse_autonomous_presence_report($raw);
-    $reason = $parsed['reason'] ?? null;
-    $timestamp = pcv_parse_presence_request_timestamp($requestTimestamp);
-    if (!in_array($parsed['status'], ['ready', 'empty'], true)) {
-        $reason = is_string($reason) ? $reason : 'presence_invalid';
-    } elseif (!is_string($key) || !pcv_valid_key($key)) {
-        $reason = 'identity_unavailable';
-    } elseif (!is_string($currentPlayerName) || trim($currentPlayerName) === '') {
-        $reason = 'identity_unavailable';
-    } else {
-        if (!function_exists('pcv_scope_name_key')) {
-            require_once __DIR__ . '/scope.php';
-        }
-        if (pcv_scope_name_key($parsed['player_name']) !== pcv_scope_name_key($currentPlayerName)) {
-            $reason = 'presence_invalid';
-        } elseif ($timestamp === null) {
-            $reason = 'presence_invalid';
+    $recent = [];
+    foreach ($previous as $nameKey => $entry) {
+        if (is_string($nameKey) && is_array($entry) && is_string($entry['name'] ?? null) && is_int($entry['seen_at'] ?? null)
+            && $entry['seen_at'] <= $now && $now - $entry['seen_at'] <= PCV_PRESENCE_ACTIVE_GRACE) {
+            $recent[$nameKey] = ['name' => $entry['name'], 'seen_at' => $entry['seen_at']];
         }
     }
-
-    if ($reason !== null) {
-        $cleared = pcv_invalidate_ordinary_presence_snapshot($stateDirectory);
-        if (($cleared['status'] ?? null) === 'unavailable') {
-            $reason = 'presence_unavailable';
-        }
-        pcv_log_event('state.unavailable', 'error', 'unavailable', $reason, ['operation' => 'presence_capture']);
-        return pcv_presence_observed_result('autonomous_capture', pcv_presence_result('unavailable', reason: $reason));
+    foreach ($actors as $actor) {
+        $recent[pcv_scope_name_key($actor['name'])] = ['name' => $actor['name'], 'seen_at' => $now];
     }
-
-    return pcv_store_presence_snapshot($key, $parsed, $stateDirectory, $timestamp, true);
+    if (count($recent) > PCV_PRESENCE_MAX_ACTORS) {
+        uasort($recent, static fn(array $a, array $b): int => $b['seen_at'] <=> $a['seen_at']);
+        $recent = array_slice($recent, 0, PCV_PRESENCE_MAX_ACTORS, true);
+    }
+    return $recent;
 }
 
 /** Capture a native close-range heartbeat without making a game or database call. */
@@ -1113,7 +1062,7 @@ function pcv_capture_background_presence_report(
         $previous = null;
         if (is_file($path)) {
             $size = @filesize($path);
-            if (is_int($size) && $size <= 32768) {
+            if (is_int($size) && $size <= PCV_PRESENCE_DOCUMENT_MAX_BYTES) {
                 $contents = @file_get_contents($path);
                 $document = is_string($contents) ? json_decode($contents, true, 16) : null;
                 if (is_array($document)
@@ -1127,7 +1076,7 @@ function pcv_capture_background_presence_report(
                     && is_int($document['baseline_timestamp'] ?? null)
                     && $document['baseline_timestamp'] <= $document['heartbeat_timestamp']
                     && is_array($document['actors'] ?? null) && array_is_list($document['actors'])
-                    && count($document['actors']) <= 32) {
+                    && count($document['actors']) <= PCV_PRESENCE_MAX_ACTORS) {
                     $previous = $document;
                 }
             }
@@ -1172,13 +1121,19 @@ function pcv_capture_background_presence_report(
             'heartbeat_timestamp' => $timestamp,
             'baseline_timestamp' => $baseline,
             'actors' => $parsed['actors'],
+            'recent' => pcv_presence_recent_merge(
+                $sameIdentity && is_array($previous['recent'] ?? null) ? $previous['recent'] : [], $parsed['actors'], $now),
         ];
         pcv_write_background_presence($directory, $document);
         pcv_log_set_playthrough_ref($key);
         pcv_log_event('state.presence_refreshed', 'debug', 'accepted', null, [
             'actor_count' => count($parsed['actors']),
         ]);
-        return pcv_presence_observed_result('background_capture', pcv_presence_result($state, $parsed['actors'], observedAt: $now));
+        // Heartbeats repeat every ~10 s: log the roster when its state or size changes, not every time.
+        $rosterChanged = !$sameIdentity || ($previous['state'] ?? null) !== $state
+            || count($previous['actors'] ?? []) !== count($parsed['actors']);
+        return pcv_presence_observed_result('background_capture',
+            pcv_presence_result($state, $parsed['actors'], observedAt: $now), $rosterChanged);
     } catch (Throwable $error) {
         if (is_resource($handle)) {
             try {
@@ -1194,10 +1149,237 @@ function pcv_capture_background_presence_report(
     }
 }
 
+/** Parse CHIM's wider `infonpc` report: "(beings in range:Name,Name,...,)". */
+function pcv_parse_wide_presence_report($raw, ?string $currentPlayerName): array
+{
+    if (!is_string($raw) || strlen($raw) > 32768 || preg_match('//u', $raw) !== 1
+        || !is_string($currentPlayerName) || trim($currentPlayerName) === ''
+        || preg_match('/\A\(?\s*beings in range:(.*?)\)?\s*\z/su', trim($raw), $match) !== 1) {
+        return pcv_presence_result('unavailable', reason: 'presence_invalid');
+    }
+    if (!function_exists('pcv_scope_name_key')) {
+        require_once __DIR__ . '/scope.php';
+    }
+    $playerKey = pcv_scope_name_key($currentPlayerName);
+    $actors = [];
+    foreach (explode(',', $match[1]) as $token) {
+        $name = trim($token);
+        if ($name === '' || preg_match('/\((?:dead|disabled|unconscious)\)\s*\z/iu', $name) === 1) {
+            continue;
+        }
+        $name = function_exists('chimDataStripActorStateSuffix')
+            ? trim((string)chimDataStripActorStateSuffix($name))
+            : trim((string)preg_replace('/\s*\([^()]*\)\s*\z/u', '', $name));
+        if ($name === '' || strlen($name) > 256 || preg_match('/[\x00-\x1f\x7f]/', $name) === 1) {
+            return pcv_presence_result('unavailable', reason: 'presence_invalid');
+        }
+        if (pcv_scope_name_key($name) === $playerKey) {
+            continue;
+        }
+        $actors[] = ['name' => $name];
+        if (count($actors) > PCV_PRESENCE_MAX_ACTORS) {
+            return pcv_presence_result('unavailable', reason: 'presence_invalid');
+        }
+    }
+    return pcv_presence_result($actors === [] ? 'empty' : 'ready', $actors);
+}
+
+/** Store the latest wide report under the state lock; an invalid report removes the previous one. */
+function pcv_capture_wide_presence_report(?string $key, $raw, ?string $playerName, ?string $stateDirectory = null): array
+{
+    $parsed = pcv_parse_wide_presence_report($raw, $playerName);
+    $handle = null;
+    try {
+        $directory = pcv_state_directory($stateDirectory);
+        $handle = pcv_lock_state($directory, true, LOCK_EX);
+        $path = $directory . DIRECTORY_SEPARATOR . 'background_wide_presence.json';
+        if (is_link($path)) {
+            throw new RuntimeException('Wide presence report is not safe.');
+        }
+        if (!is_string($key) || !pcv_valid_key($key) || !in_array($parsed['status'], ['ready', 'empty'], true)) {
+            if (file_exists($path) && (!is_file($path) || !@unlink($path))) {
+                throw new RuntimeException('Could not invalidate wide presence report.');
+            }
+            return ['status' => 'unavailable'];
+        }
+        $document = [
+            'version' => PCV_WIDE_PRESENCE_VERSION,
+            'source' => 'infonpc_v1',
+            'key' => $key,
+            'player_name' => trim((string)$playerName),
+            'observed_at' => time(),
+            'actors' => $parsed['actors'],
+        ];
+        $contents = json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+        $temporary = tempnam($directory, '.wide-presence-');
+        if ($temporary === false) {
+            throw new RuntimeException('Could not stage wide presence report.');
+        }
+        try {
+            if (file_put_contents($temporary, $contents, LOCK_EX) !== strlen($contents)) {
+                throw new RuntimeException('Could not write wide presence report.');
+            }
+            @chmod($temporary, 0660);
+            if (!@rename($temporary, $path)) {
+                throw new RuntimeException('Could not commit wide presence report.');
+            }
+        } finally {
+            if (is_file($temporary)) {
+                @unlink($temporary);
+            }
+        }
+        return ['status' => $parsed['status']];
+    } catch (Throwable $error) {
+        pcv_log_exception('state.unavailable', 'error', 'unavailable', 'presence_unavailable', $error, ['operation' => 'presence_capture']);
+        return ['status' => 'unavailable'];
+    } finally {
+        pcv_unlock_state($handle);
+    }
+}
+
+/** Read the wide report as name-key counts. Used only inside an active scene, never for activation. */
+function pcv_read_wide_presence_names(?string $key, ?string $playerName, ?string $stateDirectory = null, ?int $now = null): array
+{
+    $unavailable = ['status' => 'unavailable', 'counts' => []];
+    if (!is_string($key) || !pcv_valid_key($key) || !is_string($playerName) || trim($playerName) === '') {
+        return $unavailable;
+    }
+    if (!function_exists('pcv_scope_name_key')) {
+        require_once __DIR__ . '/scope.php';
+    }
+    $handle = null;
+    try {
+        $directory = pcv_state_directory($stateDirectory);
+        $handle = pcv_lock_state($directory, false, LOCK_SH);
+        $path = $directory . DIRECTORY_SEPARATOR . 'background_wide_presence.json';
+        if ($handle === null || !is_file($path) || is_link($path)) {
+            return $unavailable;
+        }
+        $size = @filesize($path);
+        if (!is_int($size) || $size > PCV_PRESENCE_DOCUMENT_MAX_BYTES) {
+            return $unavailable;
+        }
+        $document = json_decode((string)@file_get_contents($path), true, 16);
+        if (!is_array($document) || ($document['version'] ?? null) !== PCV_WIDE_PRESENCE_VERSION
+            || ($document['source'] ?? null) !== 'infonpc_v1'
+            || !is_string($document['key'] ?? null) || !hash_equals($key, $document['key'])
+            || !is_string($document['player_name'] ?? null)
+            || pcv_scope_name_key($document['player_name']) !== pcv_scope_name_key($playerName)
+            || !is_int($document['observed_at'] ?? null)
+            || !is_array($document['actors'] ?? null) || !array_is_list($document['actors'])
+            || count($document['actors']) > PCV_PRESENCE_MAX_ACTORS) {
+            return $unavailable;
+        }
+        $now ??= time();
+        if ($document['observed_at'] > $now || $now - $document['observed_at'] > PCV_PRESENCE_TTL) {
+            return ['status' => 'stale', 'counts' => []];
+        }
+        $counts = [];
+        foreach ($document['actors'] as $actor) {
+            if (!is_array($actor) || !is_string($actor['name'] ?? null)) {
+                return $unavailable;
+            }
+            $nameKey = pcv_scope_name_key($actor['name']);
+            $counts[$nameKey] = ($counts[$nameKey] ?? 0) + 1;
+        }
+        return ['status' => 'ready', 'counts' => $counts];
+    } catch (Throwable) {
+        return $unavailable;
+    } finally {
+        pcv_unlock_state($handle);
+    }
+}
+
+/**
+ * In-scene presence for an already active scene. A participant counts when named exactly once in a
+ * fresh close report (including a baseline report after a gap), when seen in a close report within
+ * the grace window, or when named exactly once in a fresh wide report. Activation never uses this.
+ * Returns ['known_npcs' => [id => name], 'missing' => [id => close|grace_expired|wide_absent|wide_unavailable]].
+ */
+function pcv_read_active_scene_npcs(?string $key, array $catalogRows, ?string $playerName, array $actorIds,
+    ?string $stateDirectory = null, ?int $now = null): array
+{
+    $now ??= time();
+    $result = ['known_npcs' => [], 'missing' => []];
+    if (!function_exists('pcv_scope_name_key')) {
+        require_once __DIR__ . '/scope.php';
+    }
+    $names = [];
+    foreach (pcvScopeKnownNpcs($catalogRows, $playerName) as $id => $name) {
+        $names[(string)$id] = $name;
+    }
+    $document = null;
+    if (is_string($key) && pcv_valid_key($key) && is_string($playerName) && trim($playerName) !== '') {
+        $handle = null;
+        try {
+            $directory = pcv_state_directory($stateDirectory);
+            $handle = pcv_lock_state($directory, false, LOCK_SH);
+            $path = $directory . DIRECTORY_SEPARATOR . 'background_presence.json';
+            $size = is_file($path) && !is_link($path) ? @filesize($path) : false;
+            if ($handle !== null && is_int($size) && $size <= PCV_PRESENCE_DOCUMENT_MAX_BYTES) {
+                $decoded = json_decode((string)@file_get_contents($path), true, 16);
+                if (is_array($decoded) && ($decoded['version'] ?? null) === PCV_BACKGROUND_PRESENCE_VERSION
+                    && is_string($decoded['key'] ?? null) && hash_equals($key, $decoded['key'])
+                    && is_string($decoded['player_name'] ?? null)
+                    && pcv_scope_name_key($decoded['player_name']) === pcv_scope_name_key($playerName)) {
+                    $document = $decoded;
+                }
+            }
+        } catch (Throwable) {
+            $document = null;
+        } finally {
+            pcv_unlock_state($handle);
+        }
+    }
+    $current = [];
+    if (is_array($document) && is_int($document['observed_at'] ?? null)
+        && $document['observed_at'] <= $now && $now - $document['observed_at'] <= PCV_PRESENCE_TTL
+        && in_array($document['state'] ?? null, ['baseline', 'ready'], true) && is_array($document['actors'] ?? null)) {
+        foreach ($document['actors'] as $actor) {
+            if (is_array($actor) && is_string($actor['name'] ?? null)) {
+                $nameKey = pcv_scope_name_key($actor['name']);
+                $current[$nameKey] = ($current[$nameKey] ?? 0) + 1;
+            }
+        }
+    }
+    $recent = is_array($document) && is_array($document['recent'] ?? null) ? $document['recent'] : [];
+    $wide = null;
+    foreach ($actorIds as $id) {
+        $id = (string)$id;
+        $name = $names[$id] ?? null;
+        if (!is_string($name)) {
+            $result['missing'][$id] = 'close';
+            continue;
+        }
+        $nameKey = pcv_scope_name_key($name);
+        $currentCount = $current[$nameKey] ?? 0;
+        if ($currentCount === 1) {
+            $result['known_npcs'][$id] = $name;
+            continue;
+        }
+        $seenAt = $recent[$nameKey]['seen_at'] ?? null;
+        if ($currentCount === 0 && is_int($seenAt) && $seenAt <= $now && $now - $seenAt <= PCV_PRESENCE_ACTIVE_GRACE) {
+            $result['known_npcs'][$id] = $name;
+            continue;
+        }
+        $wide ??= pcv_read_wide_presence_names($key, $playerName, $stateDirectory, $now);
+        if (($wide['status'] ?? null) !== 'ready') {
+            $result['missing'][$id] = 'wide_unavailable';
+        } elseif (($wide['counts'][$nameKey] ?? 0) === 1) {
+            $result['known_npcs'][$id] = $name;
+        } else {
+            $result['missing'][$id] = 'wide_absent';
+        }
+    }
+    return $result;
+}
+
 /** Re-resolve snapshot names against the current catalog on every caller read. */
 function pcv_read_eligible_npcs(?string $key, array $catalogRows, ?string $playerName, ?string $stateDirectory = null): array
 {
-    return pcv_presence_observed_result('background_read', pcv_read_eligible_npcs_unobserved($key, $catalogRows, $playerName, $stateDirectory));
+    // Page polls and ACK checks read often; only non-routine read outcomes are logged.
+    return pcv_presence_observed_result('background_read',
+        pcv_read_eligible_npcs_unobserved($key, $catalogRows, $playerName, $stateDirectory), false);
 }
 
 function pcv_read_eligible_npcs_unobserved(?string $key, array $catalogRows, ?string $playerName, ?string $stateDirectory = null): array
@@ -1227,7 +1409,7 @@ function pcv_read_eligible_npcs_unobserved(?string $key, array $catalogRows, ?st
             return pcv_presence_read_failure($empty, 'presence_unavailable');
         }
         $size = @filesize($path);
-        if (!is_int($size) || $size > 32768) {
+        if (!is_int($size) || $size > PCV_PRESENCE_DOCUMENT_MAX_BYTES) {
             return pcv_presence_read_failure($empty, 'presence_unavailable');
         }
         $contents = @file_get_contents($path);
@@ -1241,7 +1423,7 @@ function pcv_read_eligible_npcs_unobserved(?string $key, array $catalogRows, ?st
             || !is_int($document['observed_at'] ?? null)
             || !is_string($document['player_name'] ?? null)
             || !in_array($document['state'] ?? null, ['baseline', 'ready', 'empty', 'unavailable'], true)
-            || !is_array($document['actors'] ?? null) || !array_is_list($document['actors']) || count($document['actors']) > 32) {
+            || !is_array($document['actors'] ?? null) || !array_is_list($document['actors']) || count($document['actors']) > PCV_PRESENCE_MAX_ACTORS) {
             return pcv_presence_read_failure($empty, 'presence_unavailable');
         }
         if (!hash_equals($key, $document['key'])) {
@@ -1319,7 +1501,7 @@ function pcv_read_eligible_npcs_unobserved(?string $key, array $catalogRows, ?st
                 }
                 $combinedAgeSeconds = (($heartbeat - $statusTimestamp) / 1_000_000_000)
                     + ($now - $document['observed_at']);
-                if ($combinedAgeSeconds >= 0 && $combinedAgeSeconds <= PCV_PRESENCE_TTL) {
+                if ($combinedAgeSeconds >= -PCV_PRESENCE_CLOCK_TOLERANCE && $combinedAgeSeconds <= PCV_PRESENCE_TTL) {
                     $freshNames[$nameKey] = $name;
                 }
                 break;
@@ -1400,7 +1582,12 @@ function pcv_visible_state(array $state, int $now): array
         ? $storedPendingConfigId : null;
     $pending = $pendingScope !== null;
     if ($scope !== null) {
-        return pcv_result('active', $scope, $pending, $pendingScope, $configId, $pendingConfigId);
+        $result = pcv_result('active', $scope, $pending, $pendingScope, $configId, $pendingConfigId);
+        // Group members left out at the start or who left mid-scene (only present when someone was dropped).
+        if (is_array($active['dropped'] ?? null) && $active['dropped'] !== []) {
+            $result['dropped'] = $active['dropped'];
+        }
+        return $result;
     }
     return $pending
         ? pcv_result('pending', null, true, $pendingScope, null, $pendingConfigId)
@@ -1430,6 +1617,9 @@ function pcv_state_log_context(array $config): array
         $context['scene_mode'] = $config['scene_mode'] ?? 'pair';
         $context['actor_a_id'] = $config['actor_a'] ?? null;
         $context['actor_b_id'] = $config['actor_b'] ?? null;
+        if (($config['free'] ?? false) === true) {
+            $context['free_scene'] = true;
+        }
     }
     return $context;
 }
@@ -1490,6 +1680,38 @@ function pcv_normalize_config(array $desired, array $knownNpcs): array
     }
 
     $sceneMode = array_key_exists('scene_mode', $desired) ? $desired['scene_mode'] : 'pair';
+    if ($sceneMode === 'pair' && ($desired['free'] ?? false) === true) {
+        if (!in_array($desired['bystander_mode'] ?? null, ['exclude', 'silent'], true)) {
+            throw new InvalidArgumentException('The private conversation settings are incomplete.');
+        }
+        return ['enabled' => true, 'scene_mode' => 'pair', 'free' => true, 'exclude_player' => true,
+            'bystander_mode' => $desired['bystander_mode']];
+    }
+    $groupIds = null;
+    $groupOpener = null;
+    if ($sceneMode === 'pair' && array_key_exists('actor_ids', $desired)) {
+        $rawIds = $desired['actor_ids'];
+        if (!is_array($rawIds) || !array_is_list($rawIds) || count($rawIds) < 2 || count($rawIds) > PCV_GROUP_MAX_MEMBERS) {
+            throw new InvalidArgumentException('Choose two to four different NPCs.');
+        }
+        $groupIds = [];
+        foreach ($rawIds as $rawId) {
+            if (!is_string($rawId) && !is_int($rawId)) {
+                throw new InvalidArgumentException('Choose two to four different NPCs.');
+            }
+            $groupIds[] = (string)$rawId;
+        }
+        if (count(array_unique($groupIds)) !== count($groupIds)) {
+            throw new InvalidArgumentException('Choose two to four different NPCs.');
+        }
+        $groupOpener = $desired['opener'] ?? 'auto';
+        $groupOpener = is_int($groupOpener) ? (string)$groupOpener : $groupOpener;
+        if ($groupOpener !== 'auto' && (!is_string($groupOpener) || !in_array($groupOpener, $groupIds, true))) {
+            throw new InvalidArgumentException('The opener must be one of the selected NPCs.');
+        }
+        $desired['actor_a'] = $groupIds[0];
+        $desired['actor_b'] = $groupIds[1];
+    }
     if (!in_array($sceneMode, ['pair', 'solo'], true)
         || !is_string($desired['actor_a'] ?? null)
         || !is_bool($desired['exclude_player'] ?? null)
@@ -1508,12 +1730,16 @@ function pcv_normalize_config(array $desired, array $knownNpcs): array
         'exclude_player' => $excludePlayer,
         'bystander_mode' => $desired['bystander_mode'],
     ];
+    if (is_array($groupIds)) {
+        $config['actor_ids'] = $groupIds;
+        $config['opener'] = $groupOpener;
+    }
     if (!pcv_valid_config($config, false)) {
         throw new InvalidArgumentException($sceneMode === 'solo'
             ? 'Choose one valid NPC for solo reflection.'
-            : 'Choose two different valid NPCs.');
+            : 'Choose two to four different valid NPCs.');
     }
-    $actorIds = $sceneMode === 'solo' ? [$actorA] : [$actorA, $actorB];
+    $actorIds = pcv_config_actor_ids($config);
     foreach ($actorIds as $actorId) {
         if (!is_string($actorId) || !array_key_exists($actorId, $knownNpcs)
             || !is_string($knownNpcs[$actorId]) || trim($knownNpcs[$actorId]) === '') {
@@ -1537,15 +1763,89 @@ function pcv_normalize_config(array $desired, array $knownNpcs): array
     return $config;
 }
 
+/**
+ * Mark a solo request as in flight so early-line ACKs that arrive before registration can be told
+ * apart from a genuinely missing registration. Classification aid only; nothing depends on it.
+ */
+function pcv_solo_inflight_mark(string $configId, string $actorId, ?string $stateDirectory = null, ?int $now = null): void
+{
+    $directory = pcv_state_directory($stateDirectory);
+    $path = $directory . DIRECTORY_SEPARATOR . 'solo_inflight.json';
+    if (is_link($path)) {
+        return;
+    }
+    $contents = json_encode(['config_id' => $configId, 'actor_id' => $actorId, 'started_at' => $now ?? time()], JSON_THROW_ON_ERROR);
+    $temporary = tempnam($directory, '.solo-inflight-');
+    if ($temporary === false) {
+        return;
+    }
+    if (file_put_contents($temporary, $contents) === strlen($contents)) {
+        @chmod($temporary, 0660);
+        @rename($temporary, $path);
+    }
+    if (is_file($temporary)) {
+        @unlink($temporary);
+    }
+}
+
+function pcv_solo_inflight_matches(string $configId, string $actorId, ?string $stateDirectory = null, ?int $now = null): bool
+{
+    try {
+        $path = pcv_state_directory($stateDirectory) . DIRECTORY_SEPARATOR . 'solo_inflight.json';
+        if (!is_file($path) || is_link($path) || (int)@filesize($path) > 512) {
+            return false;
+        }
+        $marker = json_decode((string)@file_get_contents($path), true, 4);
+        $now ??= time();
+        return is_array($marker) && ($marker['config_id'] ?? null) === $configId && ($marker['actor_id'] ?? null) === $actorId
+            && is_int($marker['started_at'] ?? null) && $marker['started_at'] <= $now
+            && $now - $marker['started_at'] <= PCV_SOLO_INFLIGHT_TTL;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+function pcv_solo_inflight_clear(?string $stateDirectory = null): void
+{
+    $path = pcv_state_directory($stateDirectory) . DIRECTORY_SEPARATOR . 'solo_inflight.json';
+    if (is_file($path) && !is_link($path)) {
+        @unlink($path);
+    }
+}
+
+/** The participant catalog IDs of a stored scene configuration (solo: A only; group: actor_ids; legacy pair: A, B). */
+function pcv_config_actor_ids(array $config): array
+{
+    if (($config['scene_mode'] ?? 'pair') === 'solo') {
+        return [$config['actor_a'] ?? null];
+    }
+    if (is_array($config['actor_ids'] ?? null)) {
+        return array_values($config['actor_ids']);
+    }
+    if (($config['free'] ?? false) === true) {
+        return []; // pending free scene: members are chosen at activation
+    }
+    return [$config['actor_a'] ?? null, $config['actor_b'] ?? null];
+}
+
+/** How many participants of $config are absent from $eligibleNpcMap (for refusal logs). */
+function pcv_config_missing_actor_count(array $config, array $eligibleNpcMap): int
+{
+    $missing = 0;
+    foreach (pcv_config_actor_ids($config) as $actorId) {
+        if (!is_string($actorId) || !array_key_exists($actorId, $eligibleNpcMap)) {
+            $missing++;
+        }
+    }
+    return $missing;
+}
+
 function pcv_config_actors_are_eligible(array $config, ?array $eligibleNpcMap): bool
 {
     if (!is_array($eligibleNpcMap)) {
         return false;
     }
-    $actorIds = ($config['scene_mode'] ?? 'pair') === 'solo'
-        ? [$config['actor_a'] ?? null]
-        : [$config['actor_a'] ?? null, $config['actor_b'] ?? null];
-    foreach ($actorIds as $actorId) {
+    foreach (pcv_config_actor_ids($config) as $actorId) {
         if (!is_string($actorId) || !array_key_exists($actorId, $eligibleNpcMap)) {
             return false;
         }
@@ -1647,7 +1947,57 @@ function pcv_stage(string $key, array $desired, array $knownNpcs, ?string $state
     }
 }
 
-function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory = null, ?array $eligibleNpcMap = null): array
+/**
+ * Narrow a group config to the members present in $eligible (catalog ID => name). Legacy pairs and solo are
+ * all-or-nothing. Returns ['config' => narrowed, 'dropped' => [ids]] or null when the scene cannot run.
+ */
+function pcv_group_narrow_config(array $config, ?array $eligible): ?array
+{
+    if (!is_array($eligible)) {
+        return null;
+    }
+    $ids = pcv_config_actor_ids($config);
+    $present = array_values(array_filter($ids, static fn($id) => is_string($id) && array_key_exists($id, $eligible)));
+    if (!is_array($config['actor_ids'] ?? null)) {
+        return count($present) === count($ids) ? ['config' => $config, 'dropped' => []] : null;
+    }
+    if (count($present) < 2) {
+        return null;
+    }
+    $narrowed = $config;
+    $narrowed['actor_ids'] = $present;
+    $narrowed['actor_a'] = $present[0];
+    $narrowed['actor_b'] = $present[1];
+    if (($narrowed['opener'] ?? 'auto') !== 'auto' && !in_array($narrowed['opener'], $present, true)) {
+        $narrowed['opener'] = 'auto';
+    }
+    return ['config' => $narrowed, 'dropped' => array_values(array_diff($ids, $present))];
+}
+
+/** Members of a free scene: the first $cap candidate IDs (nearest first) that are strictly eligible. */
+function pcv_free_select_members(array $candidateOrder, array $eligible, int $cap = PCV_FREE_MAX_MEMBERS): array
+{
+    $members = [];
+    foreach ($candidateOrder as $id) {
+        $id = (string)$id;
+        if (array_key_exists($id, $eligible) && !in_array($id, $members, true)) {
+            $members[] = $id;
+            if (count($members) >= $cap) {
+                break;
+            }
+        }
+    }
+    return $members;
+}
+
+/**
+ * $eligibleNpcMap is the strict map (close report + fresh activity) used for activation.
+ * $freeCandidateOrder lists catalog IDs nearest first for a pending free scene (map order when null).
+ * $activeEligibleNpcMap, when given, is the in-scene map (pcv_read_active_scene_npcs) used only to
+ * keep an already active scene; $activePresenceCheck names the failed check for the refusal log.
+ */
+function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory = null, ?array $eligibleNpcMap = null,
+    ?array $activeEligibleNpcMap = null, ?string $activePresenceCheck = null, ?array $freeCandidateOrder = null): array
 {
     if (!pcv_valid_key($key)) {
         pcv_log_set_playthrough_ref(null);
@@ -1700,8 +2050,18 @@ function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory 
             $pending = $state['pending'];
             $config = $pending['config'];
             $configId = $pending['config_id'] ?? null;
-            $actorsEligible = !$config['enabled'] || pcv_config_actors_are_eligible($config, $eligibleNpcMap);
-            if (!$actorsEligible) {
+            // Groups start with the checked members who are present (at least 2); pairs and solo need everyone.
+            if (($config['free'] ?? false) === true && !isset($config['actor_ids'])) {
+                // Free scenes (0.1.12) take the nearest eligible NPCs, fixed for the scene.
+                $members = is_array($eligibleNpcMap)
+                    ? pcv_free_select_members($freeCandidateOrder ?? array_keys($eligibleNpcMap), $eligibleNpcMap) : [];
+                $narrowed = count($members) >= 2 ? ['config' => array_replace($config, [
+                    'actor_a' => $members[0], 'actor_b' => $members[1], 'actor_ids' => $members, 'opener' => 'auto',
+                ]), 'dropped' => []] : null;
+            } else {
+                $narrowed = $config['enabled'] ? pcv_group_narrow_config($config, $eligibleNpcMap) : ['config' => $config, 'dropped' => []];
+            }
+            if (!is_array($narrowed)) {
                 $blockedPending = $pending;
             } else {
                 if (array_key_exists('config_id', $pending) && !pcv_valid_config_id($configId)) {
@@ -1709,23 +2069,41 @@ function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory 
                 } elseif (!array_key_exists('config_id', $pending)) {
                     $configId = pcv_log_new_uuid();
                 }
-                $state['active'] = $config['enabled'] ? [
-                    'config' => $config,
+                $activeEntry = [
+                    'config' => $narrowed['config'],
                     'config_id' => $configId,
                     'activated_at' => $now,
                     'expires_at' => $now + PCV_ACTIVE_TTL,
-                ] : null;
+                ];
+                if ($narrowed['dropped'] !== []) {
+                    $activeEntry['dropped'] = array_map(static fn($id) => ['id' => $id, 'reason' => 'not_eligible_at_start'], $narrowed['dropped']);
+                }
+                $state['active'] = $config['enabled'] ? $activeEntry : null;
                 $state['pending'] = null;
-                $activated = ['config' => $config, 'config_id' => $configId];
+                $activated = ['config' => $narrowed['config'], 'config_id' => $configId, 'dropped_count' => count($narrowed['dropped'])];
                 $changed = true;
             }
         }
 
+        $leftScene = null;
         if (!is_array($blockedPending) && is_array($state['active'])) {
             $activeConfig = $state['active']['config'] ?? null;
-            if (is_array($activeConfig) && ($activeConfig['enabled'] ?? null) === true
-                && !pcv_config_actors_are_eligible($activeConfig, $eligibleNpcMap)) {
-                $blockedActive = $state['active'];
+            if (is_array($activeConfig) && ($activeConfig['enabled'] ?? null) === true) {
+                // A member who left beyond grace/wide is dropped while 2 remain; otherwise the scene is refused.
+                $kept = pcv_group_narrow_config($activeConfig, $activeEligibleNpcMap ?? $eligibleNpcMap);
+                if (!is_array($kept)) {
+                    $blockedActive = $state['active'];
+                } elseif ($kept['dropped'] !== []) {
+                    $state['active']['config'] = $kept['config'];
+                    $state['active']['dropped'] = array_merge($state['active']['dropped'] ?? [],
+                        array_map(static fn($id) => ['id' => $id, 'reason' => 'left_scene'], $kept['dropped']));
+                    $changed = true;
+                    $leftScene = [
+                        'config_id' => $state['active']['config_id'] ?? null,
+                        'dropped_count' => count($kept['dropped']),
+                        'member_count' => count(pcv_config_actor_ids($kept['config'])),
+                    ];
+                }
             }
         }
 
@@ -1747,7 +2125,18 @@ function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory 
         }
         if (is_array($activated)) {
             pcv_log_set_config_id($activated['config_id']);
-            pcv_log_event('state.scope_activated', 'info', 'ok', null, pcv_state_log_context($activated['config']));
+            $activationContext = pcv_state_log_context($activated['config']);
+            if (($activated['config']['enabled'] ?? false) === true) {
+                $activationContext['member_count'] = count(pcv_config_actor_ids($activated['config']));
+                $activationContext['dropped_count'] = $activated['dropped_count'] ?? 0;
+            }
+            pcv_log_event('state.scope_activated', 'info', 'ok', null, $activationContext);
+        }
+        if (is_array($leftScene)) {
+            pcv_log_set_config_id(is_string($leftScene['config_id']) && pcv_log_valid_uuid($leftScene['config_id']) ? $leftScene['config_id'] : null);
+            pcv_log_event('state.scope_members_dropped', 'info', 'ok', 'left_scene', [
+                'drop_reason' => 'left_scene', 'dropped_count' => $leftScene['dropped_count'], 'member_count' => $leftScene['member_count'],
+            ]);
         }
         if (is_array($blockedPending)) {
             $pendingConfigId = $blockedPending['config_id'] ?? null;
@@ -1774,9 +2163,14 @@ function pcv_begin_request(string $key, bool $eligible, ?string $stateDirectory 
             }
             pcv_log_set_config_id($activeConfigId);
             $sceneMode = $blockedActive['config']['scene_mode'] ?? 'pair';
-            pcv_log_event('state.scope_skipped', 'info', 'skipped', 'scene_not_eligible', [
-                'operation' => 'begin', 'scene_mode' => $sceneMode,
-            ]);
+            $skipContext = ['operation' => 'begin', 'scene_mode' => $sceneMode];
+            if (is_string($activePresenceCheck)) {
+                $skipContext['presence_check'] = $activePresenceCheck;
+            }
+            if (is_array($activeEligibleNpcMap)) {
+                $skipContext['missing_count'] = pcv_config_missing_actor_count($blockedActive['config'], $activeEligibleNpcMap);
+            }
+            pcv_log_event('state.scope_skipped', 'info', 'skipped', 'scene_not_eligible', $skipContext);
             return pcv_result('unavailable', null, is_array($pendingScope),
                 is_array($pendingScope) ? pcv_config_with_scene_mode($pendingScope) : null,
                 is_string($activeConfigId) ? $activeConfigId : null,

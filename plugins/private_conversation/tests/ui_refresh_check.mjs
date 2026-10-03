@@ -43,8 +43,13 @@ function makeCheckbox(checked = false) {
     };
 }
 
-function makeSnapshot({ ref = 'same-playthrough', a = ['101', '202'], b = ['101', '202'], disabled = false, rosterReady = true, solo = false, csrf = 'fresh-token', label = 'Current' } = {}) {
+function makeSnapshot({ ref = 'same-playthrough', a = ['101', '202'], b = ['101', '202'], disabled = false, rosterReady = true, solo = false, csrf = 'fresh-token', label = 'Current', group = null } = {}) {
     const values = new Map([
+        ...(group === null ? [] : [
+            ['#actor-c', makeSelect(['', ...group])],
+            ['#actor-d', makeSelect(['', ...group])],
+            ['#opener', makeSelect(['auto', ...group])],
+        ]),
         ['#actor-a', makeSelect(['', ...a])],
         ['#actor-b', makeSelect(['', ...b])],
         ['#solo-mode', makeCheckbox(solo)],
@@ -72,7 +77,7 @@ function responseFor(fixtures, id, snapshot) {
     return { ok: true, text: async () => id };
 }
 
-function createHarness(fetchQueue, { reportQueue = [] } = {}) {
+function createHarness(fetchQueue, { reportQueue = [], group = false, free = false } = {}) {
     const fixtures = new Map();
     const calls = [];
     const reports = [];
@@ -99,6 +104,12 @@ function createHarness(fetchQueue, { reportQueue = [] } = {}) {
         ['#arm-button', { disabled: true, dataset: { rosterReady: '1' }, textContent: 'Arm pair on next input' }],
         ['#bystander-mode', { value: 'silent' }],
         ['input[name="exclude_player"]', { checked: true }],
+        ...(group ? [
+            ['#actor-c', makeSelect(['', '101', '202', '303'], '303')],
+            ['#actor-d', makeSelect(['', '101', '202', '303'], '')],
+            ['#opener', makeSelect(['auto', '101', '202', '303'], 'auto')],
+        ] : []),
+        ...(free ? [['#free-mode', makeCheckbox(false)]] : []),
     ]);
     const documentRef = {
         body: { dataset: { playthroughRef: 'same-playthrough', refreshUrl: '?refresh=1', logsUrl: '?view=logs' } },
@@ -217,6 +228,40 @@ test('refresh updates status and CSRF while preserving eligible drafts and clear
     harness.nodes.get('#actor-b').value = '101';
     harness.nodes.get('#actor-b').dispatchChange();
     assert.equal(harness.nodes.get('#arm-button').disabled, true);
+});
+
+test('group controls refresh with the roster, block duplicate members, and stay off in solo mode', async () => {
+    const harness = createHarness([
+        { snapshot: makeSnapshot({ a: ['101', '202', '303'], b: ['101', '202', '303'], group: ['101', '202', '303'] }) },
+        { snapshot: makeSnapshot({ a: ['101', '202'], b: ['101', '202'], group: ['101', '202'], label: 'Smaller' }) },
+    ], { group: true });
+    await flushPromises();
+    const actorC = harness.nodes.get('#actor-c');
+    const actorD = harness.nodes.get('#actor-d');
+    const opener = harness.nodes.get('#opener');
+    assert.equal(actorC.value, '303', 'An eligible C draft survives a refresh.');
+    assert.equal(opener.value, 'auto');
+    assert.equal(harness.nodes.get('#arm-button').disabled, false, 'A, B and C distinct: ARM enabled.');
+    actorD.value = '101';
+    actorD.dispatchChange();
+    assert.equal(harness.nodes.get('#arm-button').disabled, true, 'D duplicating A disables ARM.');
+    actorD.value = '';
+    actorD.dispatchChange();
+    assert.equal(harness.nodes.get('#arm-button').disabled, false);
+
+    harness.poll();
+    await flushPromises();
+    assert.equal(actorC.value, '', 'A C draft that left the roster is cleared.');
+    assert.equal(harness.nodes.get('#arm-button').disabled, false, 'A and B still form a valid group of two.');
+
+    harness.nodes.get('#solo-mode').checked = true;
+    harness.nodes.get('#solo-mode').dispatchChange();
+    assert.equal(actorC.disabled, true);
+    assert.equal(actorD.disabled, true);
+    assert.equal(opener.disabled, true);
+    harness.nodes.get('#solo-mode').checked = false;
+    harness.nodes.get('#solo-mode').dispatchChange();
+    assert.equal(actorC.disabled, false);
 });
 
 test('malformed refresh controls preserve both actor drafts and fail closed', async () => {
@@ -457,4 +502,45 @@ test('a successful refresh re-arms telemetry for a new failure episode', async (
     assert.deepEqual(harness.reports.map(({ options }) => new URLSearchParams(options.body).get('code')), ['network', 'network']);
     assert.equal(harness.calls.length, 4);
     assert.equal(harness.nodes.get('#arm-button').disabled, true, 'the later refresh failure must still disable ARM');
+});
+
+test('free scene disables every picker, forces the player out, and arms with two eligible NPCs', async () => {
+    const harness = createHarness([
+        { snapshot: makeSnapshot({ a: ['101', '202', '303'], b: ['101', '202', '303'], group: ['101', '202', '303'] }) },
+        { snapshot: makeSnapshot({ a: ['101'], b: ['101'], group: ['101'], label: 'Lonely' }) },
+    ], { group: true, free: true });
+    await flushPromises();
+    const freeMode = harness.nodes.get('#free-mode');
+    const soloMode = harness.nodes.get('#solo-mode');
+    const player = harness.nodes.get('input[name="exclude_player"]');
+    player.checked = false;
+    harness.nodes.get('#actor-a').value = '';
+    harness.nodes.get('#actor-b').value = '';
+    freeMode.checked = true;
+    freeMode.dispatchChange();
+    for (const selector of ['#actor-a', '#actor-b', '#actor-c', '#actor-d', '#opener']) {
+        assert.equal(harness.nodes.get(selector).disabled, true, `${selector} is disabled in a free scene.`);
+    }
+    assert.equal(player.checked, true, 'A free scene always excludes the player.');
+    assert.equal(player.disabled, true);
+    assert.equal(harness.nodes.get('#arm-button').disabled, false, 'Free arms without selections when two are eligible.');
+
+    soloMode.checked = true;
+    soloMode.dispatchChange();
+    assert.equal(freeMode.checked, false, 'Solo and free are exclusive.');
+    soloMode.checked = false;
+    soloMode.dispatchChange();
+    freeMode.checked = true;
+    freeMode.dispatchChange();
+    assert.equal(soloMode.checked, false);
+
+    harness.poll();
+    await flushPromises();
+    assert.equal(harness.nodes.get('#arm-button').disabled, true, 'Free needs at least two eligible NPCs.');
+
+    freeMode.checked = false;
+    freeMode.dispatchChange();
+    assert.equal(player.checked, false, 'Leaving free restores the player draft.');
+    assert.equal(player.disabled, false);
+    assert.equal(harness.nodes.get('#actor-a').disabled, false);
 });
