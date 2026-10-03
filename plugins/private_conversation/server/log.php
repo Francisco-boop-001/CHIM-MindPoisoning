@@ -163,6 +163,7 @@ function pcv_log_event_rules(): array
         'state.scope_expired' => ['severity' => 'info', 'outcome' => 'expired', 'context' => ['target']],
         'state.scope_invalidated' => ['severity' => 'warning', 'outcome' => 'invalidated', 'context' => ['active_config_id', 'pending_config_id']],
         'state.unavailable' => ['severity' => 'error', 'outcome' => 'unavailable', 'context' => ['operation']],
+        'state.store_recovered' => ['severity' => 'warning', 'outcome' => 'recovered', 'context' => ['operation']],
         'state.presence_refreshed' => ['severity' => 'debug', 'outcome' => 'accepted', 'context' => ['actor_count']],
         'state.presence_rejected' => ['severity' => 'warning', 'outcome' => 'rejected', 'context' => ['operation']],
         'ui.page_open' => ['severity' => 'info', 'outcome' => 'ok', 'context' => []],
@@ -171,7 +172,7 @@ function pcv_log_event_rules(): array
         'ui.scope_stage_rejected' => ['severity' => 'warning', 'outcome' => 'rejected', 'context' => []],
         'ui.scope_stage_failed' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['action', 'operation']],
         'routing.request_started' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['request_type']],
-        'routing.request_prepared' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['phase', 'route', 'actor_a_id', 'actor_b_id', 'speaker_id', 'exclude_player', 'bystander_mode', 'member_count', 'opener_source', 'free_scene']],
+        'routing.request_prepared' => ['severity' => 'info', 'outcome' => 'ok', 'context' => ['phase', 'route', 'actor_a_id', 'actor_b_id', 'speaker_id', 'exclude_player', 'bystander_mode', 'member_count', 'opener_source', 'free_scene', 'scene_card', 'pace', 'wrap_up', 'sharmat_listener']],
         'routing.request_skipped' => ['severity' => 'info', 'outcome' => 'skipped', 'context' => ['phase', 'request_type', 'state_status', 'mode']],
         'routing.request_blocked' => ['severity' => 'warning', 'outcome' => 'blocked', 'context' => ['phase', 'request_type', 'actor_a_id', 'actor_b_id']],
         'routing.request_error' => ['severity' => 'error', 'outcome' => 'failed', 'context' => ['phase', 'request_type', 'actor_a_id', 'actor_b_id']],
@@ -188,7 +189,7 @@ function pcv_log_event_rules(): array
             'outcomes' => ['postrequest_observed' => 'info', 'skipped' => 'info', 'blocked' => 'warning', 'failed' => 'error', 'unobserved' => 'warning'],
             'reason_by_outcome' => [
                 'postrequest_observed' => [],
-                'skipped' => ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible', 'scope_ineligible'],
+                'skipped' => ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible', 'scope_ineligible', 'ended_in_game'],
                 'blocked' => ['unsupported_special_mode', 'invalid_input_prefix', 'invalid_input_encoding', 'empty_input', 'malformed_rechat',
                     'rechat_speaker_outside_pair', 'speaker_outside_pair', 'rechat_speaker_outside_scene', 'speaker_outside_scene', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'],
                 'failed' => ['state_unavailable', 'actors_unavailable', 'player_identity_unavailable', 'profile_switch_failed', 'actions_unavailable', 'context_unavailable', 'hook_exception', 'fatal_error'],
@@ -255,7 +256,7 @@ function pcv_log_reason_codes(): array
 {
     return [
         'active_ttl', 'pending_ttl', 'invalid_state_key', 'identity_unavailable', 'state_unavailable', 'reply_in_progress',
-        'left_scene', 'not_eligible_at_start', 'speaker_outside_scene', 'rechat_speaker_outside_scene',
+        'left_scene', 'not_eligible_at_start', 'speaker_outside_scene', 'rechat_speaker_outside_scene', 'members_gone', 'scope_unavailable', 'ended_in_game', 'wrapped_up',
         'corrupt_state', 'symlinked_state', 'not_regular_file', 'state_stat_failed', 'state_too_large',
         'state_read_failed', 'invalid_json', 'invalid_state', 'state_stage_failed', 'state_transition_failed', 'profile_lookup_failed',
         'session_unavailable', 'catalog_unavailable', 'readback_mismatch',
@@ -325,7 +326,7 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
         return in_array($reason, $allowed, true);
     }
     if ($reason === null) {
-        return !in_array($event, ['state.scope_expired', 'state.unavailable', 'ui.unavailable', 'ui.scope_stage_rejected', 'ui.scope_stage_failed',
+        return !in_array($event, ['state.store_recovered', 'state.scope_expired', 'state.unavailable', 'ui.unavailable', 'ui.scope_stage_rejected', 'ui.scope_stage_failed',
             'ui.diagnostics_rejected', 'routing.request_skipped', 'routing.request_blocked', 'routing.request_error', 'state.scope_skipped'], true);
     }
 
@@ -360,7 +361,7 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
         return in_array($reason, ['state_unavailable', 'readback_mismatch', 'internal_error'], true);
     }
     if ($event === 'routing.request_skipped') {
-        return in_array($reason, ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible'], true);
+        return in_array($reason, ['scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'scene_not_eligible', 'ended_in_game'], true);
     }
     if ($event === 'routing.request_blocked') {
         return in_array($reason, ['unsupported_special_mode', 'invalid_input_prefix', 'invalid_input_encoding', 'empty_input', 'malformed_rechat', 'rechat_speaker_outside_pair', 'speaker_outside_pair', 'rechat_speaker_outside_scene', 'speaker_outside_scene', 'solo_rechat_unsupported', 'solo_unrouted_request', 'pair_continuation_player_excluded', 'mode_changed', 'scene_not_eligible'], true);
@@ -370,6 +371,12 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
     }
     if ($event === 'state.unavailable') {
         return in_array($reason, ['invalid_state_key', 'identity_unavailable', 'state_unavailable', 'corrupt_state', 'symlinked_state', 'not_regular_file', 'state_stat_failed', 'state_too_large', 'state_read_failed', 'invalid_json', 'invalid_state', 'state_stage_failed', 'state_transition_failed', 'profile_lookup_failed', 'catalog_unavailable', 'presence_unavailable', 'presence_stale', 'presence_missing', 'presence_invalid', 'presence_key_mismatch', 'unsupported_special_mode'], true);
+    }
+    if ($event === 'state.scope_ended') {
+        return in_array($reason, ['members_gone', 'ended_in_game', 'wrapped_up'], true);
+    }
+    if ($event === 'state.store_recovered') {
+        return in_array($reason, ['invalid_json', 'invalid_state', 'state_too_large'], true);
     }
     if ($event === 'state.scope_invalidated') {
         return $reason === 'playthrough_changed';
@@ -381,7 +388,7 @@ function pcv_log_reason_allowed(string $event, ?string $reason, ?string $outcome
         return in_array($reason, [
             'scope_ineligible', 'baseline_stale', 'output_unavailable', 'output_malformed', 'sentinel_mismatch',
             'event_unmatched', 'registry_unavailable', 'registry_corrupt', 'registration_missing', 'registration_stale',
-            'claim_taken', 'ack_mismatch', 'source_aborted', 'scope_changed', 'identity_changed',
+            'claim_taken', 'ack_mismatch', 'source_aborted', 'scope_changed', 'identity_changed', 'scope_unavailable',
             'mind_poisoning_unavailable', 'reflection_api_incompatible', 'evaluation_rejected', 'registration_busy',
             'receipt_busy', 'ack_conflict', 'interaction_stale', 'native_ack_ambiguous',
         ], true);
@@ -423,9 +430,10 @@ function pcv_log_enum_values(string $key): array
         'model_outcome' => ['valid', 'invalid', 'failed', 'not_called'],
         'persistence_outcome' => ['committed', 'invalid', 'stale', 'failed'],
         'commit_state' => ['confirmed', 'unconfirmed', 'not_attempted'],
-        'presence_check' => ['close', 'grace_expired', 'wide_absent', 'wide_unavailable'],
+        'presence_check' => ['close', 'grace_expired', 'wide_absent', 'wide_unavailable', 'presence_error'],
         'drop_reason' => ['not_eligible_at_start', 'left_scene'],
         'opener_source' => ['named', 'picker', 'first', 'target', 'nearest'],
+        'pace' => ['short', 'normal', 'long'],
         'decision' => ['non_candidate_request', 'director_excluded', 'scope_off', 'scope_pending', 'identity_unavailable', 'unsupported_mode', 'input_rewritten', 'player_speech_preserved', 'solo_reflection_routed', 'rechat_clamped', 'continuation_routed', 'responder_selected', 'context_prepared', 'action_constraints_refreshed', 'action_instructions_removed'],
     ];
     if ($key === 'source_reason') {
@@ -524,7 +532,7 @@ function pcv_log_clean_context(string $event, array $context): array
             if (pcv_log_valid_actor_id($value)) {
                 $clean[$key] = $value;
             }
-        } elseif (in_array($key, ['exclude_player', 'pending', 'committed', 'cleanup_failed', 'free_scene'], true)) {
+        } elseif (in_array($key, ['exclude_player', 'pending', 'committed', 'cleanup_failed', 'free_scene', 'scene_card', 'wrap_up', 'sharmat_listener'], true)) {
             if (is_bool($value)) {
                 $clean[$key] = $value;
             }
@@ -546,7 +554,7 @@ function pcv_log_clean_context(string $event, array $context): array
             if ((is_int($value) || is_float($value)) && is_finite((float)$value) && $value >= 0 && $value <= 86400000) {
                 $clean[$key] = is_int($value) ? $value : round($value, 2);
             }
-        } elseif (in_array($key, ['action', 'scene_mode', 'bystander_mode', 'target', 'operation', 'status', 'request_type', 'phase', 'route', 'state_status', 'mode', 'decision', 'source', 'model_outcome', 'persistence_outcome', 'commit_state', 'source_reason', 'presence_check', 'drop_reason', 'opener_source'], true)) {
+        } elseif (in_array($key, ['action', 'scene_mode', 'bystander_mode', 'target', 'operation', 'status', 'request_type', 'phase', 'route', 'state_status', 'mode', 'decision', 'source', 'model_outcome', 'persistence_outcome', 'commit_state', 'source_reason', 'presence_check', 'drop_reason', 'opener_source', 'pace'], true)) {
             if (is_string($value) && in_array($value, pcv_log_enum_values($key), true)) {
                 $clean[$key] = $value;
             }

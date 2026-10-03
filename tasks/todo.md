@@ -1,5 +1,14 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## PCV 0.1.14 hub snapshot — 2026-10-03
+
+- [x] Verify the published 0.1.14 tag, source inventory, public packages and supplied DWPkg checksum.
+- [x] Import the exact snapshot while preserving the dirty PCV plan and local-only files; update current hub links and feature summary.
+- [x] Review sentinel/skip-reason integration impact without changing MP product behavior or reflection APIs.
+- [ ] Verify changed scope/source equality, commit and push the hub update, then confirm public pins and links.
+
+PCV 0.1.13 was unreleased; current published PCV is 0.1.14 PRE-ALPHA. No new MP/PCV release, installation, runtime/provider/database or gaming-distro operation is authorized by this hub update. Source verification uses the immutable published PCV tag and packages, not the drifting sibling development tree.
+
 ## Public hub release visibility — 2026-10-03
 
 - [x] Inspect the public default branch and README against the published version update.

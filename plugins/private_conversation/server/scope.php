@@ -427,6 +427,11 @@ function pcvReadResolvedScope(): array
             return pcvResolveLiveScopeState(array_replace($state, ['status' => 'unavailable', 'scope' => null, 'reason' => $reason]));
         }
         $eligibleMap = $presence['known_npcs'] ?? [];
+        // 0.1.13: an active scene's reflection check accepts routing's in-scene evidence while reports are fresh.
+        if (is_array($state['scope'] ?? null)) {
+            $sceneIds = array_values(array_filter(pcv_config_actor_ids($state['scope']), 'is_string'));
+            $eligibleMap = pcvScopeAckEligibleMap($eligibleMap, pcv_read_active_scene_npcs($key, $rows, $playerName, $sceneIds));
+        }
         $resolved = pcvResolveLiveScopeState($state, $rows, $playerName, $eligibleMap);
         if (($resolved['status'] ?? null) === 'unavailable'
             && is_array($state['scope'] ?? null)
@@ -439,6 +444,18 @@ function pcvReadResolvedScope(): array
         pcv_log_exception('state.unavailable', 'error', 'unavailable', 'catalog_unavailable', $error, ['operation' => 'begin']);
         return pcvResolveLiveScopeState(array_replace($state, ['status' => 'unavailable', 'scope' => null, 'reason' => 'catalog_unavailable']));
     }
+}
+
+/**
+ * The presence map for checks of an already active scene outside routing (reflection ACKs): the strict map plus
+ * routing's in-scene evidence, but only when the close report is fresh. A heartbeat gap keeps the strict map.
+ */
+function pcvScopeAckEligibleMap(array $strictMap, array $inScene): array
+{
+    if (($inScene['report_fresh'] ?? false) !== true || ($inScene['error'] ?? false) === true) {
+        return $strictMap;
+    }
+    return $strictMap + (is_array($inScene['known_npcs'] ?? null) ? $inScene['known_npcs'] : []);
 }
 
 /** Resolve active state and apply pending changes only when the caller marks an eligible input. */
@@ -522,6 +539,7 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
     // baseline report after a gap). Activation keeps the strict map.
     $activeMap = null;
     $activeCheck = null;
+    $allowDrops = true;
     if ($active && !$pendingEnd && is_array($observed['scope'] ?? null)) {
         try {
             $playerName ??= pcv_current_player_name();
@@ -531,14 +549,20 @@ function pcvBeginResolvedScope(bool $eligible, ?array $currentPresence = null, b
                 $inScene = pcv_read_active_scene_npcs($key, $rows, $playerName, $sceneIds);
                 $activeMap = ($eligibleMap ?? []) + $inScene['known_npcs'];
                 $activeCheck = $inScene['missing'] === [] ? null : (string)reset($inScene['missing']);
+                if (($inScene['error'] ?? false) === true) {
+                    // 0.1.13: unreadable evidence refuses this turn; it never drops members for good.
+                    $allowDrops = false;
+                    $activeCheck = 'presence_error';
+                }
             }
         } catch (Throwable $error) {
+            $allowDrops = false;
             pcv_log_exception('state.unavailable', 'error', 'unavailable', 'catalog_unavailable', $error, ['operation' => 'begin']);
         }
     }
 
     // The state lock rechecks the observed state and rejects any concurrent enabled config without a map.
-    $result = pcv_begin_request($key, $eligible, null, $eligibleMap, $activeMap, $activeCheck, $freeOrder);
+    $result = pcv_begin_request($key, $eligible, null, $eligibleMap, $activeMap, $activeCheck, $freeOrder, $allowDrops);
     if (($result['status'] ?? null) === 'unavailable' && $failureReason !== null
         && !in_array($failureReason, ['presence_missing', 'presence_stale'], true)) {
         $result['reason'] = $failureReason;
@@ -660,8 +684,24 @@ function pcvScopePresenceFailureReason(array $presence): string
 function pcvScopeStoredStateExists(?string $stateDirectory = null): bool
 {
     try {
-        $path = pcv_state_directory($stateDirectory) . DIRECTORY_SEPARATOR . 'state.json';
-        return file_exists($path) || is_link($path);
+        $directory = pcv_state_directory($stateDirectory);
+        $path = $directory . DIRECTORY_SEPARATOR . 'state.json';
+        if (!file_exists($path) && !is_link($path)) {
+            return false;
+        }
+        // 0.1.13: a readable store with no active or pending scene cannot be leaked to; unreadable stores still count.
+        if (function_exists('pcv_load_store')) {
+            $handle = pcv_lock_state($directory, false, LOCK_SH);
+            try {
+                $loaded = pcv_load_store($directory);
+            } finally {
+                pcv_unlock_state($handle);
+            }
+            if ($loaded['kind'] === 'ready') {
+                return $loaded['state']['active'] !== null || $loaded['state']['pending'] !== null;
+            }
+        }
+        return true;
     } catch (Throwable) {
         return true;
     }
@@ -730,6 +770,14 @@ function pcvResolveScopeNames(array $storedScope, array $knownNpcs, ?string $pla
         }
     }
 
+    // 0.1.14 roleplay settings travel with the resolved scope (only when set, so older shapes are unchanged).
+    $extras = [];
+    if (is_string($storedScope['card'] ?? null) && (!function_exists('pcv_valid_scene_card') || pcv_valid_scene_card($storedScope['card']))) {
+        $extras['card'] = $storedScope['card'];
+    }
+    if ($sceneMode === 'pair' && in_array($storedScope['pace'] ?? null, ['short', 'long'], true)) {
+        $extras['pace'] = $storedScope['pace'];
+    }
     if ($sceneMode === 'solo') {
         // Solo keeps its pre-0.1.11 shape; reflection code relies on it.
         return [
@@ -739,7 +787,7 @@ function pcvResolveScopeNames(array $storedScope, array $knownNpcs, ?string $pla
             'actor_b' => null,
             'exclude_player' => $storedScope['exclude_player'],
             'bystander_mode' => $storedScope['bystander_mode'],
-        ];
+        ] + $extras;
     }
     $resolved = [
         'enabled' => true,
@@ -754,7 +802,7 @@ function pcvResolveScopeNames(array $storedScope, array $knownNpcs, ?string $pla
     if (($storedScope['free'] ?? false) === true) {
         $resolved['free'] = true;
     }
-    return $resolved;
+    return $resolved + $extras;
 }
 
 /**
@@ -937,7 +985,7 @@ function pcvBuildScopeContext(array $resolvedScope, string $speaker, string $lis
         if (($resolvedScope['bystander_mode'] ?? 'exclude') === 'silent') {
             $context .= ' Other people may remain only as silent scenery; they cannot speak, act, or be quoted.';
         }
-        return $context;
+        return $context . pcvScopeRoleplayGuidance($resolvedScope);
     }
     $members = pcvScopeMembers($resolvedScope);
     if (count($members) > 2) {
@@ -956,34 +1004,158 @@ function pcvBuildScopeContext(array $resolvedScope, string $speaker, string $lis
     if (($resolvedScope['bystander_mode'] ?? 'exclude') === 'silent') {
         $context .= ' Other people may remain only as silent scenery; they cannot speak, act, or be quoted.';
     }
-    return $context;
+    return $context . pcvScopeRoleplayGuidance($resolvedScope);
+}
+
+/**
+ * 0.1.14 in-game commands, matched on the whole input after the player prefix:
+ * "end scene" / "end the scene" (trailing punctuation allowed) and "wrap up: <how>".
+ * @return array{command: string, direction?: string}|null
+ */
+function pcvInGameCommand($raw, ?string $playerName): ?array
+{
+    if (!is_string($raw) || preg_match('//u', $raw) !== 1) {
+        return null;
+    }
+    $text = $raw;
+    if (is_string($playerName) && $playerName !== '' && str_starts_with($text, $playerName . ':')) {
+        $text = substr($text, strlen($playerName) + 1);
+    }
+    $text = trim($text);
+    $plain = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+    $plain = rtrim($plain, " \t.!?…");
+    if (in_array($plain, ['end scene', 'end the scene'], true)) {
+        return ['command' => 'end'];
+    }
+    if (preg_match('/\Awrap up\s*:\s*(.*)\z/isu', $text, $match) === 1) {
+        $direction = trim($match[1]);
+        return ['command' => 'wrap', 'direction' => $direction !== '' ? $direction : 'They part ways.'];
+    }
+    return null;
+}
+
+/** Consume an ordinary input that was an in-game command: it is not sent to any NPC. */
+function pcvEndRequestQuietly(string $message, string $reason, string $phase): void
+{
+    pcv_log_set_terminal('skipped', $reason, ['phase' => $phase]);
+    if (empty($GLOBALS['PCV_ROUTING_LOG_TERMINAL'])) {
+        $GLOBALS['PCV_ROUTING_LOG_TERMINAL'] = true;
+        pcv_log_event('routing.request_skipped', 'info', 'skipped', $reason, [
+            'phase' => $phase,
+            'request_type' => pcvRoutingLogCurrentType(),
+            'state_status' => 'off',
+            'mode' => pcvRoutingLogMode(pcvEffectiveExecutionMode()),
+        ]);
+    }
+    http_response_code(409);
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo $message;
+    if (function_exists('terminate')) {
+        terminate();
+    }
+    exit;
+}
+
+/**
+ * 0.1.14: CHIM's "Strict Rechat Targeting" (ENFORCE_STRICT_RECHAT_RESPONSE) overwrites a rechat reply's listener
+ * with the previous speaker, so a group could never pass the floor to a third member. On spread rechat turns only,
+ * lift it for this request; the reply's listener then comes from PCV's member-only choices.
+ */
+function pcvApplyTurnPlanToChim(array $plan, string $requestType): void
+{
+    if (($plan['spread'] ?? false) === true && ($plan['sharmat'] ?? false) !== true
+        && in_array($requestType, ['rechat', 'continue', 'continue_group'], true)
+        && !empty($GLOBALS['ENFORCE_STRICT_RECHAT_RESPONSE'])) {
+        $GLOBALS['ENFORCE_STRICT_RECHAT_RESPONSE'] = false;
+    }
+}
+
+/** SHARMAT's NPC-to-NPC intimate-scene listener pin for this request, if any (set in SHARMAT's prerequest). */
+function pcvSharmatListenerPin(): ?string
+{
+    $pin = $GLOBALS['AIAGENTNSFW_FORCE_SCENE_LISTENER'] ?? null;
+    return is_string($pin) && trim($pin) !== '' ? trim($pin) : null;
+}
+
+/**
+ * 0.1.14 listener plan for one pair, group or free-scene turn.
+ * - G0: SHARMAT's pin is honored when it names another member and was computed for this speaker (PCV did not
+ *   switch the speaker after SHARMAT's prerequest ran). An outsider never widens the scene.
+ * - G6: a wrap-up turn closes with the native no-rechat sentinel (SHARMAT's pin, when honored, takes precedence).
+ * - G3: in groups of 3+, prefer members who have not spoken this round ($spokenKeys, from pcv_scene_turns_record).
+ * @return array{listeners: list<string>, spread: bool, wrap_up: bool, sharmat: bool}
+ */
+function pcvSceneTurnPlan(array $scope, string $speaker, array $requestScope, ?string $sharmatPin, array $spokenKeys): array
+{
+    $others = pcvGroupListeners($speaker, $scope);
+    $wrapUp = ($requestScope['wrap_up'] ?? false) === true;
+    $plan = ['listeners' => $others, 'spread' => false, 'wrap_up' => $wrapUp, 'sharmat' => false];
+    if (is_string($sharmatPin) && ($requestScope['speaker_switched'] ?? false) !== true) {
+        foreach ($others as $other) {
+            if (pcv_scope_name_key($other) === pcv_scope_name_key($sharmatPin)) {
+                return array_replace($plan, ['listeners' => [$other], 'sharmat' => true]);
+            }
+        }
+    }
+    if ($wrapUp) {
+        return array_replace($plan, ['listeners' => ['explicit_disable_rechat']]);
+    }
+    if (count(pcvScopeMembers($scope)) >= 3) {
+        $unspoken = array_values(array_filter($others, static fn($name) => !in_array(pcv_scope_name_key($name), $spokenKeys, true)));
+        if ($unspoken !== []) {
+            return array_replace($plan, ['listeners' => $unspoken, 'spread' => true]);
+        }
+    }
+    return $plan;
+}
+
+/**
+ * 0.1.14 roleplay guidance (scene card, turn length, turn spreading, wrap-up). Empty when none applies, so scenes
+ * without these settings keep their exact context. Always ends with the ground rule: PCV adds scene context and
+ * never overrides an NPC's own condition or way of speaking (SHARMAT drunk stages and similar per-NPC prompts).
+ */
+function pcvScopeRoleplayGuidance(array $resolvedScope, array $turn = []): string
+{
+    $parts = [];
+    if (is_string($resolvedScope['card'] ?? null) && $resolvedScope['card'] !== '') {
+        $parts[] = 'Scene: ' . $resolvedScope['card'] . ' Let this setting and mood colour what you say and notice.';
+    }
+    $pace = $resolvedScope['pace'] ?? null;
+    if ($pace === 'short') {
+        $parts[] = 'Keep each reply to one or two sentences.';
+    } elseif ($pace === 'long') {
+        $parts[] = 'You may speak at length, up to six sentences.';
+    }
+    $turn += $GLOBALS['PCV_TURN_GUIDANCE'] ?? [];
+    if (($turn['spread'] ?? false) === true) {
+        $parts[] = 'Prefer addressing someone who has not spoken yet.';
+    }
+    if (($turn['wrap_up'] ?? false) === true) {
+        $parts[] = 'This is the closing moment of the conversation: give parting words that bring it to an end.';
+    }
+    if ($parts === []) {
+        return '';
+    }
+    return ' ' . implode(' ', $parts) . ' This adds to, and never replaces, your own condition and way of speaking.';
 }
 
 /** Stop generation with a non-success response when private routing cannot be guaranteed. */
 function pcvBlockRequest(string $message, string $reason, string $phase, ?array $scopeState = null, bool $error = false): void
 {
-    $outcome = $reason === 'scene_not_eligible' ? 'skipped' : ($error ? 'failed' : 'blocked');
+    // 0.1.13: a refused scene request (the direction is lost) is a blocked warning, not an informational skip.
+    $outcome = $error ? 'failed' : 'blocked';
     pcv_log_set_terminal($outcome, $reason, ['phase' => $phase] + pcvRoutingLogActorContext($scopeState));
     if (empty($GLOBALS['PCV_ROUTING_LOG_TERMINAL'])) {
         $GLOBALS['PCV_ROUTING_LOG_TERMINAL'] = true;
-        if ($reason === 'scene_not_eligible') {
-            pcv_log_event('routing.request_skipped', 'info', 'skipped', 'scene_not_eligible', [
-                'phase' => $phase,
-                'request_type' => pcvRoutingLogCurrentType(),
-                'state_status' => 'unavailable',
-                'mode' => pcvRoutingLogMode(pcvEffectiveExecutionMode()),
-            ]);
-        } else {
-            $context = ['phase' => $phase, 'request_type' => pcvRoutingLogCurrentType()]
-                + pcvRoutingLogActorContext($scopeState);
-            pcv_log_event(
-                $error ? 'routing.request_error' : 'routing.request_blocked',
-                $error ? 'error' : 'warning',
-                $error ? 'failed' : 'blocked',
-                $reason,
-                $context
-            );
-        }
+        $context = ['phase' => $phase, 'request_type' => pcvRoutingLogCurrentType()]
+            + pcvRoutingLogActorContext($scopeState);
+        pcv_log_event(
+            $error ? 'routing.request_error' : 'routing.request_blocked',
+            $error ? 'error' : 'warning',
+            $error ? 'failed' : 'blocked',
+            $reason,
+            $context
+        );
     }
     http_response_code(409);
     header('Content-Type: text/plain; charset=UTF-8');
