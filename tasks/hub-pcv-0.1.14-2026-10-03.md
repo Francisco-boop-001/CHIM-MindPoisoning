@@ -87,3 +87,18 @@ There were no published-tag path deletions between the 0.1.12 and 0.1.14 exports
 - All seven hashes in `protected-before.json` matched after import. The protected plan retains its exact recorded SHA-256.
 - `git diff --check` passed for the assigned tracked hub docs (`README.md`, `docs/development.md`, `docs/deployment-migration.md`, `docs/integration-api.md`, `server/README.md`, `server/AGENTS.md`). The root release note is byte-identical to the published tag (SHA-256 above).
 - Per the lead's verification, all four published .14 assets matched clean-tag builds, seven protected baselines and 37 MP/product/builder/test hashes remained unchanged, and the current README release header/download links resolve to .14/.17 without a .13 release URL. No PHP or game/runtime test was run for the newly pinned PCV .14 snapshot; the prior .12 observer/full-reply results are explicitly historical.
+
+## Publication receipt
+
+- Reviewed index/export tree: `4d481ef9446a34c967342afcabf7cefb3655720a`; source commit: `006ca3c4e13bddc49037e9849106d14076ab9653`.
+- Pushed without force or tags to `CHIM-Plugins` and `CHIM-MindPoisoning` main. GitHub API checks confirmed both branch commits and exact README/PCV-manifest/MP-manifest blobs, current download links, PCV 0.1.14 and MP 0.1.17. MP's immutable 0.1.17 annotated tag remains `4ec1de5fd035fed33f4645d96f1c8e5e0fb079a8`.
+- Fresh public assets and checksum file matched the clean PCV tag build byte for byte:
+
+| Asset | SHA-256 |
+| --- | --- |
+| `private_conversation-0.1.14-mo2.zip` | `23e1daaa2f13de029582c30fc75f2a853cdebe5d063260838ddbe6a6849e3009` |
+| `private_conversation-0.1.14.dwpkg` | `ddfb6a1a828f767b004249a3a5f0d1c9b0e88f8a805f3888df28fbdecbe207e7` |
+| `private_conversation.tar.gz` | `f499bad9234550cd6122c23e6d3ceb086e79140936b98426730745a72da35e6b` |
+| `SHA256SUMS.txt` | `24f35e113d4ad2f62dfbbf1d896601cc568f2caac596e021e198ef1e71680d96` |
+
+This receipt is source/package/public-metadata evidence, not a post-pin runtime result. No new plugin release was created, and no gaming/test distro was entered.

@@ -5,9 +5,11 @@
 - [x] Verify the published 0.1.14 tag, source inventory, public packages and supplied DWPkg checksum.
 - [x] Import the exact snapshot while preserving the dirty PCV plan and local-only files; update current hub links and feature summary.
 - [x] Review sentinel/skip-reason integration impact without changing MP product behavior or reflection APIs.
-- [ ] Verify changed scope/source equality, commit and push the hub update, then confirm public pins and links.
+- [x] Verify changed scope/source equality, commit and push the hub update, then confirm public pins and links.
 
 PCV 0.1.13 was unreleased; current published PCV is 0.1.14 PRE-ALPHA. No new MP/PCV release, installation, runtime/provider/database or gaming-distro operation is authorized by this hub update. Source verification uses the immutable published PCV tag and packages, not the drifting sibling development tree.
+
+Review: Commit `006ca3c4e13bddc49037e9849106d14076ab9653` updates both public main branches with the independently reviewed PCV 0.1.14 snapshot and hub links. All four published assets match clean-tag builds; the supplied DWPkg hash matches. Public README and both manifest blobs match the committed source; MP stays at 0.1.17 and its tag is unchanged. The protected dirty PCV plan remains excluded. No WSL, PHP, live provider/database, installation or game operation was performed. Sentinel-targeted wrap-up lines still lack witness-only evaluation. Evidence: [hub-pcv-0.1.14-2026-10-03.md](hub-pcv-0.1.14-2026-10-03.md).
 
 ## Public hub release visibility — 2026-10-03
 
