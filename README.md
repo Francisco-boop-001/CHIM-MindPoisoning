@@ -4,6 +4,12 @@ Skyrim already has dragons, a civil war and Nazeem. Naturally, what it needed ne
 
 **World of Drama-Llama** is my series of CHIM server plugins for character-driven drama: private scene direction, spoken reflection and individual opinions that can change through praise, slander or reconsideration. The emo llama supervises. Its qualifications remain disputed.
 
+## Current releases
+
+**[Mind Poisoning 0.1.17](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.17)** · **[Private Conversation 0.1.12](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/tag/private_conversation-v0.1.12)** — both **PRE-ALPHA**.
+
+**New in Mind Poisoning 0.1.17:** optional overhearing lets the addressed NPC and up to four eligible additional NPCs consider the same gossip in one model call, with separate relationship results. It is **off by default**. Eavesdropping is now a group project; believing the gossip remains optional. [Release notes](distribution/mind_poisoning-v0.1.17.md) · [Downloads and installation](#quick-installation).
+
 ![Two characters whisper in a snowy landscape while an emo llama lurks at the side.](assets/dashboard-art-source.png)
 
 ## Pick your particular disaster

@@ -1,5 +1,15 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Public hub release visibility — 2026-10-03
+
+- [x] Inspect the public default branch and README against the published version update.
+- [x] Put current release links and the 0.1.17 feature summary above the poster.
+- [x] Verify scoped Markdown/link metadata, push only documentation, and confirm the public README.
+
+The public hub already has correct 0.1.17/0.1.12 tables, but the large image precedes them. Make the current versions visible near the title. Preserve immutable tags/packages and unrelated work; this task has no runtime or installation step.
+
+Review: README places linked MP 0.1.17 and PCV 0.1.12 PRE-ALPHA versions before the poster and summarizes default-off overhearing without changing feature scope. Public release/asset metadata and scoped whitespace checks pass. Only README and this ledger are committed; confirm the public README after the documentation push. No runtime/package/tag changes or WSL commands are part of this task.
+
 ## Mind Poisoning 0.1.17 publication — 2026-10-03
 
 - [x] Inspect source/evidence, remote state and protected edits.
