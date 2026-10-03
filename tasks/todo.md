@@ -2,13 +2,15 @@
 
 ## Mind Poisoning 0.1.17 publication — 2026-10-03
 
-- [ ] Inspect source/evidence, remote state and protected edits.
-- [ ] Prepare and review PRE-ALPHA metadata and release notes.
-- [ ] Verify exact clean staged source and build/tag reproducibility.
-- [ ] Commit, push tag, verify draft/public packages, publish and advance update branches.
-- [ ] Record final receipt, limitations and preserved state.
+- [x] Inspect source/evidence, remote state and protected edits.
+- [x] Prepare and review PRE-ALPHA metadata and release notes.
+- [x] Verify exact clean staged source and build/tag reproducibility.
+- [x] Commit, push tag, verify draft/public packages, publish and advance update branches.
+- [x] Record final receipt, limitations and preserved state.
 
 Authorization and gates: [release-v0.1.17-plan.md](release-v0.1.17-plan.md). Publication does not authorize installation or gaming-distro/provider/database work.
+
+Review: Published PRE-ALPHA tag `mind_poisoning-v0.1.17` at `bd5f5ae` in both repositories after exact-source fixtures, tag builds, draft/public byte comparisons and independent review. Default-off overhearing and the verified PCV 0.1.12 hub snapshot are included. Gaming remains untouched; no installation or live provider/database proof is claimed. Evidence: [release-v0.1.17.md](release-v0.1.17.md).
 
 ## Overheard gossip and PCV 0.1.12 hub update — 2026-10-03
 

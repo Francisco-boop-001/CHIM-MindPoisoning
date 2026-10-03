@@ -4,10 +4,10 @@ The user explicitly authorizes commit, push and publication of the reviewed over
 
 - [x] Inspect exact working tree, prior source freeze/runtime evidence, protected files, remote main/tag/release state and relevant lessons.
 - [x] Delegate and review 0.1.17 metadata/current documentation and truthful release notes; retain default-off and live limits.
-- [ ] Stage only reviewed feature/hub/release files, preserve the dirty PCV plan, export the exact index tree and verify focused release behavior/metadata in the authorized test clone.
-- [ ] Commit the verified tree, create a new immutable annotated tag, independently rebuild/export and compare all source/package/checksum bytes.
-- [ ] Push the new tag, create draft PRE-ALPHA releases, compare downloaded assets, publish, then fast-forward update main branches.
-- [ ] Verify public assets/manifests/refs and historical preservation; record the receipt and preserve unrelated work.
+- [x] Stage only reviewed feature/hub/release files, preserve the dirty PCV plan, export the exact index tree and verify focused release behavior/metadata in the authorized test clone.
+- [x] Commit the verified tree, create a new immutable annotated tag, independently rebuild/export and compare all source/package/checksum bytes.
+- [x] Push the new tag, create draft PRE-ALPHA releases, compare downloaded assets, publish, then fast-forward update main branches.
+- [x] Verify public assets/manifests/refs and historical preservation; record the receipt and preserve unrelated work.
 
 Baseline: branch `work/mind-poisoning`, HEAD `9eff9b280cb06526050467653b13f9563a4d93e2`; current published MP 0.1.16. Eight isolated fixtures and eleven changed-PHP lints passed against the eleven-file freeze in `dist/overhearing-2026-10-03/final-source-freeze.json`. Feature and independent review are recorded in `overheard-gossip-2026-10-03.md` and `defensive-programming-review-2026-10-03.md`. The hub imports the verified PCV 0.1.12 tag; all tag paths must be staged except the protected plan, whose existing HEAD bytes remain in the clean export. This exception is documented rather than published as somebody else's dirty work.
 
@@ -21,4 +21,4 @@ Runtime route: explicit `DwemerAI4Skyrim3-test` only, Windows preflight refuses 
 
 ## Review
 
-Pending the gates above. Synthetic/isolated execution and package reproducibility will not be described as real batch provider, PostgreSQL durability, installed update, scene membership or playback proof.
+All gates passed. The release commit/tag and both public releases are verified; both main branches advanced only after public download verification. Nine exact-source fixtures and eleven lints passed. Final scope/source/output review found no blocker. The release receipt records hashes, immutable history, protected edits and runtime limitations. Synthetic/isolated execution and package reproducibility are not real batch provider, PostgreSQL durability, installed update, scene membership or playback proof. See [release-v0.1.17.md](release-v0.1.17.md).
