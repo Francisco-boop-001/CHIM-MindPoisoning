@@ -1,5 +1,15 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## PCV 0.1.15 hub snapshot — 2026-10-04
+
+- [x] Verify published tag, clean-tag packages and supplied checksum.
+- [x] Update exact pinned snapshot and current hub links; preserve unrelated work.
+- [x] Review sentinel exclusion and reported reflection-no-subjects against source and retained evidence.
+- [x] Fix the confirmed reserved-sentinel catalog collision; verify with isolated native PHP, without changing the MP release/version.
+- [ ] Review diffs, verify clean export, commit/push and confirm public hub state.
+
+Scope: hub/source/package checks plus a separate unreleased MP sentinel fix with isolated native PHP; no WSL distro, live database/provider, installation or new plugin release. Exact live cause remains unconfirmed unless retained evidence proves it.
+
 ## PCV 0.1.14 hub snapshot — 2026-10-03
 
 - [x] Verify the published 0.1.14 tag, source inventory, public packages and supplied DWPkg checksum.
