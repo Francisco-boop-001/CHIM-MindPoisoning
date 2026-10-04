@@ -27,6 +27,8 @@ The fixture file’s fetched-byte SHA-256 is `4497443C9480C7D7FF5D5DEABCEC9AD5AB
 
 The current draft manifest is version `0.1.18`, retains the `candidate` channel and `development_candidate` status, and uses a version-token URL that resolves to the versioned `mind_poisoning-v0.1.18` release. The draft release notes and current documentation describe the canonical Player and empty-map behavior while distinguishing the earlier v0.1.10 live acceptance and v0.1.15 user-reported observations from this candidate's isolated checks. The official CHIM catalog entry is not submitted or approved; no current catalog-policy review is claimed.
 
+The pinned CHIM `docs/custom-plugins.md` and `docs/building.md` were not present in the local core snapshot, and the official web fetch returned a cache miss. The lead's pinned Plugin Manager check proves schema-2 manifest/update metadata resolution against the inspected consumer, including candidate-channel and entry-order matching; it does not prove archive extraction, installation, or current catalog-policy compliance.
+
 These specific fixes can ship as PRE-ALPHA without an installed/live validation claim. The prior record supports focused PHP behavior, an isolated PostgreSQL direct-writer transaction check, syntax checks, and whitespace checks. It does not establish installed CHIM, provider, player-database, audio, or in-game behavior. Keep those limits in the published notes. The versioned links and candidate artifacts are not considered verified public assets by this review.
 
 ## Release gates still pending
@@ -37,3 +39,7 @@ These specific fixes can ship as PRE-ALPHA without an installed/live validation 
 - Stage only the explicit Mind Poisoning release allowlist. The shared worktree contains unrelated Private Conversation changes, audit/recovery files, images, and other task material that must not enter this release.
 
 The builder scripts are unchanged since v0.1.17. A lead-owned release plan and metadata checklist remain authoritative for those pending gates; this report does not replace their package/publication receipts.
+
+## Final review and publication record
+
+The independent reviewer subsequently approved the frozen source and packages for PRE-ALPHA publication after checking the clean tag, source equality, four asset hashes/internal checksums, format-specific layouts and clean-export transcript. Lead-owned draft/public download and public-state/main gates then passed. See the [publication receipt](release-v0.1.18.md). These gates do not establish live installation, provider, player database or gameplay behavior.

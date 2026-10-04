@@ -2,12 +2,14 @@
 
 ## Authorized 0.1.18 publication — 2026-10-04
 
-- [ ] Review metadata, clean export and package/consumer evidence.
-- [ ] Commit/tag and reproduce all assets from the clean tag.
-- [ ] Independently review, push tags, verify drafts, publish and verify public downloads.
-- [ ] Advance public main branches after release verification and record receipt.
+- [x] Review metadata, clean export and package/consumer evidence.
+- [x] Commit/tag and reproduce all assets from the clean tag.
+- [x] Independently review, push tags, verify drafts, publish and verify public downloads.
+- [x] Advance public main branches after release verification and record receipt.
 
 Plan: [release-v0.1.18-plan.md](release-v0.1.18-plan.md). PRE-ALPHA; no installation or WSL/live runtime operation.
+
+Review: Release commit `83908fe` and annotated tag `mind_poisoning-v0.1.18` are public in both repositories. Clean-tag source equality, native consumer/canonicalizer checks, independent archive review, exact draft/public download equality, main manifests/README and old-release preservation gates passed. Private Conversation stays 0.1.15; protected dirty work is preserved. PRE-ALPHA, no install or WSL/live action. [Receipt](release-v0.1.18.md).
 
 ## Relationship compatibility fixes — 2026-10-04
 
