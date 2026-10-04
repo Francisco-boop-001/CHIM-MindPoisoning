@@ -48,7 +48,7 @@ function runObserverCase(string $case): array
             public function npcById(int $id, bool $forUpdate = false): ?array { return $this->inner->npcById($id, $forUpdate); }
             public function reflectionHistory(string $name, int $beforeId): array { return $this->inner->reflectionHistory($name, $beforeId); }
             public function beginForListener(int $id): bool { return $this->inner->beginForListener($id); }
-            public function writeNpc(int $id, array $edges, object $data, float $gamets): bool { return $this->inner->writeNpc($id, $edges, $data, $gamets); }
+            public function writeNpc(int $id, array $edges, object $data, float $gamets, array $relationshipKeysToRemove = []): bool { return $this->inner->writeNpc($id, $edges, $data, $gamets, $relationshipKeysToRemove); }
             public function backupAndVerify(int $id, array $expected): bool { return $this->inner->backupAndVerify($id, $expected); }
             public function commit(): bool { return false; }
             public function rollback(): void { $this->inner->rollback(); }

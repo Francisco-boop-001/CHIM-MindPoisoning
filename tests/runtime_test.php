@@ -478,19 +478,36 @@ final class MemoryStoreDb implements StoreDb, WitnessSnapshotStoreDb
         return true;
     }
 
-    public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool
+    public function writeNpc(
+        int $npcId,
+        array $relationshipEdges,
+        object $mindPoisoningData,
+        float $gamets,
+        array $relationshipKeysToRemove = []
+    ): bool
     {
         if (!$this->transaction || !isset($this->npcs[$npcId]) || isset($this->failWrites[$npcId])) {
             return false;
         }
         $extendedData = $this->npcs[$npcId]['extended_data'];
-        $relationships = isset($extendedData->relationships)
-            ? clone $extendedData->relationships
-            : new stdClass();
+        $storedRelationships = $extendedData->relationships ?? new stdClass();
+        if ($storedRelationships instanceof stdClass) {
+            $relationships = clone $storedRelationships;
+        } elseif ($storedRelationships === []) {
+            $relationships = new stdClass();
+        } else {
+            return false;
+        }
+        foreach ($relationshipKeysToRemove as $name) {
+            if (!is_string($name)) {
+                return false;
+            }
+            unset($relationships->{$name});
+        }
         foreach ($relationshipEdges as $name => $edge) {
             $relationships->{$name} = clone $edge;
         }
-        if ($relationshipEdges !== []) {
+        if ($relationshipEdges !== [] || $relationshipKeysToRemove !== []) {
             $extendedData->relationships = $relationships;
         }
         $this->npcs[$npcId]['extended_data'] = $extendedData;
@@ -647,6 +664,29 @@ register_shutdown_function(static function () use ($pauseTestRoot, $pauseTestDat
     }
     @rmdir($pauseTestRoot);
 });
+
+if (($argv[1] ?? null) === '--relationship-helper-unavailable') {
+    check(!class_exists(\RelationshipManager::class, false), 'The missing-helper fixture must run before loading the pinned CHIM helper.');
+    resetAckLoggingInteraction();
+    [, , , $missingHelperDb] = baseFixture();
+    $missingHelperDb->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 8, 'type' => 'friend'];
+    [$missingHelperRequest, $missingHelperInsert] = playerInputFixture($missingHelperDb);
+    $missingHelperCalls = 0;
+    same('listener-invalid', handlePlayerInput(
+        $missingHelperRequest,
+        $missingHelperInsert,
+        $missingHelperDb,
+        static function (array $messages) use (&$missingHelperCalls): string {
+            $missingHelperCalls++;
+            return '{}';
+        }
+    ), 'Player-origin gossip must fail closed if canonical credibility normalization is unavailable.');
+    same(0, $missingHelperCalls, 'Unavailable Player credibility normalization must not reach the model.');
+    unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+    echo "relationship helper unavailable: failed closed before model\n";
+    exit(0);
+}
+require_once __DIR__ . '/fixtures/relationship_manager.cf5030f15781637498be86debe26fcf102f5690d.php';
 
 if (defined('CHIM_MIND_POISONING_TEST_FIXTURES_ONLY') && CHIM_MIND_POISONING_TEST_FIXTURES_ONLY === true) {
     return;
@@ -877,17 +917,39 @@ unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
 resetAckLoggingInteraction();
 [$event, $subjects, $judgments, $db] = baseFixture();
 [$playerRequest, $playerInsert] = playerInputFixture($db);
-$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 4, 'type' => 'friend'];
-$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 2, 'type' => 'neutral'];
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias'];
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'canonical edge'];
+$calls = 0;
+$playerGossipPrompt = null;
+same('committed', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls, &$playerGossipPrompt): string {
+    $calls++;
+    $playerGossipPrompt = json_decode($messages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'A credible defense.', 'evidence' => 'kept his promise'],
+    ]);
+}), 'Player-origin gossip about an NPC should resolve the canonical listener-to-Player relationship.');
+same(1, $calls, 'Core-resolvable Player aliases must still reach the model.');
+same(50, $playerGossipPrompt['listener_prior_relation_to_speaker']['aff'] ?? null, 'Player credibility should use the core-selected alias even when Player is not a candidate subject.');
+check(!array_key_exists('player', $playerGossipPrompt['candidates'] ?? []), 'Player should remain excluded as a subject in Player-origin gossip.');
+same(100, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'The third-party NPC judgment should commit.');
+same(1, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'NPC-only Player gossip must leave the actual-name Player alias unchanged.');
+same(50, $db->npcs[22]['extended_data']->relationships->Player->aff, 'NPC-only Player gossip must leave the canonical Player edge unchanged.');
+same(1, count($db->history), 'The Player gossip update should keep normal history behavior.');
+unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships->Dragonborn = [1];
+[$playerRequest, $playerInsert] = playerInputFixture($db);
+$beforeMalformedPlayerInputEdge = serialize($db->npcs[22]);
 $calls = 0;
 same('listener-invalid', handlePlayerInput($playerRequest, $playerInsert, $db, static function (array $messages) use (&$calls): string {
     $calls++;
     return '{}';
-}), 'Ambiguous Player relationship aliases must fail before paid model work.');
-same(0, $calls, 'The Player relationship alias gate must precede the model request.');
-same([], $db->history, 'Ambiguous Player relationship aliases must not snapshot or rewrite relationships.');
-same(4, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'The legacy Player alias must remain unchanged.');
-same(2, $db->npcs[22]['extended_data']->relationships->Player->aff, 'The canonical Player edge must remain unchanged.');
+}), 'Player-origin NPC gossip must reject a malformed raw Player edge before building model context.');
+same(0, $calls, 'A malformed raw Player edge must not reach the model on Player input.');
+same($beforeMalformedPlayerInputEdge, serialize($db->npcs[22]), 'Malformed Player credibility data must not change the listener.');
+same([], $db->history, 'Malformed Player credibility data must not create a snapshot.');
 unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
 
 resetAckLoggingInteraction();
@@ -1047,16 +1109,126 @@ same(true, $db->npcs[22]['extended_data']->other_data->empty instanceof stdClass
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 0, 'type' => 'friend', 'extra' => new stdClass()];
-same('committed', persistJudgments($event, $subjects, $judgments, $db), 'One legacy Player alias should receive the update.');
-same(-2, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'Existing Player alias affinity must update in place.');
-check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Player'), 'Do not create a duplicate canonical Player edge beside an alias.');
+$db->npcs[22]['extended_data']->relationships->Dragonborn->extra = 'keep winning metadata';
+same('committed', persistJudgments($event, $subjects, $judgments, $db), 'A single Player alias should normalize before persistence.');
+same(-2, $db->npcs[22]['extended_data']->relationships->Player->aff, 'The canonical Player edge should receive the judgment.');
+same('friend', $db->npcs[22]['extended_data']->relationships->Player->type, 'The normalized Player relationship type should remain intact.');
+same('keep winning metadata', $db->npcs[22]['extended_data']->relationships->Player->extra, 'The normalized Player edge should preserve arbitrary metadata.');
+check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'The old actual-name key should be removed after a Player update.');
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 0, 'type' => 'friend'];
 $db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 0, 'type' => 'neutral'];
-$beforeNpc = unserialize(serialize($db->npcs[22]));
-same('failed', persistJudgments($event, $subjects, $judgments, $db), 'Multiple Player aliases must reject rather than guess which core reads.');
-check(ChimMindPoisoning\sameJsonValue($beforeNpc, $db->npcs[22]), 'Ambiguous aliases must roll back without mutation.');
+same('committed', persistJudgments($event, $subjects, $judgments, $db), 'The pinned CHIM helper should resolve duplicate Player aliases under persistence.');
+same(-2, $db->npcs[22]['extended_data']->relationships->Player->aff, 'The selected duplicate alias should receive the judgment under the canonical key.');
+same('friend', $db->npcs[22]['extended_data']->relationships->Player->type, 'The selected duplicate alias should preserve its core-normalized type.');
+check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'The duplicate alias should be removed after the Player update.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->onBegin = static function (int $listenerId, MemoryStoreDb $lockedDb): void {
+    $lockedDb->npcs[$listenerId]['extended_data']->relationships = (object)[
+        'Dragonborn' => (object)['aff' => 1, 'type' => 'neutral', 'custom_info' => 'locked alias'],
+        'Player' => (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'locked canonical'],
+    ];
+};
+same('committed', persistJudgments($event, $subjects, $judgments, $db), 'Persistence must normalize the current Player aliases after acquiring the listener lock.');
+same(48, $db->npcs[22]['extended_data']->relationships->Player->aff, 'Locked revalidation must apply the fixture judgment delta to the current canonical prior.');
+same('locked alias', $db->npcs[22]['extended_data']->relationships->Player->custom_info, 'Locked revalidation must preserve custom_info selected by the pinned CHIM normalizer.');
+check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'The alias observed under lock must be removed atomically with the Player update.');
+
+$compatibilityStatuses = [];
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships = null;
+$beforeNullRelationshipMap = serialize($db->npcs[22]);
+same('invalid', persistJudgments($event, ['npc:33' => $subjects['npc:33']], ['npc:33' => $judgments['npc:33']], $db), 'An explicitly null stored relationship map must be rejected.');
+same($beforeNullRelationshipMap, serialize($db->npcs[22]), 'A null stored relationship map must not mutate or snapshot listener state.');
+same([], $db->history, 'A null stored relationship map must not create history.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships = [];
+$compatibilityStatuses['empty NPC map'] = persistJudgments(
+    $event,
+    ['npc:33' => $subjects['npc:33']],
+    ['npc:33' => $judgments['npc:33']],
+    $db
+);
+same(true, $db->npcs[22]['extended_data']->relationships instanceof stdClass, 'An empty NPC relationship map must persist as an object.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships->Dragonborn = [1];
+$beforeInvalidStoredPlayerEdge = serialize($db->npcs[22]);
+same(
+    'failed',
+    persistJudgments(
+        $event,
+        ['player' => $subjects['player']],
+        ['player' => ['delta' => -3, 'reason' => 'A neutral Player judgment.', 'evidence' => 'The Dragonborn is brave.']],
+        $db
+    ),
+    'A malformed array-shaped raw Player edge must fail closed during locked persistence.'
+);
+same($beforeInvalidStoredPlayerEdge, serialize($db->npcs[22]), 'A malformed raw Player edge must not mutate the listener or ledger.');
+same([], $db->history, 'A malformed raw Player edge must not create a history snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships = [];
+$compatibilityStatuses['empty Player map'] = persistJudgments(
+    $event,
+    ['player' => $subjects['player']],
+    ['player' => ['delta' => -3, 'reason' => 'A neutral Player judgment.', 'evidence' => 'The Dragonborn is brave.']],
+    $db
+);
+same(true, $db->npcs[22]['extended_data']->relationships instanceof stdClass, 'An empty Player relationship map must persist as an object.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships->Player = (object)[
+    'aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve this edge',
+];
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)[
+    'aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias',
+];
+$compatibilityStatuses['duplicate Player keys'] = persistJudgments(
+    $event,
+    ['player' => $subjects['player']],
+    ['player' => ['delta' => -3, 'reason' => 'A neutral Player judgment.', 'evidence' => 'The Dragonborn is brave.']],
+    $db
+);
+
+$hadPlayerName = array_key_exists('PLAYER_NAME', $GLOBALS);
+$previousPlayerName = $GLOBALS['PLAYER_NAME'] ?? null;
+$GLOBALS['PLAYER_NAME'] = 'Unrelated ambient name';
+$playerEdgeAfterRepair = $db->npcs[22]['extended_data']->relationships->Player ?? null;
+same(47, $playerEdgeAfterRepair->aff ?? null, 'The stronger Player affinity 50 must receive the -3 judgment.');
+same('romantic', $playerEdgeAfterRepair->type ?? null, 'The winning Player relationship type must be preserved.');
+same('preserve this edge', $playerEdgeAfterRepair->custom_info ?? null, 'Player-authored custom_info must survive alias normalization and affinity update.');
+check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'The losing Player-name alias must be removed after a Player update.');
+same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'Unrelated listener relationship edges must survive Player normalization.');
+same(true, $db->npcs[22]['extended_data']->unrelated->preserve, 'Unrelated extended_data fields must survive Player normalization.');
+same('Unrelated ambient name', $GLOBALS['PLAYER_NAME'] ?? null, 'Canonicalization must restore an existing PLAYER_NAME value.');
+require_once __DIR__ . '/../server/dashboard_data.php';
+same(
+    ['value' => 47, 'state' => 'set'],
+    ChimMindPoisoning\dashboardCurrent($db->npcs[22], 'player', 'Player', 'Dragonborn', []),
+    'The dashboard must display the same canonical Player affinity that persistence wrote.'
+);
+unset($GLOBALS['PLAYER_NAME']);
+$restoredUnsetMap = ChimMindPoisoning\canonicalStoredRelationshipMap([
+    'Dragonborn' => (object)['aff' => 47, 'type' => 'romantic'],
+], 'Dragonborn');
+same(false, array_key_exists('PLAYER_NAME', $GLOBALS), 'Canonicalization must restore an originally absent PLAYER_NAME global.');
+same(['Player' => ['aff' => 47, 'type' => 'romantic']], $restoredUnsetMap, 'The pinned helper must return the normalized canonical Player edge.');
+if ($hadPlayerName) {
+    $GLOBALS['PLAYER_NAME'] = $previousPlayerName;
+} else {
+    unset($GLOBALS['PLAYER_NAME']);
+}
+
+echo 'relationship compatibility cases: ' . json_encode($compatibilityStatuses, JSON_THROW_ON_ERROR) . "\n";
+same(
+    ['empty NPC map' => 'committed', 'empty Player map' => 'committed', 'duplicate Player keys' => 'committed'],
+    $compatibilityStatuses,
+    'Empty relationship maps and core-resolvable Player aliases must commit through the public persistence seam.'
+);
 
 $ledger = ['playthrough_id' => '1', 'floor_event_id' => 0, 'events' => []];
 for ($id = 1; $id <= 129; $id++) {
@@ -1115,6 +1287,35 @@ same(1, count($db->history), 'Composed hook should snapshot the changed listener
 same('duplicate', handleSpeechAck($ack, $db, $model), 'An acknowledged utterance should be deduped before another model call.');
 same(1, $modelCalls, 'Preflight dedupe must avoid a second model call.');
 same(1, count($db->history), 'Preflight duplicate must not create a second snapshot.');
+
+foreach ([
+    ['NPC-only', 'I trust Jarl Balgruuf.', ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Supported NPC claim.', 'evidence' => 'I trust Jarl Balgruuf.'], 'Jarl Balgruuf', 1],
+    ['Player-only', 'The Dragonborn is brave.', ['subject' => 'player', 'delta' => -1, 'reason' => 'Supported Player claim.', 'evidence' => 'The Dragonborn is brave.'], 'Player', -1],
+] as [$emptyMapLabel, $emptyMapSpeech, $emptyMapJudgment, $emptyMapTarget, $emptyMapAffinity]) {
+    [$emptyMapEvent, , , $emptyMapDb] = baseFixture();
+    $emptyMapDb->npcs[22]['extended_data']->relationships = [];
+    $emptyMapEvent['text'] = $emptyMapSpeech;
+    $emptyMapEvent['source_data'] = 'Aela: ' . $emptyMapSpeech . ' (Talking to Lydia)';
+    $emptyMapDb->events[100] = $emptyMapEvent + ['type' => 'chat', 'delivery_state' => 'spoken'];
+    $emptyMapAck = ['_speech', 0, 10, json_encode([
+        'speaker' => 'Aela',
+        'listener' => 'Lydia',
+        'speech' => $emptyMapEvent['text'],
+        'utterance_id' => $emptyMapEvent['utterance_id'],
+    ], JSON_THROW_ON_ERROR)];
+    $emptyMapModelCalls = 0;
+    $emptyMapRecords = [];
+    $emptyMapStatus = handleSpeechAck($emptyMapAck, $emptyMapDb, static function (array $messages) use (&$emptyMapModelCalls, $emptyMapJudgment): string {
+        $emptyMapModelCalls++;
+        return validModelResponse([$emptyMapJudgment]);
+    }, captureRequestLog($emptyMapRecords));
+    same('committed', $emptyMapStatus, 'An empty stored relationship map should accept a public ' . $emptyMapLabel . ' judgment: ' . json_encode(lastRequestSummary($emptyMapRecords), JSON_THROW_ON_ERROR));
+    same(1, $emptyMapModelCalls, 'An empty-map ' . $emptyMapLabel . ' acknowledgment should make one provider request.');
+    check($emptyMapDb->npcs[22]['extended_data']->relationships instanceof stdClass, 'An empty-map ' . $emptyMapLabel . ' commit should store relationships as an object.');
+    same($emptyMapAffinity, $emptyMapDb->npcs[22]['extended_data']->relationships->{$emptyMapTarget}->aff ?? null, 'The empty-map ' . $emptyMapLabel . ' edge should commit its affinity.');
+    same('neutral', $emptyMapDb->npcs[22]['extended_data']->relationships->{$emptyMapTarget}->type ?? null, 'A new empty-map ' . $emptyMapLabel . ' edge should use the neutral default.');
+    same(1, count($emptyMapDb->history), 'An empty-map ' . $emptyMapLabel . ' commit should create one listener snapshot.');
+}
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $crTerminatedAck = ['_speech', 0, 10, json_encode([
@@ -1350,15 +1551,55 @@ same([], $db->history, 'An Off/generation change during evaluation must not snap
 resetInteractionTestRequest(2, 2, true, false);
 
 [$event, $subjects, $judgments, $db] = baseFixture();
-$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 0, 'type' => 'friend'];
-$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 0, 'type' => 'neutral'];
-$beforeAmbiguousPlayer = unserialize(serialize($db->npcs[22]));
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias'];
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve canonical metadata'];
+$aliasAckMessages = null;
 $modelCalls = 0;
-$ambiguousStatus = handleSpeechAck($ack, $db, $model);
-same(0, $modelCalls, 'Ambiguous Player aliases must not spend a model request.');
-same('listener-invalid', $ambiguousStatus, 'Ambiguous Player aliases must be rejected before model evaluation.');
-check(ChimMindPoisoning\sameJsonValue($beforeAmbiguousPlayer, $db->npcs[22]), 'The pre-model alias gate must preserve the listener relationship map.');
-same([], $db->history, 'Ambiguous Player aliases must not create a snapshot.');
+$aliasAckModel = static function (array $messages) use (&$modelCalls, &$aliasAckMessages): string {
+    $modelCalls++;
+    $aliasAckMessages = $messages;
+    return validModelResponse([
+        ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise.', 'evidence' => 'I trust Jarl Balgruuf.'],
+        ['subject' => 'player', 'delta' => -3, 'reason' => 'A mild reaction.', 'evidence' => 'The Dragonborn is brave.'],
+    ]);
+};
+same('committed', handleSpeechAck($ack, $db, $aliasAckModel), 'Core-resolvable Player aliases should pass addressed-speech preflight.');
+same(1, $modelCalls, 'Canonical Player aliases should make exactly one addressed-speech model request.');
+$aliasAckPrompt = json_decode($aliasAckMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
+$expectedAliasAckMap = \RelationshipManager::normalizeRelationshipMap([
+    'Dragonborn' => ['aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias'],
+    'Player' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve canonical metadata'],
+]);
+same(50, $aliasAckPrompt['candidates']['player']['listener_prior_relation']['aff'] ?? null, 'The prompt must use the core-selected canonical Player edge.');
+same(47, $db->npcs[22]['extended_data']->relationships->Player->aff ?? null, 'The addressed Player judgment should apply to the canonical prior.');
+same('romantic', $db->npcs[22]['extended_data']->relationships->Player->type ?? null, 'The addressed Player update should preserve the winning relationship type.');
+same($expectedAliasAckMap['Player']['custom_info'] ?? null, $db->npcs[22]['extended_data']->relationships->Player->custom_info ?? null, 'The addressed Player update should preserve custom_info selected by the pinned CHIM normalizer.');
+check(!property_exists($db->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'The addressed Player update should remove the actual-name alias.');
+same(1, count($db->history), 'A canonicalized Player update should create one history snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships->Dragonborn = [1];
+$beforeMalformedPlayerEdge = serialize($db->npcs[22]);
+$modelCalls = 0;
+same('listener-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$modelCalls): string {
+    $modelCalls++;
+    return '{}';
+}), 'A malformed array-shaped stored Player edge must fail addressed-speech preflight.');
+same(0, $modelCalls, 'A malformed stored Player edge must not make a model request.');
+same($beforeMalformedPlayerEdge, serialize($db->npcs[22]), 'A malformed stored Player edge must not mutate the listener.');
+same([], $db->history, 'A malformed stored Player edge must not create a snapshot.');
+
+[$event, $subjects, $judgments, $db] = baseFixture();
+$db->npcs[22]['extended_data']->relationships = null;
+$beforeNullRelationships = serialize($db->npcs[22]);
+$modelCalls = 0;
+same('listener-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$modelCalls): string {
+    $modelCalls++;
+    return '{}';
+}), 'An explicitly null stored relationships map must not be silently treated as an empty map.');
+same(0, $modelCalls, 'An explicitly null stored relationship map must stop before model work.');
+same($beforeNullRelationships, serialize($db->npcs[22]), 'An explicitly null stored map must remain untouched after refusal.');
+same([], $db->history, 'An explicitly null stored map must not create history.');
 
 [$event, $subjects, $judgments, $db] = baseFixture();
 $event['text'] = 'I trust Jarl Balgruuf.';
@@ -1379,7 +1620,7 @@ $npcOnlyWithAliasesModel = static function (array $messages) use (&$modelCalls):
         ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Credible praise', 'evidence' => 'I trust Jarl Balgruuf.'],
     ]);
 };
-same('committed', handleSpeechAck($npcOnlyWithAliasesAck, $db, $npcOnlyWithAliasesModel), 'NPC-only judgments must remain eligible with ambiguous Player aliases.');
+same('committed', handleSpeechAck($npcOnlyWithAliasesAck, $db, $npcOnlyWithAliasesModel), 'NPC-only judgments must remain eligible with core-resolvable Player aliases.');
 same(1, $modelCalls, 'NPC-only judgments should still reach the model.');
 same(7, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'NPC-only updates must leave the legacy Player alias unchanged.');
 same(-3, $db->npcs[22]['extended_data']->relationships->Player->aff, 'NPC-only updates must leave the canonical Player alias unchanged.');

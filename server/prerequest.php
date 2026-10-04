@@ -248,8 +248,9 @@ function inspectAckRecipient(
     if (!empty($extended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
         return ['status' => 'locked', 'reason' => 'relationship_locked'];
     }
-    $relationships = $extended->relationships ?? new \stdClass();
-    if (!$relationships instanceof \stdClass) {
+    $relationshipValue = property_exists($extended, 'relationships') ? $extended->relationships : new \stdClass();
+    $relationships = storedRelationshipMap($relationshipValue);
+    if (!is_array($relationships)) {
         return ['status' => 'listener-invalid', 'reason' => 'listener_relationships_invalid'];
     }
     $dedupeReason = null;
@@ -264,10 +265,9 @@ function inspectAckRecipient(
         return ['status' => 'no-subjects', 'reason' => 'no_subjects'];
     }
     if (array_key_exists('player', $subjects)) {
-        try {
-            playerRelationshipKey($relationships, $playerName);
-        } catch (\RuntimeException) {
-            return ['status' => 'listener-invalid', 'reason' => 'player_alias_ambiguous'];
+        $canonicalRelationships = canonicalStoredRelationshipMap($relationships, $playerName);
+        if (!is_array($canonicalRelationships)) {
+            return ['status' => 'listener-invalid', 'reason' => 'listener_relationships_invalid'];
         }
     }
     foreach ($subjects as $subject) {
@@ -795,6 +795,8 @@ function evaluateInfluenceRequest(
 ): string
 {
     try {
+        $storedRelationships = null;
+        $canonicalRelationshipsValidated = false;
         $interactionReason = null;
         $interactionStatus = speechAckInteractionStatus($interactionReason);
         if ($interactionStatus !== 'ok') {
@@ -942,17 +944,20 @@ function evaluateInfluenceRequest(
             if (!empty($listenerExtended->relationships_locked) || (int)($listener['lock_profile'] ?? 0) !== 0) {
                 return 'locked';
             }
-            $relationships = $listenerExtended->relationships ?? new \stdClass();
-            if (!$relationships instanceof \stdClass) {
+            $relationshipValue = property_exists($listenerExtended, 'relationships')
+                ? $listenerExtended->relationships
+                : new \stdClass();
+            $storedRelationships = storedRelationshipMap($relationshipValue);
+            if (!is_array($storedRelationships)) {
                 $logFields['reason'] = 'listener_relationships_invalid';
                 return 'listener-invalid';
             }
-            try {
-                playerRelationshipKey($relationships, $playerName);
-            } catch (\RuntimeException) {
-                $logFields['reason'] = 'player_alias_ambiguous';
+            $canonicalRelationships = canonicalStoredRelationshipMap($storedRelationships, $playerName);
+            if (!is_array($canonicalRelationships)) {
+                $logFields['reason'] = 'listener_relationships_invalid';
                 return 'listener-invalid';
             }
+            $canonicalRelationshipsValidated = true;
 
             $dedupeReason = null;
             if (eventAlreadyProcessed($listener, $profile['id'], $source['event_id'], $source['utterance_id'], $dedupeReason)) {
@@ -1160,16 +1165,20 @@ function evaluateInfluenceRequest(
         if ($subjects === []) {
             return 'no-subjects';
         }
-        if (array_key_exists('player', $subjects)) {
-            $relationships = $listenerExtended->relationships ?? new \stdClass();
-            if (!$relationships instanceof \stdClass) {
+        if ($playerInputInsert === null) {
+            $relationshipValue = property_exists($listenerExtended, 'relationships')
+                ? $listenerExtended->relationships
+                : new \stdClass();
+            $storedRelationships = storedRelationshipMap($relationshipValue);
+            if (!is_array($storedRelationships)) {
                 $logFields['reason'] = 'listener_relationships_invalid';
                 return 'listener-invalid';
             }
-            try {
-                playerRelationshipKey($relationships, $playerName);
-            } catch (\RuntimeException) {
-                $logFields['reason'] = 'player_alias_ambiguous';
+        }
+        if (array_key_exists('player', $subjects) && !$canonicalRelationshipsValidated) {
+            $canonicalRelationships = canonicalStoredRelationshipMap($storedRelationships, $playerName);
+            if (!is_array($canonicalRelationships)) {
+                $logFields['reason'] = 'listener_relationships_invalid';
                 return 'listener-invalid';
             }
         }

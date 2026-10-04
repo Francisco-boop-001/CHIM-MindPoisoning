@@ -256,36 +256,138 @@ function findSubjects(array $event, array $npcs, string $playerName): array
     return $subjects;
 }
 
-function relationshipFor(array $npc, string $target, ?string $playerName = null): array
+/**
+ * Decode a stored relationship map without accepting nonempty JSON/PHP arrays.
+ * CHIM stores this map as an object; only an empty array is a legacy empty-map
+ * representation that needs normalization.
+ */
+function storedRelationshipMap(mixed $relationships): ?array
 {
-    $relationships = $npc['extended_data']['relationships'] ?? [];
-    if (!is_array($relationships)) {
-        return ['aff' => 0, 'type' => 'neutral'];
+    if ($relationships instanceof \stdClass) {
+        return get_object_vars($relationships);
+    }
+    return $relationships === [] ? [] : null;
+}
+
+/**
+ * Collapse only Player aliases in a validated map. Associative arrays are
+ * accepted here because promptNpcCopy converts a validated stored object map
+ * to arrays before building model context.
+ */
+function canonicalRelationshipMap(array $relationships, ?string $playerName = null): ?array
+{
+    return normalizeCanonicalRelationshipMap($relationships, $playerName, false);
+}
+
+/** Canonicalize a raw stored map while retaining the stored Player-edge object contract. */
+function canonicalStoredRelationshipMap(array $relationships, ?string $playerName = null): ?array
+{
+    return normalizeCanonicalRelationshipMap($relationships, $playerName, true);
+}
+
+function normalizeCanonicalRelationshipMap(array $relationships, ?string $playerName, bool $storedPlayerEdgesOnly): ?array
+{
+    if ($relationships === []) {
+        return [];
     }
 
-    $aliases = ['player', 'the player', 'player character', 'the player character', 'dragonborn', 'the dragonborn', '#player_name#', '{player_name}'];
-    $relationship = null;
-    foreach ($relationships as $name => $value) {
-        if (!is_string($name) || !is_array($value)) {
-            continue;
+    $hadPlayerName = array_key_exists('PLAYER_NAME', $GLOBALS);
+    $previousPlayerName = $GLOBALS['PLAYER_NAME'] ?? null;
+    try {
+        if ($playerName !== null) {
+            $GLOBALS['PLAYER_NAME'] = $playerName;
         }
-        $matches = $target === 'Player'
-            ? (
-                in_array(strtolower(trim($name)), $aliases, true)
-                || (
-                    is_string($playerName)
-                    && trim($playerName) !== ''
-                    && preg_match('//u', $playerName) === 1
-                    && sameName(trim($playerName), trim($name))
-                )
-            )
-            : $name === $target;
-        if ($matches) {
-            $relationship = $value;
-            break;
+
+        if (!class_exists(\RelationshipManager::class, false)) {
+            $enginePath = $GLOBALS['ENGINE_PATH'] ?? null;
+            if (!is_string($enginePath) || trim($enginePath) === '') {
+                return null;
+            }
+            $helperPath = rtrim($enginePath, '/\\')
+                . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR . 'relationship_manager.php';
+            if (!is_file($helperPath)) {
+                return null;
+            }
+            require_once $helperPath;
+        }
+        if (
+            !is_callable([\RelationshipManager::class, 'normalizeTargetName'])
+            || !is_callable([\RelationshipManager::class, 'normalizeRelationshipMap'])
+        ) {
+            return null;
+        }
+
+        $playerRelationships = [];
+        $otherRelationships = [];
+        foreach ($relationships as $name => $relationship) {
+            if (\RelationshipManager::normalizeTargetName((string)$name) === 'Player') {
+                if ($storedPlayerEdgesOnly && !$relationship instanceof \stdClass) {
+                    return null;
+                }
+                if ($relationship instanceof \stdClass) {
+                    $relationship = get_object_vars($relationship);
+                }
+                if (!is_array($relationship) || ($relationship !== [] && array_is_list($relationship))) {
+                    return null;
+                }
+                $playerRelationships[$name] = $relationship;
+            } else {
+                $otherRelationships[$name] = $relationship;
+            }
+        }
+
+        if ($playerRelationships === []) {
+            return $relationships;
+        }
+        $normalizedPlayer = \RelationshipManager::normalizeRelationshipMap($playerRelationships);
+        if (!array_key_exists('Player', $normalizedPlayer)) {
+            return null;
+        }
+        $otherRelationships['Player'] = $normalizedPlayer['Player'];
+        return $otherRelationships;
+    } catch (Throwable) {
+        return null;
+    } finally {
+        if ($hadPlayerName) {
+            $GLOBALS['PLAYER_NAME'] = $previousPlayerName;
+        } else {
+            unset($GLOBALS['PLAYER_NAME']);
+        }
+    }
+}
+
+function relationshipFor(array $npc, string $target, ?string $playerName = null): array
+{
+    $extendedData = $npc['extended_data'] ?? null;
+    $relationships = $extendedData instanceof \stdClass
+        ? ($extendedData->relationships ?? [])
+        : (is_array($extendedData) ? ($extendedData['relationships'] ?? []) : []);
+    if (!is_array($relationships)) {
+        if ($relationships instanceof \stdClass) {
+            $relationships = get_object_vars($relationships);
+        } elseif ($target === 'Player') {
+            throw new UnexpectedValueException('Could not read the stored Player relationship map.');
+        } else {
+            return ['aff' => 0, 'type' => 'neutral'];
+        }
+    }
+
+    if ($target === 'Player') {
+        $canonicalRelationships = canonicalRelationshipMap($relationships, $playerName);
+        if ($canonicalRelationships === null) {
+            throw new UnexpectedValueException('Could not canonicalize the stored Player relationship.');
+        }
+        $relationship = $canonicalRelationships['Player'] ?? null;
+    } else {
+        $relationship = $relationships[$target] ?? null;
+        if ($relationship instanceof \stdClass) {
+            $relationship = get_object_vars($relationship);
         }
     }
     if ($relationship === null) {
+        return ['aff' => 0, 'type' => 'neutral'];
+    }
+    if (!is_array($relationship)) {
         return ['aff' => 0, 'type' => 'neutral'];
     }
 

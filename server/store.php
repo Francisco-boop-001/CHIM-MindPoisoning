@@ -22,7 +22,13 @@ interface StoreDb
     public function npcById(int $npcId, bool $forUpdate = false): ?array;
     public function reflectionHistory(string $actorName, int $beforeEventId): array;
     public function beginForListener(int $listenerId): bool;
-    public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool;
+    public function writeNpc(
+        int $npcId,
+        array $relationshipEdges,
+        object $mindPoisoningData,
+        float $gamets,
+        array $relationshipKeysToRemove = []
+    ): bool;
     public function backupAndVerify(int $npcId, array $expected): bool;
     public function commit(): bool;
     public function rollback(): void;
@@ -539,25 +545,6 @@ function nextLedger(
     return $result;
 }
 
-function playerRelationshipKey(object $relationships, string $playerName): ?string
-{
-    $aliases = ['player', 'the player', 'player character', 'the player character', 'dragonborn', 'the dragonborn', '#player_name#', '{player_name}'];
-    if (trim($playerName) !== '') {
-        $aliases[] = mb_strtolower(trim($playerName), 'UTF-8');
-    }
-    $aliases = array_fill_keys($aliases, true);
-    $matches = [];
-    foreach (get_object_vars($relationships) as $key => $_value) {
-        if (is_string($key) && isset($aliases[mb_strtolower(trim($key), 'UTF-8')])) {
-            $matches[] = $key;
-        }
-    }
-    if (count($matches) > 1) {
-        throw new RuntimeException('Multiple legacy Player relationship aliases are ambiguous.');
-    }
-    return $matches[0] ?? null;
-}
-
 function reflectionSourceSnapshotsValid(array $event): bool
 {
     $sources = $event['reflection_sources'] ?? null;
@@ -878,26 +865,34 @@ function persistJudgments(
         }
 
         $stage = 'resolve-relationships';
-        $relationships = $extendedData->relationships ?? new \stdClass();
-        if (!$relationships instanceof \stdClass) {
+        $storedRelationships = property_exists($extendedData, 'relationships')
+            ? $extendedData->relationships
+            : new \stdClass();
+        $relationships = storedRelationshipMap($storedRelationships);
+        if ($relationships === null) {
             return $done('invalid', 'relationships-invalid');
         }
-        if ($playerSpeaker) {
-            try {
-                playerRelationshipKey($relationships, (string)$event['player_name']);
-            } catch (RuntimeException) {
-                return $done('failed', 'player-alias-ambiguous');
-            }
-        }
-        if ($reflection && array_key_exists('player', $subjects)) {
-            try {
-                playerRelationshipKey($relationships, (string)$event['player_name']);
-            } catch (RuntimeException) {
-                return $done('failed', 'player-alias-ambiguous');
+        $canonicalPlayerRelationships = null;
+        if ($playerSpeaker || array_key_exists('player', $subjects)) {
+            $canonicalPlayerRelationships = canonicalStoredRelationshipMap(
+                $relationships,
+                is_string($event['player_name'] ?? null) ? $event['player_name'] : null
+            );
+            if ($canonicalPlayerRelationships === null) {
+                return $done('failed', 'player-relationship-normalization-failed');
             }
         }
         $updatedExtendedData = clone $extendedData;
-        $updatedRelationships = clone $relationships;
+        $hasPlayerChange = isset($judgments['player']) && $judgments['player']['delta'] !== 0;
+        $updatedRelationships = (object)($hasPlayerChange ? $canonicalPlayerRelationships : $relationships);
+        $relationshipKeysToRemove = [];
+        if ($hasPlayerChange) {
+            foreach ($relationships as $name => $_relationship) {
+                if (!array_key_exists($name, $canonicalPlayerRelationships)) {
+                    $relationshipKeysToRemove[] = (string)$name;
+                }
+            }
+        }
         $edgeUpdates = [];
         foreach ($judgments as $token => $judgment) {
             if ($judgment['delta'] === 0) {
@@ -905,13 +900,13 @@ function persistJudgments(
             }
             $name = $subjects[$token]['name'];
             if ($token === 'player') {
-                try {
-                    $name = playerRelationshipKey($updatedRelationships, (string)($event['player_name'] ?? '')) ?? 'Player';
-                } catch (RuntimeException) {
-                    return $done('failed', 'player-alias-ambiguous');
-                }
+                $name = 'Player';
             }
-            $prior = $updatedRelationships->{$name} ?? (object)['aff' => 0, 'type' => 'neutral'];
+            $prior = $token === 'player'
+                ? (isset($canonicalPlayerRelationships['Player'])
+                    ? (object)$canonicalPlayerRelationships['Player']
+                    : (object)['aff' => 0, 'type' => 'neutral'])
+                : ($updatedRelationships->{$name} ?? (object)['aff' => 0, 'type' => 'neutral']);
             if (!$prior instanceof \stdClass) {
                 return $done('invalid', 'edge-invalid');
             }
@@ -935,7 +930,7 @@ function persistJudgments(
                 'after' => $updatedEdge->aff,
             ];
         }
-        if ($edgeUpdates !== []) {
+        if ($edgeUpdates !== [] || $relationshipKeysToRemove !== []) {
             $updatedExtendedData->relationships = $updatedRelationships;
         }
 
@@ -986,7 +981,7 @@ function persistJudgments(
         $snapshotGamets = max((float)($currentGamets ?? 0), (float)$event['gamets']);
 
         $stage = 'write-listener';
-        if (!$store->writeNpc($ownerId, $edgeUpdates, (object)$nextLedger, $snapshotGamets)) {
+        if (!$store->writeNpc($ownerId, $edgeUpdates, (object)$nextLedger, $snapshotGamets, $relationshipKeysToRemove)) {
             return $done('failed', 'listener-write-failed');
         }
         $stage = 'verify-listener';
@@ -1473,15 +1468,39 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb
         return true;
     }
 
-    public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool
+    public function writeNpc(
+        int $npcId,
+        array $relationshipEdges,
+        object $mindPoisoningData,
+        float $gamets,
+        array $relationshipKeysToRemove = []
+    ): bool
     {
         $params = [$npcId];
         $extendedExpression = 'extended_data';
-        if ($relationshipEdges !== []) {
-            $extendedExpression = "jsonb_set(COALESCE(extended_data, '{}'::jsonb), '{relationships}', COALESCE(extended_data->'relationships', '{}'::jsonb), true)";
+        $relationshipWrite = $relationshipEdges !== [] || $relationshipKeysToRemove !== [];
+        $relationshipGuard = '';
+        if ($relationshipWrite) {
+            if (!array_is_list($relationshipKeysToRemove)) {
+                throw new RuntimeException('Invalid relationship keys to remove.');
+            }
+            $seenRelationshipKeys = [];
+            foreach ($relationshipKeysToRemove as $key) {
+                if (!is_string($key) || $key === '' || $key === 'Player' || isset($seenRelationshipKeys[$key]) || array_key_exists($key, $relationshipEdges)) {
+                    throw new RuntimeException('Invalid relationship key removal.');
+                }
+                $seenRelationshipKeys[$key] = true;
+            }
+            $relationshipGuard = " AND (extended_data IS NULL OR (jsonb_typeof(extended_data) = 'object' AND (extended_data->'relationships' IS NULL OR jsonb_typeof(extended_data->'relationships') = 'object' OR extended_data->'relationships' = '[]'::jsonb)))";
+            $extendedExpression = "jsonb_set(COALESCE(extended_data, '{}'::jsonb), '{relationships}', CASE WHEN extended_data->'relationships' IS NULL OR extended_data->'relationships' = '[]'::jsonb THEN '{}'::jsonb ELSE extended_data->'relationships' END, true)";
+            foreach ($relationshipKeysToRemove as $key) {
+                $params[] = $key;
+                $keyIndex = count($params);
+                $extendedExpression = "({$extendedExpression} #- ARRAY['relationships', \${$keyIndex}::text])";
+            }
         }
         foreach ($relationshipEdges as $name => $edge) {
-            if (!is_string($name) || !$edge instanceof \stdClass) {
+            if (!is_string($name) || $name === '' || !$edge instanceof \stdClass) {
                 throw new RuntimeException('Invalid relationship edge update.');
             }
             $params[] = $name;
@@ -1498,7 +1517,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb
                 SET extended_data = {$extendedExpression},
                     plugin_extended_data = jsonb_set(COALESCE(plugin_extended_data, '{}'::jsonb), ARRAY['mind_poisoning']::text[], \${$pluginIndex}::jsonb, true),
                     gamets_last_updated = \${$gametsIndex}
-                WHERE id = $1 RETURNING id";
+                WHERE id = $1{$relationshipGuard} RETURNING id";
         $result = $this->nativeQuery($sql, $params);
         return pg_fetch_assoc($result) !== false;
     }

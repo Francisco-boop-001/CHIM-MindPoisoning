@@ -122,6 +122,26 @@ same('reflection', $reflectionLedger->events[0]->source_kind, 'The ledger must r
 same(64, strlen($reflectionLedger->reflection_state->basis), 'The bounded actor evidence basis should be retained separately from rolling event history.');
 same(['npc:22'], $reflectionLedger->reflection_state->subjects, 'The processed subject token should be recorded for the unchanged basis.');
 
+resetAckLoggingInteraction();
+[$emptyMapRegistration, $emptyMapAck, $emptyMapDb] = reflectionFixture();
+$emptyMapDb->npcs[11]['extended_data']->relationships = [];
+$emptyMapModelCalls = 0;
+same('committed', mindPoisoningEvaluateReflection(
+    $emptyMapRegistration,
+    $emptyMapAck,
+    $emptyMapDb,
+    static fn(): bool => true,
+    static function (array $messages) use (&$emptyMapModelCalls): string {
+        $emptyMapModelCalls++;
+        return reflectionResponse();
+    }
+), 'An empty stored actor map should accept a public NPC-only reflection.');
+same(1, $emptyMapModelCalls, 'An empty-map reflection should make one provider request.');
+check($emptyMapDb->npcs[11]['extended_data']->relationships instanceof stdClass, 'An empty-map reflection should store relationships as an object.');
+same(3, $emptyMapDb->npcs[11]['extended_data']->relationships->Lydia->aff ?? null, 'An empty-map reflection should commit its actor-owned affinity.');
+same('neutral', $emptyMapDb->npcs[11]['extended_data']->relationships->Lydia->type ?? null, 'A new reflection edge should use the neutral default.');
+same(1, count($emptyMapDb->history), 'An empty-map reflection should create one actor snapshot.');
+
 foreach ([
     ['In my heart, Lydia earned my trust again.', 'Lydia earned my trust again.', 'stale'],
     ['In my heart, Lydia Vance earned my trust again.', 'Lydia Vance earned my trust again.', 'committed'],
@@ -190,6 +210,29 @@ same('committed', mindPoisoningEvaluateReflection(
     }
 ), 'A Player listener sharing a catalog NPC name must remain valid after exact source validation.');
 same(1, $playerCollisionCalls, 'A same-named Player/NPC listener must reach the model once.');
+
+resetAckLoggingInteraction();
+[$malformedPlayerRegistration, $malformedPlayerAck, $malformedPlayerDb] = reflectionFixture([
+    'speech' => 'In my heart, Dragonborn is brave again.',
+    'source' => 'Aela: I still think Dragonborn is brave again. (Talking to explicit_disable_rechat)',
+]);
+$malformedPlayerDb->npcs[11]['extended_data']->relationships->Dragonborn = [1];
+$beforeMalformedPlayerReflection = serialize($malformedPlayerDb->npcs[11]);
+$malformedPlayerReflectionCalls = 0;
+same('actor-invalid', mindPoisoningEvaluateReflection(
+    $malformedPlayerRegistration,
+    $malformedPlayerAck,
+    $malformedPlayerDb,
+    static fn(): bool => true,
+    static function () use (&$malformedPlayerReflectionCalls): string {
+        $malformedPlayerReflectionCalls++;
+        return reflectionResponse();
+    }
+), 'Reflection must reject a malformed raw Player alias before model evaluation.');
+same(0, $malformedPlayerReflectionCalls, 'Malformed stored Player credibility must not reach the reflection model.');
+same($beforeMalformedPlayerReflection, serialize($malformedPlayerDb->npcs[11]), 'Malformed reflection Player data must remain unchanged.');
+same([], $malformedPlayerDb->history, 'Malformed reflection Player data must not create a snapshot.');
+check(!property_exists($malformedPlayerDb->npcs[11]['plugin_extended_data'], 'mind_poisoning'), 'Malformed reflection Player data must not write a ledger.');
 
 foreach (['Lydia', 'explicit_disable_rechat'] as $invalidListener) {
     resetAckLoggingInteraction();

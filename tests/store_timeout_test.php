@@ -49,6 +49,44 @@ namespace ChimMindPoisoning {
         return [(int)($row['lock_ms'] ?? -1), (int)($row['statement_ms'] ?? -1)];
     }
 
+    function timeoutJson(mixed $value): string
+    {
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    function timeoutSetNpcState(\PgSql\Connection $connection, array $extendedData, array $pluginExtendedData, float $gamets): void
+    {
+        timeoutRows(
+            $connection,
+            'UPDATE public.core_npc_master SET extended_data = $1::jsonb, plugin_extended_data = $2::jsonb, gamets_last_updated = $3::numeric WHERE id = 1',
+            [timeoutJson($extendedData), timeoutJson($pluginExtendedData), (string)$gamets]
+        );
+    }
+
+    function timeoutNpcStateMatches(\PgSql\Connection $connection, array $extendedData, array $pluginExtendedData, float $gamets): bool
+    {
+        $row = timeoutRows(
+            $connection,
+            "SELECT extended_data = $1::jsonb AS extended_data_matches,
+                    plugin_extended_data = $2::jsonb AS plugin_extended_data_matches,
+                    gamets_last_updated = $3::numeric AS gamets_matches
+             FROM public.core_npc_master WHERE id = 1",
+            [timeoutJson($extendedData), timeoutJson($pluginExtendedData), (string)$gamets]
+        )[0] ?? [];
+        return ($row['extended_data_matches'] ?? null) === 't'
+            && ($row['plugin_extended_data_matches'] ?? null) === 't'
+            && ($row['gamets_matches'] ?? null) === 't';
+    }
+
+    function timeoutRelationshipMapIsObject(\PgSql\Connection $connection): bool
+    {
+        $row = timeoutRows(
+            $connection,
+            "SELECT jsonb_typeof(extended_data->'relationships') AS map_type FROM public.core_npc_master WHERE id = 1"
+        )[0] ?? [];
+        return ($row['map_type'] ?? null) === 'object';
+    }
+
     function setSessionTimeouts(\PgSql\Connection $connection, string $lock, string $statement): void
     {
         timeoutRows($connection, "SELECT set_config('lock_timeout', $1, false), set_config('statement_timeout', $2, false)", [$lock, $statement]);
@@ -177,7 +215,183 @@ namespace ChimMindPoisoning {
         timeoutCheck($lock === 't', 'The timed-out transaction did not release its listener advisory lock.');
         timeoutRows($connectionB, 'SELECT pg_advisory_unlock($1)', [1001000001]);
 
-        echo "store_timeout_test: timeout bounds, setting restoration, rollback, and lock release passed\n";
+        $basePluginData = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'before', 'floor_event_id' => 0, 'events' => []],
+        ];
+        $npcEmptyBefore = ['relationships' => [], 'metadata' => ['preserve' => 'empty-npc']];
+        $npcEmptyAfter = [
+            'relationships' => ['Guard' => ['aff' => 0, 'type' => 'neutral']],
+            'metadata' => ['preserve' => 'empty-npc'],
+        ];
+        $npcEmptyPluginAfter = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'npc-empty', 'floor_event_id' => 0, 'events' => []],
+        ];
+        timeoutSetNpcState($connectionA, $npcEmptyBefore, $basePluginData, 0.0);
+        try {
+            timeoutCheck($store->beginForListener(1), 'Could not begin the empty-NPC writer transaction.');
+            timeoutCheck(
+                $store->writeNpc(1, ['Guard' => (object)['aff' => 0, 'type' => 'neutral']], (object)$npcEmptyPluginAfter['mind_poisoning'], 12.0),
+                'The writer rejected an exact empty NPC relationship map.'
+            );
+            timeoutCheck(timeoutNpcStateMatches($connectionA, $npcEmptyAfter, $npcEmptyPluginAfter, 12.0), 'The empty NPC map did not become an object with its neutral edge and preserved metadata.');
+            timeoutCheck(timeoutRelationshipMapIsObject($connectionA), 'The empty NPC map remained array-shaped inside the transaction.');
+            timeoutCheck($store->commit(), 'The empty-NPC writer transaction did not commit.');
+        } finally {
+            $store->rollback();
+            $store->release();
+        }
+        timeoutCheck(timeoutNpcStateMatches($connectionB, $npcEmptyAfter, $npcEmptyPluginAfter, 12.0), 'The committed empty NPC relationship update was not visible to the second connection.');
+        timeoutCheck(timeoutRelationshipMapIsObject($connectionB), 'The committed empty NPC relationship map was not object-shaped.');
+
+        $playerEmptyBefore = ['relationships' => [], 'metadata' => ['preserve' => 'empty-player']];
+        $playerEmptyAfter = [
+            'relationships' => ['Player' => ['aff' => 0, 'type' => 'neutral']],
+            'metadata' => ['preserve' => 'empty-player'],
+        ];
+        $playerEmptyPluginAfter = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'player-empty', 'floor_event_id' => 0, 'events' => []],
+        ];
+        timeoutSetNpcState($connectionA, $playerEmptyBefore, $basePluginData, 0.0);
+        try {
+            timeoutCheck($store->beginForListener(1), 'Could not begin the empty-Player writer transaction.');
+            timeoutCheck(
+                $store->writeNpc(1, ['Player' => (object)['aff' => 0, 'type' => 'neutral']], (object)$playerEmptyPluginAfter['mind_poisoning'], 13.0),
+                'The writer rejected an exact empty Player relationship map.'
+            );
+            timeoutCheck(timeoutNpcStateMatches($connectionA, $playerEmptyAfter, $playerEmptyPluginAfter, 13.0), 'The empty Player map did not become an object with a neutral Player edge and preserved metadata.');
+            timeoutCheck(timeoutRelationshipMapIsObject($connectionA), 'The empty Player map remained array-shaped inside the transaction.');
+            timeoutCheck($store->commit(), 'The empty-Player writer transaction did not commit.');
+        } finally {
+            $store->rollback();
+            $store->release();
+        }
+        timeoutCheck(timeoutNpcStateMatches($connectionB, $playerEmptyAfter, $playerEmptyPluginAfter, 13.0), 'The committed empty Player relationship update was not visible to the second connection.');
+
+        $aliasBefore = [
+            'relationships' => [
+                'Player' => ['aff' => 1, 'type' => 'neutral'],
+                'Hawke' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'favor owed', 'extra' => ['preserve' => 'selected']],
+                'Guard' => ['aff' => 8, 'type' => 'friendly', 'extra' => ['preserve' => true]],
+            ],
+            'metadata' => ['preserve' => 'alias-write'],
+        ];
+        $aliasAfter = [
+            'relationships' => [
+                'Player' => ['aff' => 47, 'type' => 'romantic', 'custom_info' => 'favor owed', 'extra' => ['preserve' => 'selected']],
+                'Guard' => ['aff' => 8, 'type' => 'friendly', 'extra' => ['preserve' => true]],
+            ],
+            'metadata' => ['preserve' => 'alias-write'],
+        ];
+        $aliasBeforePlugin = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'before', 'floor_event_id' => 0, 'events' => []],
+        ];
+        $aliasAfterPlugin = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'alias-after', 'floor_event_id' => 701, 'events' => []],
+        ];
+        timeoutSetNpcState($connectionA, $aliasBefore, $aliasBeforePlugin, 19.0);
+        try {
+            timeoutCheck($store->beginForListener(1), 'Could not begin the Player-alias writer transaction.');
+            timeoutCheck(
+                $store->writeNpc(
+                    1,
+                    ['Player' => (object)[
+                        'aff' => 47,
+                        'type' => 'romantic',
+                        'custom_info' => 'favor owed',
+                        'extra' => (object)['preserve' => 'selected'],
+                    ]],
+                    (object)$aliasAfterPlugin['mind_poisoning'],
+                    20.0,
+                    ['Hawke']
+                ),
+                'The writer rejected a parameterized Player-alias removal and canonical upsert.'
+            );
+            timeoutCheck(timeoutNpcStateMatches($connectionA, $aliasAfter, $aliasAfterPlugin, 20.0), 'The Player/Hawke update did not remove Hawke and upsert Player47 while preserving unrelated data.');
+            timeoutCheck(timeoutNpcStateMatches($connectionB, $aliasBefore, $aliasBeforePlugin, 19.0), 'The second connection observed an uncommitted Player-alias update.');
+            timeoutCheck($store->commit(), 'The Player-alias writer transaction did not commit.');
+        } finally {
+            $store->rollback();
+            $store->release();
+        }
+        timeoutCheck(timeoutNpcStateMatches($connectionB, $aliasAfter, $aliasAfterPlugin, 20.0), 'The committed Player-alias update was not visible to the second connection.');
+
+        $invalidMaps = [
+            ['relationships' => [['aff' => 99, 'type' => 'neutral']], 'metadata' => ['preserve' => 'array-refusal']],
+            ['relationships' => null, 'metadata' => ['preserve' => 'null-refusal']],
+        ];
+        foreach ($invalidMaps as $index => $invalidExtendedData) {
+            $invalidPluginData = [
+                'retained_namespace' => ['keep' => true],
+                'mind_poisoning' => ['playthrough_id' => 'invalid-before', 'floor_event_id' => 0, 'events' => []],
+            ];
+            timeoutSetNpcState($connectionA, $invalidExtendedData, $invalidPluginData, 21.0);
+            try {
+                timeoutCheck($store->beginForListener(1), 'Could not begin a malformed-map writer transaction.');
+                timeoutCheck(
+                    !$store->writeNpc(1, ['Guard' => (object)['aff' => 1, 'type' => 'neutral']], (object)['playthrough_id' => 'invalid-after', 'events' => []], 22.0),
+                    'The writer accepted a nonempty-array or null relationship map.'
+                );
+                timeoutCheck(timeoutNpcStateMatches($connectionA, $invalidExtendedData, $invalidPluginData, 21.0), 'A rejected malformed relationship map changed listener data.');
+            } finally {
+                $store->rollback();
+                $store->release();
+            }
+            timeoutCheck(timeoutNpcStateMatches($connectionB, $invalidExtendedData, $invalidPluginData, 21.0), 'A rejected malformed relationship map became visible after rollback.');
+        }
+
+        $rollbackBefore = [
+            'relationships' => [
+                'Player' => ['aff' => 1, 'type' => 'neutral'],
+                'Hawke' => ['aff' => 50, 'type' => 'romantic'],
+                'Guard' => ['aff' => 8, 'type' => 'friendly', 'extra' => ['preserve' => true]],
+            ],
+            'metadata' => ['preserve' => 'rollback'],
+        ];
+        $rollbackBeforePlugin = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'rollback-before', 'floor_event_id' => 0, 'events' => []],
+        ];
+        $rollbackAfter = [
+            'relationships' => [
+                'Player' => ['aff' => 47, 'type' => 'romantic'],
+                'Guard' => ['aff' => 8, 'type' => 'friendly', 'extra' => ['preserve' => true]],
+            ],
+            'metadata' => ['preserve' => 'rollback'],
+        ];
+        $rollbackAfterPlugin = [
+            'retained_namespace' => ['keep' => true],
+            'mind_poisoning' => ['playthrough_id' => 'rollback-after', 'floor_event_id' => 702, 'events' => []],
+        ];
+        timeoutSetNpcState($connectionA, $rollbackBefore, $rollbackBeforePlugin, 30.0);
+        try {
+            timeoutCheck($store->beginForListener(1), 'Could not begin the writer rollback transaction.');
+            timeoutCheck(
+                $store->writeNpc(
+                    1,
+                    ['Player' => (object)['aff' => 47, 'type' => 'romantic']],
+                    (object)$rollbackAfterPlugin['mind_poisoning'],
+                    31.0,
+                    ['Hawke']
+                ),
+                'The writer failed before the rollback check.'
+            );
+            timeoutCheck(timeoutNpcStateMatches($connectionA, $rollbackAfter, $rollbackAfterPlugin, 31.0), 'The rollback transaction did not stage all writer changes.');
+            timeoutCheck(timeoutNpcStateMatches($connectionB, $rollbackBefore, $rollbackBeforePlugin, 30.0), 'The second connection observed uncommitted writer changes before rollback.');
+            timeoutCheck((int)(timeoutRows($connectionA, 'SELECT count(*) AS count FROM public.core_npc_master_history')[0]['count'] ?? -1) === 0, 'A direct writer call unexpectedly created a history snapshot.');
+        } finally {
+            $store->rollback();
+            $store->release();
+        }
+        timeoutCheck(timeoutNpcStateMatches($connectionA, $rollbackBefore, $rollbackBeforePlugin, 30.0), 'Rollback did not restore the canonical edge, alias, ledger, and timeline.');
+        timeoutCheck(timeoutNpcStateMatches($connectionB, $rollbackBefore, $rollbackBeforePlugin, 30.0), 'The second connection saw writer data after rollback.');
+        timeoutCheck((int)(timeoutRows($connectionB, 'SELECT count(*) AS count FROM public.core_npc_master_history')[0]['count'] ?? -1) === 0, 'Rollback left a history snapshot behind.');
+
+        echo "store_timeout_test: timeout bounds, direct writer normalization/removal, commit visibility, rollback, malformed-map refusal, setting restoration, and lock release passed\n";
     } finally {
         if ($tableCreated) {
             @pg_query($connectionA, 'DROP TABLE IF EXISTS public.core_npc_master_history, public.core_npc_master');

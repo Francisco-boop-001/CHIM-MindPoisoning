@@ -14,6 +14,7 @@ use function ChimMindPoisoning\dashboardParseLogLine;
 use function ChimMindPoisoning\dashboardRecordMatches;
 use function ChimMindPoisoning\renderDashboard;
 
+require_once __DIR__ . '/fixtures/relationship_manager.cf5030f15781637498be86debe26fcf102f5690d.php';
 require_once __DIR__ . '/../server/dashboard_data.php';
 require_once __DIR__ . '/../server/dashboard_view.php';
 
@@ -203,6 +204,24 @@ $player['extended_data']->relationships = null;
 dashboardDataAssert(
     dashboardCurrent($player, 'npc:9', 'Subject', '', ['Subject' => 1]) === ['value' => null, 'state' => 'invalid'],
     'Unavailable oversized relationship data was treated as an empty object.'
+);
+$player['extended_data']->relationships = (object)[
+    'Player' => (object)['aff' => 50, 'type' => 'romantic'],
+    'Dragonborn' => (object)['aff' => 1, 'type' => 'neutral'],
+];
+dashboardDataAssert(
+    dashboardCurrent($player, 'player', 'Player', 'Dragonborn', []) === ['value' => 50, 'state' => 'set'],
+    'The dashboard must read the core-selected canonical Player edge from stored aliases.'
+);
+$player['extended_data']->relationships->Dragonborn = [1];
+dashboardDataAssert(
+    dashboardCurrent($player, 'player', 'Player', 'Dragonborn', []) === ['value' => null, 'state' => 'invalid'],
+    'The dashboard must reject malformed array-shaped persisted Player edges.'
+);
+$player['extended_data']->relationships = [];
+dashboardDataAssert(
+    dashboardCurrent($player, 'player', 'Player', 'Dragonborn', []) === ['value' => null, 'state' => 'unset_default_zero'],
+    'An empty legacy array map should behave as an unset Player edge in the dashboard.'
 );
 
 $emptyServer = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mp-dashboard-data-' . bin2hex(random_bytes(6));

@@ -216,11 +216,34 @@ same('failed', persistJudgments($event, $subjects, $judgments, $db), 'Snapshot f
 same($before, serialize($db->npcs[22]), 'Failed Player snapshots must restore the original listener state.');
 
 [$event, $subjects, $judgments, $db] = playerStoreFixture();
-$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 3, 'type' => 'friend'];
-$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 7, 'type' => 'ally'];
-$before = serialize($db->npcs[22]);
-same('failed', persistJudgments($event, $subjects, $judgments, $db), 'Ambiguous Player relationship aliases must fail closed under the listener lock.');
-same($before, serialize($db->npcs[22]), 'Ambiguous Player aliases must not mutate listener state.');
+$db->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve Player'];
+$db->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias'];
+$beforePlayerAliases = serialize([
+    $db->npcs[22]['extended_data']->relationships->Player,
+    $db->npcs[22]['extended_data']->relationships->Dragonborn,
+]);
+same('committed', persistJudgments($event, $subjects, $judgments, $db), 'Player-origin gossip about an NPC must not reject core-resolvable listener-to-Player aliases.');
+same(100, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, 'Player-origin gossip should update the named NPC relationship.');
+same(50, $db->npcs[22]['extended_data']->relationships->Player->aff, 'An NPC-only Player judgment must not rewrite the canonical Player edge.');
+same(1, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'An NPC-only Player judgment must not rewrite the actual-name alias.');
+same($beforePlayerAliases, serialize([
+    $db->npcs[22]['extended_data']->relationships->Player,
+    $db->npcs[22]['extended_data']->relationships->Dragonborn,
+]), 'Player-origin NPC gossip should preserve every unrelated Player alias while updating its NPC subject.');
+
+[$event, $subjects, $judgments, $db] = playerStoreFixture();
+$lockedListenerState = null;
+$db->onBegin = static function (int $listenerId, MemoryStoreDb $lockedDb) use (&$lockedListenerState): void {
+    $lockedDb->npcs[$listenerId]['extended_data']->relationships = (object)[
+        'Player' => (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'keep locked edge'],
+        'Dragonborn' => [1],
+    ];
+    $lockedListenerState = serialize($lockedDb->npcs[$listenerId]);
+};
+same('failed', persistJudgments($event, $subjects, $judgments, $db), 'Player-speaker persistence must revalidate malformed current aliases under the listener lock.');
+same($lockedListenerState, serialize($db->npcs[22]), 'Failed locked normalization must leave the current alias state unchanged.');
+same([], $db->history, 'Failed locked Player normalization must not create a listener snapshot.');
+check(!property_exists($db->npcs[22]['plugin_extended_data'], 'mind_poisoning'), 'Failed locked Player normalization must not write the dedupe ledger.');
 
 [$event, $subjects, $judgments, $db] = playerStoreFixture('|Aela|Farkas|');
 $before = serialize($db->npcs[22]);

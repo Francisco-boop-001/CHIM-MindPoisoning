@@ -997,29 +997,34 @@ function dashboardCurrent(array $listener, string $subject, string $subjectName,
     if (!$extended instanceof \stdClass) {
         return ['value' => null, 'state' => 'invalid'];
     }
-    $relationships = property_exists($extended, 'relationships') ? $extended->relationships : new \stdClass();
-    if (!$relationships instanceof \stdClass) {
+    $relationshipValue = property_exists($extended, 'relationships') ? $extended->relationships : new \stdClass();
+    $relationships = storedRelationshipMap($relationshipValue);
+    if (!is_array($relationships)) {
         return ['value' => null, 'state' => 'invalid'];
     }
     if ($subject === 'player') {
-        try {
-            $key = playerRelationshipKey($relationships, $playerName);
-        } catch (Throwable) {
-            return ['value' => null, 'state' => 'ambiguous'];
+        $canonicalRelationships = canonicalStoredRelationshipMap($relationships, $playerName);
+        if (!is_array($canonicalRelationships)) {
+            return ['value' => null, 'state' => 'invalid'];
         }
+        $relationships = $canonicalRelationships;
+        $key = array_key_exists('Player', $relationships) ? 'Player' : null;
     } else {
         if (($nameCounts[$subjectName] ?? 0) > 1) {
             return ['value' => null, 'state' => 'ambiguous'];
         }
         $key = $subjectName;
-        if (!property_exists($relationships, $key)) {
+        if (!array_key_exists($key, $relationships)) {
             return ['value' => null, 'state' => 'unset_default_zero'];
         }
     }
     if ($key === null) {
         return ['value' => null, 'state' => 'unset_default_zero'];
     }
-    $edge = $relationships->{$key} ?? null;
+    $edge = $relationships[$key] ?? null;
+    if ($subject === 'player' && $key === 'Player' && is_array($edge)) {
+        $edge = (object)$edge;
+    }
     if (!$edge instanceof \stdClass) {
         return ['value' => null, 'state' => 'invalid'];
     }

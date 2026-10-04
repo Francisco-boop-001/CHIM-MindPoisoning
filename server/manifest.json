@@ -1,9 +1,9 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
-  "description": "PRE-ALPHA: Conservative affinity updates from identity-checked NPC acknowledgements and Player-origin input, with opt-in actor-owned reflection, default-off NPC ACK overhearing, and a read-only history dashboard.",
+  "description": "PRE-ALPHA: Conservative affinity updates from identity-checked NPC acknowledgements and Player-origin input, with actor-owned reflection, default-off NPC ACK overhearing, CHIM-canonical Player relationship handling, reserved rechat-sentinel exclusion, and a read-only history dashboard.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",

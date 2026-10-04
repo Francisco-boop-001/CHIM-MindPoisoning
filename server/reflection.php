@@ -472,15 +472,17 @@ function evaluateReflection(
     if ($subjects === []) {
         return $fail('no-subjects', 'reflection-no-subjects');
     }
+    $relationshipValue = property_exists($extendedData, 'relationships')
+        ? $extendedData->relationships
+        : new \stdClass();
+    $relationships = storedRelationshipMap($relationshipValue);
+    if (!is_array($relationships)) {
+        return $fail('actor-invalid', 'relationships-invalid');
+    }
     if (array_key_exists('player', $subjects)) {
-        $relationships = $extendedData->relationships ?? new \stdClass();
-        if (!$relationships instanceof \stdClass) {
+        $canonicalRelationships = canonicalStoredRelationshipMap($relationships, $playerName);
+        if (!is_array($canonicalRelationships)) {
             return $fail('actor-invalid', 'relationships-invalid');
-        }
-        try {
-            playerRelationshipKey($relationships, $playerName);
-        } catch (\RuntimeException) {
-            return $fail('actor-invalid', 'player-alias-ambiguous');
         }
     }
     foreach ($subjects as $token => $subject) {

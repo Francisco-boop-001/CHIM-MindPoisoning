@@ -27,9 +27,15 @@ final class LoggingStoreDb implements StoreDb
     public function npcById(int $npcId, bool $forUpdate = false): ?array { return $this->inner->npcById($npcId, $forUpdate); }
     public function reflectionHistory(string $actorName, int $beforeEventId): array { return $this->inner->reflectionHistory($actorName, $beforeEventId); }
     public function beginForListener(int $listenerId): bool { return $this->inner->beginForListener($listenerId); }
-    public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets): bool
+    public function writeNpc(
+        int $npcId,
+        array $relationshipEdges,
+        object $mindPoisoningData,
+        float $gamets,
+        array $relationshipKeysToRemove = []
+    ): bool
     {
-        return $this->inner->writeNpc($npcId, $relationshipEdges, $mindPoisoningData, $gamets);
+        return $this->inner->writeNpc($npcId, $relationshipEdges, $mindPoisoningData, $gamets, $relationshipKeysToRemove);
     }
     public function backupAndVerify(int $npcId, array $expected): bool { return $this->inner->backupAndVerify($npcId, $expected); }
     public function commit(): bool { return $this->failCommit ? false : $this->inner->commit(); }
@@ -176,11 +182,12 @@ same('info', $record['sink_level'] ?? null, 'Expected locked outcomes should log
 $memory->npcs[22]['extended_data']->relationships->Dragonborn = (object)['aff' => 0, 'type' => 'friend'];
 $memory->npcs[22]['extended_data']->relationships->Player = (object)['aff' => 0, 'type' => 'neutral'];
 $records = logRecords(static function (&$records, callable $sink) use ($event, $subjects, $judgments, $memory): void {
-    same('failed', persistJudgments($event, $subjects, $judgments, $memory, new RequestLog($sink, false)), 'Ambiguous Player aliases must stay fail-closed.');
+    same('committed', persistJudgments($event, $subjects, $judgments, $memory, new RequestLog($sink, false)), 'Core-resolvable Player aliases must commit.');
 });
 $record = persistenceRecord($records);
-same('player-alias-ambiguous', $record['persistence_reason'] ?? null, 'Player alias ambiguity should have a specific reason.');
-same([], $record['changes'] ?? null, 'An ambiguous target must not report uncommitted values.');
+same('committed', $record['persistence_reason'] ?? null, 'Normalized Player aliases should report the committed result.');
+same(true, $record['committed'] ?? null, 'A normalized Player update should report a confirmed commit.');
+check(!property_exists($memory->npcs[22]['extended_data']->relationships, 'Dragonborn'), 'A Player update should remove the losing relationship alias.');
 
 [$event, $subjects, $judgments, $memory] = baseFixture();
 $memory->failSnapshot = true;

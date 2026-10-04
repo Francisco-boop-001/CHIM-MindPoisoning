@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../server/influence.php';
+require_once __DIR__ . '/fixtures/relationship_manager.cf5030f15781637498be86debe26fcf102f5690d.php';
 
 use function ChimMindPoisoning\buildMessages;
 use function ChimMindPoisoning\findSubjects;
@@ -38,6 +39,62 @@ function judgment(string $subject, mixed $delta = 1, string $evidence = 'Farkas 
 function encoded(array $judgments): string
 {
     return json_encode(['judgments' => $judgments], JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+}
+
+$playerNameWasSet = array_key_exists('PLAYER_NAME', $GLOBALS);
+$previousPlayerName = $GLOBALS['PLAYER_NAME'] ?? null;
+$GLOBALS['PLAYER_NAME'] = 'Dragonborn';
+$playerAliasEdges = [
+    'Player' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve this edge'],
+    'Dragonborn' => ['aff' => 1, 'type' => 'neutral'],
+];
+$pinnedCorePlayerMap = \RelationshipManager::normalizeRelationshipMap($playerAliasEdges);
+$reversePlayerAliasEdges = array_reverse($playerAliasEdges, true);
+$pinnedCorePlayerMapReverse = \RelationshipManager::normalizeRelationshipMap($reversePlayerAliasEdges);
+check(
+    $pinnedCorePlayerMap === ['Player' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve this edge']]
+        && $pinnedCorePlayerMapReverse === $pinnedCorePlayerMap,
+    'The pinned CHIM helper must choose the stronger Player relationship independent of alias order and preserve its custom_info.'
+);
+$unrelatedPlayerEdge = (object)['aff' => 7, 'type' => 'ally'];
+$canonicalPlayerMap = ChimMindPoisoning\canonicalStoredRelationshipMap([
+    'Player' => (object)['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve this edge'],
+    'Dragonborn' => (object)['aff' => 1, 'type' => 'neutral', 'custom_info' => 'legacy alias'],
+    'Farkas' => $unrelatedPlayerEdge,
+], 'Dragonborn');
+check(
+    $canonicalPlayerMap === [
+        'Farkas' => $unrelatedPlayerEdge,
+        'Player' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'preserve this edge'],
+    ],
+    'The plugin canonicalizer must match the pinned CHIM Player edge and preserve unrelated map entries.'
+);
+check(
+    ChimMindPoisoning\canonicalStoredRelationshipMap(['Dragonborn' => [1]], 'Dragonborn') === null
+        && ChimMindPoisoning\canonicalStoredRelationshipMap(['Dragonborn' => ['aff' => 9, 'type' => 'friend']], 'Dragonborn') === null,
+    'Raw persisted Player aliases must remain object-shaped and reject list or associative PHP edge arrays.'
+);
+$trustedPromptPlayerMap = ChimMindPoisoning\canonicalRelationshipMap([
+    'Hawke' => ['aff' => 12, 'type' => 'ally'],
+], 'Hawke');
+check(
+    $trustedPromptPlayerMap === ['Player' => ['aff' => 12, 'type' => 'ally']]
+        && ChimMindPoisoning\canonicalStoredRelationshipMap(['Hawke' => ['aff' => 12, 'type' => 'ally']], 'Hawke') === null,
+    'Trusted prompt-copy edge arrays should normalize while the same raw persisted edge shape is refused.'
+);
+$GLOBALS['PLAYER_NAME'] = 'Other';
+$emptyPlayerNameMap = ChimMindPoisoning\canonicalRelationshipMap([
+    'Other' => ['aff' => 12, 'type' => 'ally'],
+], '');
+check(
+    $emptyPlayerNameMap === ['Other' => ['aff' => 12, 'type' => 'ally']]
+        && $GLOBALS['PLAYER_NAME'] === 'Other',
+    'An explicit empty Player name must not use or overwrite an unrelated ambient PLAYER_NAME.'
+);
+if ($playerNameWasSet) {
+    $GLOBALS['PLAYER_NAME'] = $previousPlayerName;
+} else {
+    unset($GLOBALS['PLAYER_NAME']);
 }
 
 $event = [
@@ -216,7 +273,8 @@ $playerListener = [
     'npc_name' => 'Lydia',
     'personality' => 'Careful and skeptical.',
     'extended_data' => ['relationships' => [
-        'dragonborn' => ['aff' => 34, 'type' => 'friend'],
+        'Player' => ['aff' => 50, 'type' => 'romantic', 'custom_info' => 'listener trusts the Player'],
+        'Hawke' => ['aff' => 1, 'type' => 'neutral', 'custom_info' => 'old character-name alias'],
         'Bruce' => ['aff' => -12, 'type' => 'neutral'],
     ]],
 ];
@@ -224,7 +282,7 @@ $playerMessages = buildMessages($playerEvent, [], $playerListener, $playerSubjec
 $playerData = json_decode($playerMessages[1]['content'], true, 512, JSON_THROW_ON_ERROR)['untrusted_data'];
 check($playerData['speaker'] === ['kind' => 'player', 'id' => null, 'name' => 'Hawke', 'event_name' => 'Hawke'], 'Player speaker context must use the canonical name and null actor ID.');
 check(!array_key_exists('personality', $playerData['speaker']), 'Player speakers must not receive fabricated NPC personality.');
-check($playerData['listener_prior_relation_to_speaker']['aff'] === 34, 'Player credibility should use the listener relationship aliases.');
+check($playerData['listener_prior_relation_to_speaker']['aff'] === 50, 'Player-origin gossip must use the canonical listener-to-Player credibility even when Player is not a judgment subject.');
 check($playerData['candidates']['npc:88']['listener_prior_relation']['aff'] === -12, 'Player-origin candidate context should retain the listener prior relation.');
 check($playerData['candidates']['npc:88']['speaker_bias'] === null, 'Player speakers must not receive fabricated NPC bias.');
 

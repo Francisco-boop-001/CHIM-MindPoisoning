@@ -1,5 +1,44 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Authorized 0.1.18 publication — 2026-10-04
+
+- [ ] Review metadata, clean export and package/consumer evidence.
+- [ ] Commit/tag and reproduce all assets from the clean tag.
+- [ ] Independently review, push tags, verify drafts, publish and verify public downloads.
+- [ ] Advance public main branches after release verification and record receipt.
+
+Plan: [release-v0.1.18-plan.md](release-v0.1.18-plan.md). PRE-ALPHA; no installation or WSL/live runtime operation.
+
+## Relationship compatibility fixes — 2026-10-04
+
+- [x] Capture targeted failing tests against a83da0a and agree shared read/write contracts.
+- [x] Implement core normalization/persistence and request/dashboard adapters with exclusive ownership.
+- [x] Verify isolated behavior and actual PostgreSQL writes; review every diff and failure path.
+- [x] Record final evidence, limitations and unchanged release pin.
+
+Plan: [relationship-compatibility-2026-10-04/plan.md](relationship-compatibility-2026-10-04/plan.md). Source-only fix; no installation, version/pin advance, commit/push or publication.
+
+Review: Both opinion-owner compatibility defects are fixed in the unreleased working tree. Strict stored-map validation accepts only objects or exact []; Player aliases use pinned CHIM canonical weighting for prompt/dashboard and locked save, with atomic alias deletion and edge/ledger/timeline updates. Lead reviewed all product, adapter, documentation and regression diffs, returned defects to their original owners, and reviewed the separate owners' cross-reviews. Focused PHP 8.2 behavioral checks passed; the guarded PostgreSQL 15 writer/transaction fixture passed with second-connection commit/rollback verification. Changed server/test PHP syntax and scoped whitespace checks passed. Scratch PostgreSQL stopped and its exact root was removed; the test clone was terminated, and independent Windows metadata comparison confirms the gaming VHD unchanged. The SQL runner's post-cleanup CRLF exit 2 is documented separately from PHP fixture exit 0. No live database/provider/game/install proof is claimed. HEAD remains a83da0a; published version/tag remains 0.1.17. See relationship-compatibility-2026-10-04/verification.md. No commit, publication or sibling product edits.
+
+## Authorized recovery and relationship handoff review — 2026-10-04
+
+- [x] Fresh-check the exact approved generated-file allowlist, source status, retained hashes and exclusive file access.
+- [x] Remove only approved paths and independently verify recovered bytes and retained files.
+- [x] Review the relationships-array and Player-alias handoff against current MP and pinned CHIM source; give a read-only assessment.
+
+Scope: recover the previously recommended 409,841,002 logical bytes. Preserve source, Git, PHP, receipts, canonical release copies and the PCV 0.1.12 tar. Handoff implementation instructions are review material, not authorization to change plugin code or run a distro/database.
+
+
+Review: Recovered 409,841,002 logical bytes (390.85 MiB) by removing the 43 approved generated paths / 4,401 files. Independent verification confirmed every target absent, all 3,240 retained dist files and 413 pre-existing source/user files unchanged by SHA256; remaining dist is 606,000,091 bytes (577.93 MiB). The recursive empty-directory error and safe literal-file/empty-directory recovery are recorded in disk-space-recovery-receipt-2026-10-04.json. Source, Git, PHP, receipts, retained release sets and PCV12 tar were preserved. Both relationship issues merit correction; the review also identifies first-alias model-context inconsistency and corrects the overly broad no-model-call claim. See relationship-compatibility-review-2026-10-04.md. No plugin product code, sibling project, server/distro, release pin, commit or remote was changed.
+
+## Generated-file space audit — 2026-10-04
+
+- [x] Inspect protected status and measure only the local generated dist tree, skipping reparse paths.
+- [x] Verify redundant release assets against retained copies and preserve source archives where local tags are missing.
+- [x] Save an exact candidate-path inventory and report recoverable space without deletion.
+
+Review: dist contains 1,015,841,093 logical bytes (968.78 MiB); latest PCV 0.1.15 scratch is 206.13 MiB. The conservative recovery candidates total 409,841,002 bytes (390.85 MiB), including 108.76 MiB from the latest run. Keep portable PHP, small receipts/transcript, one verified local asset set for each selected MP release, the PCV 0.1.12 source tar, all source/Git/user files and unreviewed historic artifacts. No deletion, WSL/server access, commit or push was performed. Inventories: `tasks/disk-space-audit-2026-10-04.json` and `tasks/disk-space-recovery-candidates-2026-10-04.json`. Future deletion needs explicit scope authorization and fresh path/hash/access checks.
+
 ## PCV 0.1.15 hub snapshot — 2026-10-04
 
 - [x] Verify published tag, clean-tag packages and supplied checksum.
