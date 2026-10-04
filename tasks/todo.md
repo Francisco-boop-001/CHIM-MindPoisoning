@@ -1,5 +1,16 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Three-plugin hub overview — 2026-10-04
+
+- [x] Verify published source/status/links for Mind Poisoning, Private Conversation and Sworn & Scorned read-only.
+- [x] Update only the collection README with useful descriptions, current releases, guides, downloads and integration limits.
+- [x] Review the diff and verify destinations/asset names, protected files and scope.
+- [ ] Commit/push the documentation-only hub update and confirm public README bytes.
+
+Scope: CHIM-Plugins landing page. Other plugin projects are read-only information sources; no source snapshot import, runtime changes, releases, package builds, WSL/server or installation work. Preserve unrelated dirt and Mind Poisoning 0.1.18 manifest. Push this hub documentation to origin/main only.
+
+Review: The lead reviewed the complete README and delegated corrections to its owner. Three published prereleases, nine asset URLs, seven relative targets, table structure and seven protected hashes passed; GitHub GFM rendering succeeded. Optional MP dialogue/reflection integration is distinguished from independent S&S lifecycle updates. Only README and task records are authorized for origin/main; publication verification remains pending.
+
 ## Authorized 0.1.18 publication — 2026-10-04
 
 - [x] Review metadata, clean export and package/consumer evidence.
