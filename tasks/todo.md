@@ -6,9 +6,11 @@
 - [x] Update exact pinned snapshot and current hub links; preserve unrelated work.
 - [x] Review sentinel exclusion and reported reflection-no-subjects against source and retained evidence.
 - [x] Fix the confirmed reserved-sentinel catalog collision; verify with isolated native PHP, without changing the MP release/version.
-- [ ] Review diffs, verify clean export, commit/push and confirm public hub state.
+- [x] Review diffs, verify clean export, commit/push and confirm public hub state.
 
 Scope: hub/source/package checks plus a separate unreleased MP sentinel fix with isolated native PHP; no WSL distro, live database/provider, installation or new plugin release. Exact live cause remains unconfirmed unless retained evidence proves it.
+
+Review: Hub commit `eaf379b1ded1d38b4eed0f2036a4ae8de9fec29b` is public in both main branches with PCV 0.1.15 links and the verified snapshot; all four assets match clean-tag builds and the supplied checksum. The separate two-guard MP source fix passed red-to-green native PHP checks and remains unreleased. Reflection API contracts and MP 0.1.17 metadata/tag are unchanged. The reported reflection cause remains unresolved without registration line count and catalog alias owners. Details: [hub receipt](hub-pcv-0.1.15-2026-10-04.md) and [sentinel/reflection review](sentinel-and-reflection-review-2026-10-04.md).
 
 ## PCV 0.1.14 hub snapshot — 2026-10-03
 

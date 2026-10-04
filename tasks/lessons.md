@@ -50,3 +50,7 @@
 ## Standalone deployment source exports
 
 When splitting a plugin into its own repository, carry its source-controlled line-ending policy. Equal Git trees do not prove equal exported build inputs under different attributes and host settings. Compare clean commit/tag consumer assets byte for byte before publication; keep failed candidate tags local until the mismatch is resolved.
+
+## Reserved transport markers — 2026-10-04
+
+Do not infer that a non-person marker cannot resolve through the NPC catalog. A catalog row can share its name. Exclude reserved listener markers explicitly before addressed/witness identity resolution; exercise a same-named row with the existing isolated provider/store seams. Keep the marker's valid source-registration role separate from recipient selection.

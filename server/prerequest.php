@@ -332,7 +332,7 @@ function evaluateOverhearingAck(
     $eligibleExtras = [];
     $filteredAny = false;
     foreach ($people as $name) {
-        if (isPlayerName($name, $playerName)) {
+        if (isPlayerName($name, $playerName) || sameActorName($name, 'explicit_disable_rechat')) {
             $filteredAny = true;
             continue;
         }
@@ -1064,6 +1064,9 @@ function evaluateInfluenceRequest(
             $playerName = is_string($profile['player_name'] ?? null) ? trim($profile['player_name']) : '';
             if (isPlayerName($speakerInput, $playerName) || isPlayerName($listenerInput, $playerName)) {
                 return 'player-actor';
+            }
+            if (sameActorName($listenerInput, 'explicit_disable_rechat')) {
+                return 'actor-unmatched';
             }
 
             $overhearingRequested = overhearingSettingEnabled();

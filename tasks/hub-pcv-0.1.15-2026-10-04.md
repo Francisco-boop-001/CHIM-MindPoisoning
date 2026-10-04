@@ -57,3 +57,7 @@ Deleted: none.
 ## Review
 
 Only the assigned pinned snapshot, hub documents, exact root release note copy, and this task record were written. The dirty plan, local extras, unrelated work, historical 0.1.14 evidence, and MP release artifacts were preserved.
+
+## Publication receipt
+
+Hub source commit: `eaf379b1ded1d38b4eed0f2036a4ae8de9fec29b`; verified tree: `3a7229c0162c496212b4079692434c76946dda7b`. Both hub and MP mirror main were pushed without force or tags. GitHub API checks confirm exact README, PCV 0.1.15 manifest, MP 0.1.17 manifest and download links. MP's 0.1.17 annotated tag remains `4ec1de5fd035fed33f4645d96f1c8e5e0fb079a8`. The separate MP recipient guard is unreleased source work; its focused evidence is recorded in [sentinel-and-reflection-review-2026-10-04.md](sentinel-and-reflection-review-2026-10-04.md). No WSL, live provider/database, installation or game operation was performed.

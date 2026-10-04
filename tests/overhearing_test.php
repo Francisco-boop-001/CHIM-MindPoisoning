@@ -337,6 +337,41 @@ overhearingCheck(
     'Only the uniquely resolved eligible Farkas should be added to the addressed recipient.'
 );
 
+$sentinelAddress = overhearingExecute(
+    '|Aela|explicit_disable_rechat|',
+    false,
+    'overhearingNormalResponse',
+    static function (MemoryStoreDb $db, array &$event): void {
+        $event['listener_id'] = 55;
+        $event['listener_name'] = 'EXPLICIT_DISABLE_RECHAT';
+        $db->events[100]['source_data'] = 'Aela: I trust Jarl Balgruuf. The Dragonborn is brave. (Talking to explicit_disable_rechat)';
+        overhearingAddNpc($db, 55, 'explicit_disable_rechat');
+    }
+);
+overhearingCheck(
+    $sentinelAddress['status'] === 'actor-unmatched' && $sentinelAddress['calls'] === 0
+        && !overhearingLedgerHas($sentinelAddress['db'], 55),
+    'A sentinel-targeted ACK must not resolve a same-named NPC as an addressed recipient.'
+);
+
+$sentinelWitness = overhearingExecute(
+    '|Aela|Lydia|Inigo|EXPLICIT_DISABLE_RECHAT|',
+    true,
+    'overhearingBatchProvider',
+    static function (MemoryStoreDb $db): void {
+        overhearingAddNpc($db, 55, 'explicit_disable_rechat');
+    }
+);
+$sentinelPayload = json_decode($sentinelWitness['capturedMessages'][1]['content'], true, 64, JSON_THROW_ON_ERROR)['untrusted_data'];
+$sentinelRecipients = $sentinelPayload['recipients'] ?? [];
+overhearingCheck(
+    $sentinelWitness['status'] === 'committed' && $sentinelWitness['calls'] === 1
+        && array_column($sentinelRecipients, 'listener_id') === [22, 44]
+        && overhearingLedgerHas($sentinelWitness['db'], 22) && overhearingLedgerHas($sentinelWitness['db'], 44)
+        && !overhearingLedgerHas($sentinelWitness['db'], 55),
+    'A sentinel in the source people roster must not become an overhearer through a catalog-name collision.'
+);
+
 $identityRace = overhearingExecute(
     '|Aela|Lydia|Inigo|',
     true,
