@@ -1,5 +1,16 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## PCV 0.1.16 hub update and integration note — 2026-10-05
+
+- [x] Inspect current tree, hub, instructions and published PCV release metadata read-only.
+- [x] Update only the hub README's PCV version/links and opt-in scene-action summary.
+- [ ] Review MP sentinel handling and action-evidence limits read-only; keep L5 unverified without the exact receipt/catalog.
+- [ ] Verify links, diff and protected files; commit/push only hub documentation and verify public bytes.
+
+Scope: README and this ledger only. PCV remains a read-only source; no embedded snapshot update, MP product/API/version changes, package release, installed-server/WSL/provider/database access or external messages. Origin/main is the only publication destination. Keep PRE-ALPHA status; an issued action does not prove execution.
+
+Review: README owner read the complete page and published PCV guide, then updated only active PCV links and the opt-in action summary. Lead reviewed the diff and corrected the overly broad claim that actions cannot affect affinity: MP judgments use dialogue; other systems may process actions. Three PCV download links match published assets; the tagged README/logging guide exist; stale active 0.1.15 references are absent. MP/S&S versions and all 13 protected-file SHA256 baselines remain unchanged; scoped diff checks passed. Read-only MP source review and public-byte verification remain pending. No runtime tests are appropriate for this prose-only update.
+
 ## Three-plugin hub overview — 2026-10-04
 
 - [x] Verify published source/status/links for Mind Poisoning, Private Conversation and Sworn & Scorned read-only.
