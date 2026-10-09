@@ -172,10 +172,23 @@ class PackageTests(unittest.TestCase):
         member_name = (
             f"CHIM/server-plugins/{manifest['name']}/{manifest['version']}.dwpkg"
         )
+        current_manifest = json.loads(
+            (PROJECT / "server" / "manifest.json").read_text(encoding="utf-8")
+        )
         with ZipFile(mo2_bundle) as wrapper:
-            self.assertEqual(wrapper.namelist(), [member_name])
+            self.assertEqual(wrapper.namelist(), sorted(("meta.ini", member_name)))
+            self.assertIsNone(wrapper.testzip())
             nested_package = self.root / "current-mo2.dwpkg"
-            nested_package.write_bytes(wrapper.read(member_name))
+            nested_bytes = wrapper.read(member_name)
+            nested_package.write_bytes(nested_bytes)
+            metadata = wrapper.read("meta.ini").decode("utf-8")
+        self.assertEqual(nested_bytes, dwpkg.read_bytes())
+        self.assertEqual(
+            metadata,
+            "[General]\n"
+            f"version={current_manifest['version']}\n"
+            f"customURL=https://github.com/{current_manifest['git_repo']}\n",
+        )
         verify_archive(nested_package, PROJECT)
         with ZipFile(nested_package) as archive:
             self.assertEqual(archive.read("server/dashboard-art.webp"), artwork)
@@ -193,10 +206,22 @@ class PackageTests(unittest.TestCase):
 
         self.assertEqual(first.read_bytes(), second.read_bytes())
         member_name = f"CHIM/server-plugins/{FIXTURE_NAME}/0.1.0.dwpkg"
+        expected_package = self.root / "expected.dwpkg"
+        build_package(self.source, expected_package)
         with ZipFile(first) as archive:
-            self.assertEqual(archive.namelist(), [member_name])
+            self.assertEqual(archive.namelist(), sorted(("meta.ini", member_name)))
+            self.assertIsNone(archive.testzip())
             nested_package = self.root / "nested.dwpkg"
-            nested_package.write_bytes(archive.read(member_name))
+            nested_bytes = archive.read(member_name)
+            nested_package.write_bytes(nested_bytes)
+            metadata = archive.read("meta.ini").decode("utf-8")
+        self.assertEqual(nested_bytes, expected_package.read_bytes())
+        self.assertEqual(
+            metadata,
+            "[General]\n"
+            "version=0.1.0\n"
+            "customURL=https://github.com/Francisco-boop-001/CHIM-MindPoisoning\n",
+        )
         self.assertEqual(verify_archive(nested_package, self.source)["version"], "0.1.0")
 
     def test_mo2_fomod_zip_is_deterministic_and_maps_exact_package_bytes(self) -> None:

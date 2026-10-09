@@ -54,3 +54,5 @@ When splitting a plugin into its own repository, carry its source-controlled lin
 ## Reserved transport markers — 2026-10-04
 
 Do not infer that a non-person marker cannot resolve through the NPC catalog. A catalog row can share its name. Exclude reserved listener markers explicitly before addressed/witness identity resolution; exercise a same-named row with the existing isolated provider/store seams. Keep the marker's valid source-registration role separate from recipient selection.
+
+- Installation feedback is a functional usability defect: choose one recommended download per audience and explain what it already contains. Keep public release versions synchronized with the active guide. Distinguish MO2 metadata/version display, game-content classification and CHIM package synchronization; never present meta.ini or Ignore as proof that a server installation succeeded.

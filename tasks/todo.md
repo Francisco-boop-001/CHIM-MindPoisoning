@@ -1,5 +1,23 @@
 # CHIM Mind Poisoning — implementation ledger
 
+## Release 0.1.19 — 2026-10-09
+
+- [ ] Prepare/review 0.1.19 metadata, clean-export package gates, immutable tag, canonical/mirror publication and final evidence.
+
+Plan: [release-v0.1.19-plan.md](release-v0.1.19-plan.md). No installed-runtime changes; preserve other contributors and historical assets.
+
+## MO2 packaging and installation usability — 2026-10-08
+
+- [x] Verify external feedback against MO2 sources, CHIM guidance, active builders and existing installation instructions.
+- [x] Add deterministic version/source metadata to the active plain MO2 ZIP, with a failing regression first and unchanged embedded DWPkg.
+- [x] Replace stale user instructions with one recommended MO2 download, verification steps and separate advanced formats.
+- [x] Review every diff/caller and focused verification; build a clearly named local preview and compare its inner payload with published 0.1.18.
+- [x] Record result and limitations, including the separate unconfirmed CHIM read error.
+
+Scope: scripts/package.py and tests/test_package.py (package owner); README.md, docs/mind-poisoning.md and docs/deployment-migration.md (documentation owner); lead task records only. Existing work branch is reused with exclusive ownership. No other plugin edits, server payload/version changes, installed runtime/modlist/WSL/provider/database operations, commit/push/publication, or overwriting retained release assets. The obsolete FOMOD format is not revived. No forced validated flag, fake Nexus ID or dummy Skyrim files. Metadata does not establish successful MO2 installation or CHIM synchronization.
+
+Review: package regression red-to-green (7/7), all five product/document diffs and active callers reviewed, real local preview CRC/INI/nested bytes verified against public 0.1.18, 19 relative links and scoped diff checks passed. Independent review found no package blocker; its one-version wording concern was fixed and verified. All 913 protected hashes and HEAD are unchanged. Native MO2 acceptance, installed CHIM sync and the unspecified read error remain unverified. Local-only correction; release pin stays 0.1.18. Plan/evidence: [mo2-usability-2026-10-08.md](mo2-usability-2026-10-08.md).
+
 ## PCV 0.1.16 hub update and integration note — 2026-10-05
 
 - [x] Inspect current tree, hub, instructions and published PCV release metadata read-only.

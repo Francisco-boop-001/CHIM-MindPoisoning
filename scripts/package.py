@@ -282,6 +282,11 @@ def build_mo2_sync_archive(project_root: Path, archive_path: Path) -> dict:
     package_name = manifest["name"]
     version = manifest["version"]
     member_name = f"CHIM/server-plugins/{package_name}/{version}.dwpkg"
+    metadata = (
+        "[General]\n"
+        f"version={version}\n"
+        "customURL=https://github.com/Francisco-boop-001/CHIM-MindPoisoning\n"
+    ).encode("utf-8")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix=f".{output.stem}-", dir=output.parent) as temp_name:
@@ -292,17 +297,25 @@ def build_mo2_sync_archive(project_root: Path, archive_path: Path) -> dict:
         package_bytes = package_path.read_bytes()
 
         with ZipFile(wrapper_path, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
-            info = ZipInfo(member_name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = ZIP_DEFLATED
-            info.create_system = 3
-            info.external_attr = (stat.S_IFREG | 0o644) << 16
-            archive.writestr(info, package_bytes)
+            for name, contents in sorted(
+                (("meta.ini", metadata), (member_name, package_bytes))
+            ):
+                info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = (stat.S_IFREG | 0o644) << 16
+                archive.writestr(info, contents)
 
         with ZipFile(wrapper_path) as archive:
-            if archive.namelist() != [member_name] or archive.testzip() is not None:
-                raise PackageError("MO2 archive does not contain exactly one valid CHIM sync package")
+            if (
+                archive.namelist() != sorted(("meta.ini", member_name))
+                or archive.testzip() is not None
+            ):
+                raise PackageError("MO2 archive has an invalid member list or CRC")
             if archive.read(member_name) != package_bytes:
                 raise PackageError("MO2 archive changed the CHIM sync package bytes")
+            if archive.read("meta.ini") != metadata:
+                raise PackageError("MO2 archive metadata does not match its package version")
 
         os.replace(wrapper_path, output)
     return manifest
