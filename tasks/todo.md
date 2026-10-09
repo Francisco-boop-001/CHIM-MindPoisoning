@@ -2,9 +2,9 @@
 
 ## Release 0.1.19 — 2026-10-09
 
-- [ ] Prepare/review 0.1.19 metadata, clean-export package gates, immutable tag, canonical/mirror publication and final evidence.
+- [x] Prepare/review 0.1.19 metadata, clean-export package gates, immutable tag, canonical/mirror publication and final evidence.
 
-Plan: [release-v0.1.19-plan.md](release-v0.1.19-plan.md). No installed-runtime changes; preserve other contributors and historical assets.
+Plan: [release-v0.1.19-plan.md](release-v0.1.19-plan.md). Receipt: [release-v0.1.19.md](release-v0.1.19.md). Both PRE-ALPHA releases are public and byte-verified; main refs updated after publication. No installed-runtime changes; other contributors and historical assets preserved.
 
 ## MO2 packaging and installation usability — 2026-10-08
 
