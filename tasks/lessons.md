@@ -60,3 +60,16 @@ Do not infer that a non-person marker cannot resolve through the NPC catalog. A 
 - Before asking a user to reproduce or transcribe an interaction, check authorized retained speech/request logs beyond the sanitized plugin export. Use exact IDs, bounded read-only access and shape/name-presence analysis; preserve the gaming-distro execution ban and never treat model metadata or prompt context as spoken evidence.
 
 - Standalone dashboards must be tested in a fresh PHP process without gameplay globals or preloaded core classes. A fixture that preloads a dependency can hide an entrypoint bootstrap defect; distinguish a missing helper from invalid stored data instead of assigning both the same display state.
+
+## Compatibility policy review — 2026-10-19
+
+- Before calling a bypass a missing guard or accidental bug, inspect its configuration contract and focused tests. The SHARMAT arrangement adapter deliberately suppresses automatic crush even when its separate sexual-eligibility option is off; a fixture explicitly requires that behavior. Passing tests can confirm a questionable policy rather than validate the policy itself.
+- A reported casual intimacy arrangement does not establish absence of attraction or future romantic feelings. Review arrangement recognition, emotional progression and action eligibility as separate policies with the component owner before changing an existing deterministic fallback.
+- Separate general fixes from a plugin-specific adapter in upstream contributions; identify dependent patches and ask whether the maintainer wants an adapter in core or in an optional compatibility plugin. Explain reviewer concerns as confirmed behavior, design tradeoffs or unverified harm, rather than treating them all as proven bugs.
+
+## Respect for upstream authorship — 2026-10-19
+
+- The user treats work on another author's code as entering that person's house: an invitation to contribute carries a duty to understand and respect the existing design. Study why current behavior exists before proposing changes to it.
+- Separate demonstrated repairs from new policy and plugin-specific integration. Make behavior changes explicit, keep patches easy to accept independently, and leave architectural direction to the maintainer. A passing test cannot validate an unagreed policy.
+- Do not dismiss the user's apology as unnecessary or advise them to stop apologizing. It acknowledges authorship, hospitality and the review burden we introduced. A maintainer's gracious welcome does not erase that concern or authorize broader changes.
+- Current SHARMAT work waits for Wondernutts's review. Leave its code, branch and PR untouched until the user gives further direction; preserve the live server and game data.
