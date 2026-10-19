@@ -59,3 +59,17 @@ The public reader is fresh. Offer generation may reuse a pair result only within
 A separately authorized gameplay test should establish and end a clearly current arrangement, inspect affinity/type remaining independent, compare each NPC's separate report, exercise a declined or ineligible action, and verify an ended arrangement cannot authorize a stale offer. Use a backup or isolated database. Do not infer mutual agreement from matching labels, or successful playback from an emitted command.
 
 Publication gates are tracked in the task record and release checksums; package bytes establish distribution integrity, not installation or gameplay.
+## Completed distribution checks
+
+The immutable tag `mind_poisoning-v0.1.26` points to `43c87804875bad104fd955c344d5b300b9b9bcac`. All four installable archives from a clean commit checkout matched a second clean tag checkout byte for byte. Focused MP checks and SHARMAT consumer/settings/integration checks also passed from clean source exports, resolving the working-tree versus exported line-ending boundary.
+
+All five uploaded draft assets matched the local files. After publication, each public URL was downloaded without authentication and matched again, including `SHA256SUMS.txt`. Main and the hub were advanced only after those public-download checks. These facts prove distribution integrity, not native installation or gameplay.
+
+| Installable file | SHA-256 |
+| --- | --- |
+| `mind_poisoning-0.1.26-mo2.zip` | `278d982e46c84555cba82148dce9be4d2170a28da8e22d5269bea618daf76402` |
+| `mind_poisoning-0.1.26.dwpkg` | `e7464767cc55b02ffafa02b5df6fcbd6f1c2472611a01af97036b77a8a0a9409` |
+| `mind_poisoning.tar.gz` | `68c4f99b8281a6f254cd8a512a469289b22a87b66c33edac227174e0d5e0812e` |
+| `chim-plugin.tar.gz` | `c7301ebbff61649bdbe672a83489b96601afb4496f7d094d9c71aa635bf371bf` |
+
+[Published release and checksum file](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.26). SHARMAT's reviewed consumer commit is `d6c6da595eb961f338245d6e4d044fe6e86279f0` in [open upstream PR #7](https://github.com/Wondernuttz/Sharmat-Alpha/pull/7); submission is not maintainer approval or a SHARMAT release. The main plugins hub documentation was updated while preserving PCV 0.1.21 BETA and S&S 0.1.5. No live installation was performed.

@@ -980,3 +980,5 @@ Review: 0.1.15 is committed, immutably tagged and published PRE-ALPHA in the ded
 
 ## Automatic intimacy arrangements — 2026-10-19
 See tasks/intimacy-arrangements.md for the scoped checklist. Design/evidence ledger: artifacts/mp-intimacy-arrangements-20261019/. New isolated branch; canonical dirty work preserved. No product edits authorized to workers until the cross-plugin contract is reviewed.
+
+Review: automatic intimacy arrangements are saved, committed and published as 0.1.26 BETA CANDIDATE; clean-tag and public-download gates passed. Existing SHARMAT PR #7 now carries the separately reviewed optional consumer, awaiting upstream review. Hub current links updated; all live/game data remained untouched. See tasks/intimacy-arrangements.md and docs/verification-v0.1.26.md.
