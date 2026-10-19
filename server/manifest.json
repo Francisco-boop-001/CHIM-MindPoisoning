@@ -1,9 +1,9 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
-  "description": "BETA CANDIDATE 0.1.26: identity-checked gossip and reflection can influence CHIM opinions. Optional default-off recognition records an NPC's own current intimacy report separately from affinity and emotional type, with bounded private context, read-only API v1 and dashboard history. Reports do not establish mutual agreement or current willingness. Arrangements follow restored plugin state under either restore policy. Deterministic source, storage and optional SHARMAT-consumer fixtures passed; real-model interpretation, installed behavior and gameplay remain unverified. Standard release classification supports discovery without promoting maturity.",
+  "description": "BETA CANDIDATE 0.1.27: identity-checked gossip and reflection can influence CHIM opinions. Optional default-off intimacy recognition stores an NPC's own report separately; it does not establish mutual agreement or willingness. Written-evidence API v1 can evaluate a confirmed message exposure submitted by a compatible server plugin; it does not verify authorship or provide an inbox. A compatible producer is required and not included. Deterministic fixtures, native integration and an official-manager development-candidate install pass; real-model interpretation, live installation and gameplay remain unverified. Standard release classification supports discovery without promoting maturity.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",

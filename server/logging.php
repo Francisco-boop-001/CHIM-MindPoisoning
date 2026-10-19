@@ -6,7 +6,7 @@ namespace ChimMindPoisoning;
 final class RequestLog
 {
     private const CONTEXT_FIELDS = [
-        'event_id', 'utterance_id', 'config_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'opinion_owner_id', 'source_kind',
+        'event_id', 'utterance_id', 'config_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'opinion_owner_id', 'recipient_id', 'source_kind',
     ];
     private const CODE_FIELDS = [
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
@@ -99,13 +99,17 @@ final class RequestLog
             ];
             $safeFields = self::sanitizeFields(array_merge($this->context, $fields), $this->diagnostic, $level);
             $contextSpeakerKind = $this->context['speaker_kind'] ?? null;
-            if (in_array($contextSpeakerKind, ['npc', 'player'], true)) {
-                $safeFields['speaker_kind'] = $contextSpeakerKind;
+            if (($safeFields['source_kind'] ?? null) === 'written_evidence') {
+                $safeFields = self::sanitizeWrittenEvidenceFields($safeFields);
             } else {
-                unset($safeFields['speaker_kind']);
-            }
-            if ($contextSpeakerKind === 'player') {
-                unset($safeFields['speaker_id']);
+                if (in_array($contextSpeakerKind, ['npc', 'player'], true)) {
+                    $safeFields['speaker_kind'] = $contextSpeakerKind;
+                } else {
+                    unset($safeFields['speaker_kind']);
+                }
+                if ($contextSpeakerKind === 'player') {
+                    unset($safeFields['speaker_id']);
+                }
             }
             $record = array_merge($record, $safeFields);
             $this->write($record, $level);
@@ -465,7 +469,7 @@ final class RequestLog
                 return in_array($value, ['npc', 'player'], true) ? $value : null;
             }
             if ($key === 'source_kind') {
-                return in_array($value, ['reflection', 'intimacy'], true) ? $value : null;
+                return in_array($value, ['reflection', 'intimacy', 'written_evidence'], true) ? $value : null;
             }
             if ($key === 'listener_role') {
                 return in_array($value, ['addressed', 'overheard'], true) ? $value : null;
@@ -524,6 +528,24 @@ final class RequestLog
         }
         if (($clean['speaker_kind'] ?? null) === 'player') {
             unset($clean['speaker_id']);
+        }
+        return $clean;
+    }
+
+    private static function sanitizeWrittenEvidenceFields(array $fields): array
+    {
+        $allowed = array_fill_keys([
+            'event_id', 'playthrough_id', 'opinion_owner_id', 'recipient_id', 'source_kind',
+            'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
+            'commit_state', 'committed', 'cleanup_failed', 'elapsed_ms', 'model_ms', 'persistence_ms',
+            'changed_count', 'affinity_changed_count', 'type_changed_count',
+            'changes', 'type_changes', 'type_decisions',
+        ], true);
+        $clean = array_intersect_key($fields, $allowed);
+        $ownerId = $clean['opinion_owner_id'] ?? null;
+        $recipientId = $clean['recipient_id'] ?? null;
+        if ($recipientId !== null && $ownerId !== null && $recipientId !== $ownerId) {
+            unset($clean['recipient_id'], $clean['opinion_owner_id']);
         }
         return $clean;
     }

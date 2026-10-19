@@ -982,3 +982,31 @@ Review: 0.1.15 is committed, immutably tagged and published PRE-ALPHA in the ded
 See tasks/intimacy-arrangements.md for the scoped checklist. Design/evidence ledger: artifacts/mp-intimacy-arrangements-20261019/. New isolated branch; canonical dirty work preserved. No product edits authorized to workers until the cross-plugin contract is reviewed.
 
 Review: automatic intimacy arrangements are saved, committed and published as 0.1.26 BETA CANDIDATE; clean-tag and public-download gates passed. Existing SHARMAT PR #7 now carries the separately reviewed optional consumer, awaiting upstream review. Hub current links updated; all live/game data remained untouched. See tasks/intimacy-arrangements.md and docs/verification-v0.1.26.md.
+
+## Written evidence v1 — unpublished follow-on, 2026-10-19
+
+- [x] Start from published0.1.26 source/main f21a00a in separate feature/written-evidence-v1 checkout; preserve canonical and arrangement publication work.
+- [x] Read frozen correspondence design/fixture (SHA256194da266679a0e21c823659a59279b46dcca2eeed2df13f371bbd0bde4a5c623), existing MP flows and S&S public handoff; delegate exclusive preflights.
+- [x] Freeze eventID-only capability/enqueue/status plus processing/store signatures and source-kind-aware receipt/restore contract.
+- [x] Owners implement isolated failing-to-passing source/evaluator/persistence/diagnostics checks; lead reviews every changed caller/failure path.
+- [x] Run smallest concrete standalone deterministic checks and affected speech/reflection/arrangement controls; write exact API/dependency/hash/native-fixture handoff.
+
+Authority: separate human-requested written interfaces relayed by correspondence coordinator. No publish, tag, version/release metadata change, live/server/game/provider/WSL/database/service action. Root correspondence alone owns disposable clone scheduling and native checks. Lead writes docs/plan/reviews, no product code. Ponytail FULL; reuse gpt-6-luna Max owners and preserve shared edits.
+
+Owners: sharmat_build store/restore/source-query/nativeadapter and written_store_test; sharmat_tests new strict written envelope/evaluator/publicAPI and written_evidence_test; sharmat_cleanup independent status/privacy/scheduling preflight then a distinct diagnostics/bootstrap scope if justified. Shared interface is frozen in the MP owner handoff; implementation is authorized. No worker touches sibling plugins or another owner's files.
+
+Contract already approved upstream: neutral ordinary eventlog row type written_evidence/sess written_evidence_v1, recipient-only people, exact strict v1 JSON and canonical identities/current scope, original bounded body, confirmed exposure/attachments, claimed attribution only. Hidden actual author/payer never enters consumer context/logs. Recipient alone receives opinion writes; claimed sender and mentioned third parties may be subjects, never newly knowledgeable witnesses. No speech/ACK imitation, intimacy self-report classification or absent-sender arrangement writes. Model outside transaction; exact source/identity/receipt rechecks and normal atomic opinion/processing/history persist. Capability/status are credential-free SELECT-only; no model/bootstrap key migration.
+
+Resolved interface/scheduling boundary: MP has no existing background queue. Avoid new daemon/generalqueue; select smallest honest event-reference processing path with truthful pending/processed states. Exact document/receipt/operation replay must survive bounded ordinary history eviction within the loaded timeline; never infer receipts from affinity. Restored source/ledger identities and preserve-mode INIT fences require explicit new-source handling, not pretending written evidence is _speech.
+
+Review: written evidence v1 owner implementation is complete, reviewed and frozen in the separate candidate checkout. Final93-check synthetic evaluation,18-check source/status, focused store/legacy/hook/dashboard/privacy gates and changed PHP lint pass, with explicit scratch-Pg skips and no provider/game proof. Physical carrier is info/sess written_evidence_v1 (supersedes initial custom-type wording). Full hash-pinned API/results/limitations and final inventory are in artifacts/chim-correspondence-implementation-20261019/mp-owner-handoff.md. Coordinator owns final native/package rebind; no publication, version/tag/pin advancement or live/game changes occurred.
+
+Final integration update: coordinator final native and official-manager three-candidate installation checks PASS at the frozen24-file MP payload (copied development manifest override only). Actual MP opinion/type/history/receipt/replay and real S&S namespace coexistence pass with provider0; retained receipts mp-cross-final-native.txt, candidate-consumers-final.json and final-payload-verification.json were read. The earlier pending final native/package rebind is resolved. Public pin remains0.1.26; provider/gameplay/commit-ACK-loss limits remain. MP owner performed no further programming, runtime or service action.
+
+## Written evidence publication — 2026-10-19
+
+- [ ] Confirm release scope and retained source/native/package evidence.
+- [ ] Prepare and review release metadata/docs; publish verified immutable assets before advancing the update branch.
+- [ ] Update MP-only hub information and save final receipts.
+
+Plan: release-v0.1.27-plan.md. SHARMAT review is read-only; further SHARMAT implementation waits for author discussion. Live/game data remain untouched.

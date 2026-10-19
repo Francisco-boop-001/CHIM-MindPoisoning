@@ -63,6 +63,11 @@ function renderDashboard(array $model, array $filters): void
     $outcomeOptions = [
         'committed' => 'Committed',
         'zero-change' => 'Zero change',
+        'processed' => 'Processed',
+        'pending' => 'Pending',
+        'paused' => 'Paused',
+        'abstained' => 'Abstained',
+        'invalid' => 'Invalid',
         'unconfirmed' => 'Unconfirmed',
         'skipped' => 'Skipped',
         'rejected' => 'Rejected',
@@ -300,6 +305,8 @@ function renderDashboard(array $model, array $filters): void
                                             <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Solo reflection</h4>
                                         <?php elseif (($interaction['source_kind'] ?? null) === 'intimacy'): ?>
                                             <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Directed intimacy report</h4>
+                                        <?php elseif (($interaction['source_kind'] ?? null) === 'written_evidence'): ?>
+                                            <h4><?= $escape($text($interaction['opinion_owner'] ?? null, 'Unknown NPC')) ?> · Written evidence evaluation</h4>
                                         <?php else: ?>
                                             <h4><?= $escape($text($interaction['speaker'] ?? null)) ?><span class="exchange-arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><?= $escape($text($interaction['listener'] ?? null)) ?></h4>
                                             <?php if (($interaction['listener_role'] ?? null) === 'addressed'): ?>
@@ -313,14 +320,29 @@ function renderDashboard(array $model, array $filters): void
                                 </header>
                                 <?php if (($interaction['source_kind'] ?? null) === 'intimacy'): ?>
                                     <p class="exposure-label">This is one NPC's directed report; it does not establish the target's view.</p>
+                                <?php elseif (($interaction['source_kind'] ?? null) === 'written_evidence'): ?>
+                                    <p class="exposure-label">Recipient-side processing of a claimed document; the claimed author and readership are not verified.</p>
                                 <?php endif; ?>
                                 <p class="event-identifiers">
                                     <span>Event <code><?= $escape($text($interaction['event_id'] ?? null)) ?></code></span>
-                                    <span><?= $escape($correlationLabel) ?> <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
+                                    <?php if (($interaction['source_kind'] ?? null) !== 'written_evidence'): ?>
+                                        <span><?= $escape($correlationLabel) ?> <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
+                                    <?php endif; ?>
                                     <span>Request <code><?= $escape($text($interaction['request_id'] ?? null)) ?></code></span>
                                     <span><?= $escape($scopeTerm) ?> <code><?= $escape($text($scopeValue)) ?></code></span>
                                     <span class="attribution-label"><?= $escape($attributionLabel) ?></span>
                                 </p>
+                                <?php if (($interaction['source_kind'] ?? null) === 'written_evidence'): ?>
+                                    <p class="reason-line">Persistence <code><?php
+                                        $writtenCommitState = $interaction['commit_state'] ?? null;
+                                        echo $escape(match ($writtenCommitState) {
+                                            'confirmed' => 'confirmed',
+                                            'unconfirmed' => 'unconfirmed',
+                                            'ambiguous' => 'ambiguous',
+                                            default => 'unavailable from retained logs',
+                                        });
+                                    ?></code></p>
+                                <?php endif; ?>
                                 <?php if (is_string($interaction['reason'] ?? null) && $interaction['reason'] !== ''): ?>
                                     <p class="reason-line">Reason <code><?= $escape($interaction['reason']) ?></code></p>
                                     <?php if (is_string($interaction['reason']) && str_starts_with($interaction['reason'], 'restore-policy')): ?>

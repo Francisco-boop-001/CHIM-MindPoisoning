@@ -51,6 +51,21 @@ interface RestorePolicyStoreDb
     public function releaseRestorePolicyBarrier(): void;
 }
 
+/** Optional exact source reads for recipient-owned written evidence. */
+interface WrittenEvidenceStoreDb
+{
+    public function writtenEvidenceById(int $eventId): ?array;
+    public function writtenEvidenceIdentityEvents(
+        string $documentId,
+        string $playthroughId,
+        int $recipientNpcId,
+        string $receiptId,
+        string $operationId,
+        int $afterEventIdExclusive,
+        int $throughEventIdInclusive
+    ): ?array;
+}
+
 require_once __DIR__ . '/restore_policy.php';
 
 function resolvePlaythroughContext(array $profileRows, mixed $playerName): ?array
@@ -216,6 +231,65 @@ function validStoredArrangementChanges(mixed $changes): bool
     return true;
 }
 
+function validStoredWrittenReceipts(mixed $receipts, ?string $playthroughId = null, ?int $recipientNpcId = null): bool
+{
+    if (!is_array($receipts) || count($receipts) > 1024) {
+        return false;
+    }
+    $events = $receiptIds = $operationIds = [];
+    $ownerId = $recipientNpcId;
+    foreach ($receipts as $documentId => $receipt) {
+        $keys = is_array($receipt) ? array_keys($receipt) : [];
+        sort($keys, SORT_STRING);
+        if (
+            !is_string($documentId)
+            || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $documentId) !== 1
+            || !is_array($receipt)
+            || $keys !== ['document_id', 'event_id', 'operation_id', 'outcome', 'playthrough_id', 'receipt_id', 'recipient_id', 'source_digest']
+            || ($receipt['document_id'] ?? null) !== $documentId
+            || !is_int($receipt['event_id'] ?? null) || $receipt['event_id'] < 1
+            || isset($events[$receipt['event_id']])
+            || !is_string($receipt['receipt_id'] ?? null)
+            || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $receipt['receipt_id']) !== 1
+            || isset($receiptIds[$receipt['receipt_id']])
+            || !is_string($receipt['operation_id'] ?? null)
+            || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $receipt['operation_id']) !== 1
+            || isset($operationIds[$receipt['operation_id']])
+            || !is_string($receipt['playthrough_id'] ?? null) || $receipt['playthrough_id'] === ''
+            || ($playthroughId !== null && $receipt['playthrough_id'] !== $playthroughId)
+            || !is_int($receipt['recipient_id'] ?? null) || $receipt['recipient_id'] < 1
+            || ($ownerId !== null && $receipt['recipient_id'] !== $ownerId)
+            || !is_string($receipt['source_digest'] ?? null)
+            || preg_match('/\A[a-f0-9]{64}\z/D', $receipt['source_digest']) !== 1
+            || !in_array($receipt['outcome'] ?? null, ['committed', 'zero_change'], true)
+        ) {
+            return false;
+        }
+        $ownerId ??= $receipt['recipient_id'];
+        $events[$receipt['event_id']] = true;
+        $receiptIds[$receipt['receipt_id']] = true;
+        $operationIds[$receipt['operation_id']] = true;
+    }
+    return true;
+}
+
+function appendWrittenEvidenceReceipt(array $receipts, array $receipt): array
+{
+    if (!validStoredWrittenReceipts($receipts)) {
+        throw new RuntimeException('Stored written evidence receipts are invalid.');
+    }
+    $documentId = $receipt['document_id'] ?? null;
+    if (!is_string($documentId) || isset($receipts[$documentId]) || count($receipts) >= 1024) {
+        throw new RuntimeException('Written evidence receipt is duplicate or the owner receipt capacity is full.');
+    }
+    $next = $receipts;
+    $next[$documentId] = $receipt;
+    if (!validStoredWrittenReceipts($next)) {
+        throw new RuntimeException('Written evidence receipt identity is invalid or already used.');
+    }
+    return $next;
+}
+
 function storedLedgerNamespace(object $pluginExtendedData): ?array
 {
     if (!property_exists($pluginExtendedData, 'mind_poisoning')) {
@@ -261,6 +335,10 @@ function storedLedgerNamespace(object $pluginExtendedData): ?array
             return null;
         }
         $ledger['arrangements'] = $arrangements;
+    }
+    if (array_key_exists('written_receipts', $ledger)
+        && !validStoredWrittenReceipts($ledger['written_receipts'], $ledger['playthrough_id'])) {
+        return null;
     }
     $hasReflectionEvents = false;
     foreach ($ledger['events'] as $entry) {
@@ -466,6 +544,282 @@ function normalizeEventRow(array $row, bool $includePeople = false): ?array
         $event['source_people_oversized'] = filter_var($row['people_oversized'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
     return $event;
+}
+
+function normalizeWrittenEvidenceSourceRow(array $row): ?array
+{
+    $eventId = filter_var($row['event_id'] ?? null, FILTER_VALIDATE_INT);
+    $sourceLocalts = filter_var($row['source_localts'] ?? null, FILTER_VALIDATE_INT);
+    $sourceTs = $row['source_ts'] ?? null;
+    $sourceGamets = $row['source_gamets'] ?? $row['gamets'] ?? null;
+    $gamets = $row['gamets'] ?? null;
+    $sourcePeople = $row['source_people'] ?? null;
+    $sourceData = $row['source_data'] ?? null;
+    if (
+        $eventId === false || $eventId < 1
+        || ($row['source_type'] ?? null) !== 'info'
+        || ($row['source_sess'] ?? null) !== 'written_evidence_v1'
+        || (!is_string($sourceTs) && !is_int($sourceTs)) || !is_numeric($sourceTs) || !is_finite((float)$sourceTs)
+        || (!is_string($sourceGamets) && !is_int($sourceGamets) && !is_float($sourceGamets))
+        || !is_numeric($sourceGamets) || !is_finite((float)$sourceGamets)
+        || !is_numeric($gamets) || !is_finite((float)$gamets) || (float)$sourceGamets !== (float)$gamets
+        || $sourceLocalts === false || $sourceLocalts < 0
+        || !is_string($sourcePeople) || trim($sourcePeople) === '' || strlen($sourcePeople) > 2048
+        || !is_string($sourceData) || $sourceData === '' || strlen($sourceData) > 16384
+        || preg_match('//u', $sourceData) !== 1
+    ) {
+        return null;
+    }
+    return [
+        'event_id' => (int)$eventId,
+        'source_type' => 'info',
+        'source_sess' => 'written_evidence_v1',
+        'source_ts' => (string)$sourceTs,
+        'source_gamets' => (string)$sourceGamets,
+        'gamets' => (float)$gamets,
+        'source_localts' => (int)$sourceLocalts,
+        'source_people' => $sourcePeople,
+        'source_data' => $sourceData,
+    ];
+}
+
+function writtenEvidenceEventIdentity(array $event): ?array
+{
+    if (!function_exists(__NAMESPACE__ . '\\parseWrittenEvidenceEnvelope')) {
+        return null;
+    }
+    if (
+        ($event['source_kind'] ?? null) !== 'written_evidence'
+        || ($event['source_type'] ?? null) !== 'info'
+        || ($event['source_sess'] ?? null) !== 'written_evidence_v1'
+        || !is_int($event['event_id'] ?? null) || $event['event_id'] < 1
+        || !is_int($event['recipient_id'] ?? null) || $event['recipient_id'] < 1
+        || ($event['opinion_owner_id'] ?? null) !== $event['recipient_id']
+        || !is_string($event['playthrough_id'] ?? null)
+        || !preg_match('/\A(?:unprofiled|[1-9][0-9]{0,18})\z/D', $event['playthrough_id'])
+        || !is_string($event['source_data'] ?? null) || $event['source_data'] === '' || strlen($event['source_data']) > 16384
+        || !is_string($event['source_digest'] ?? null)
+        || !hash_equals(hash('sha256', $event['source_data']), $event['source_digest'])
+        || !is_string($event['text'] ?? null) || $event['text'] === '' || preg_match('//u', $event['text']) !== 1
+        || !is_string($event['source_people'] ?? null) || trim($event['source_people']) === '' || strlen($event['source_people']) > 2048
+        || !is_string($event['source_ts'] ?? null) || !is_numeric($event['source_ts']) || !is_finite((float)$event['source_ts'])
+        || !is_string($event['source_gamets'] ?? null) || !is_numeric($event['source_gamets']) || !is_finite((float)$event['source_gamets'])
+        || !is_int($event['source_localts'] ?? null) || $event['source_localts'] < 0
+        || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
+        || (float)$event['source_gamets'] !== (float)$event['gamets']
+        || mb_strlen($event['text'], 'UTF-8') > 2000 || strlen($event['text']) > 8000
+    ) {
+        return null;
+    }
+    try {
+        $payload = parseWrittenEvidenceEnvelope($event['source_data']);
+    } catch (Throwable) {
+        return null;
+    }
+    $recipient = is_array($payload) ? ($payload['recipient'] ?? null) : null;
+    $receipt = is_array($payload) ? ($payload['receipt'] ?? null) : null;
+    if (
+        !is_array($payload)
+        || !is_string($payload['document_id'] ?? null)
+        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $payload['document_id']) !== 1
+        || ($payload['playthrough_id'] ?? null) !== $event['playthrough_id']
+        || !is_array($recipient) || ($recipient['kind'] ?? null) !== 'npc'
+        || !is_int($recipient['id'] ?? null) || $recipient['id'] !== $event['recipient_id']
+        || !is_string($recipient['name'] ?? null) || trim($recipient['name']) === ''
+        || !is_array($receipt)
+        || !is_string($receipt['receipt_id'] ?? null)
+        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $receipt['receipt_id']) !== 1
+        || !is_string($receipt['operation_id'] ?? null)
+        || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $receipt['operation_id']) !== 1
+        || ($event['written_evidence'] ?? null) === null
+        || !sameJsonValue($payload, $event['written_evidence'])
+        || ($payload['body'] ?? null) !== $event['text']
+    ) {
+        return null;
+    }
+    return [
+        'event_id' => $event['event_id'],
+        'document_id' => $payload['document_id'],
+        'receipt_id' => $receipt['receipt_id'],
+        'operation_id' => $receipt['operation_id'],
+        'playthrough_id' => $event['playthrough_id'],
+        'recipient_id' => $event['recipient_id'],
+        'recipient_name' => $recipient['name'],
+        'source_digest' => $event['source_digest'],
+    ];
+}
+
+function sameWrittenEvidenceSource(array $event, ?array $source): bool
+{
+    $expected = normalizeWrittenEvidenceSourceRow($event);
+    $current = is_array($source) ? normalizeWrittenEvidenceSourceRow($source) : null;
+    return $expected !== null && $current !== null && sameJsonValue($expected, $current)
+        && ($event['source_digest'] ?? null) === hash('sha256', $current['source_data']);
+}
+
+function writtenEvidencePersistenceEventValid(
+    array $event,
+    array $subjects,
+    array $judgments,
+    StoreDb $store,
+    ?array $identity
+): bool
+{
+    $initId = $event['restore_policy_init_event_id'] ?? null;
+    $maxId = $event['restore_policy_max_event_id'] ?? null;
+    if (
+        $identity === null
+        || !$store instanceof WrittenEvidenceStoreDb
+        || !$store instanceof RestorePolicyStoreDb
+        || !is_int($initId) || $initId < 0
+        || !is_int($maxId) || $maxId < $initId || $event['event_id'] > $maxId
+        || !is_int($event['interaction_generation'] ?? null) || $event['interaction_generation'] < 0
+        || array_key_exists('utterance_id', $event)
+        || array_key_exists('speaker_id', $event)
+        || array_key_exists('speaker_name', $event)
+        || array_key_exists('speaker_kind', $event)
+        || array_key_exists('listener_id', $event)
+        || array_key_exists('listener_name', $event)
+        || !is_string($event['player_name'] ?? null) || trim($event['player_name']) === ''
+        || !validSubjectsAndJudgments($subjects, $judgments, $event)
+    ) {
+        return false;
+    }
+    if (($event['source_people'] ?? null) !== ('|' . $identity['recipient_name'] . '|')) {
+        return false;
+    }
+    foreach ($subjects as $subject) {
+        if (($subject['id'] ?? null) === $identity['recipient_id']) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function writtenEvidenceBoundsMatch(?array $bounds, array $event, bool $restorePolicyEnabled): bool
+{
+    $initId = $event['restore_policy_init_event_id'] ?? null;
+    $capturedMaxId = $event['restore_policy_max_event_id'] ?? null;
+    $eventId = $event['event_id'] ?? null;
+    return is_array($bounds)
+        && is_int($initId) && $initId >= 0
+        && is_int($capturedMaxId) && $capturedMaxId >= $initId
+        && is_int($eventId) && $eventId > 0 && $eventId <= $capturedMaxId
+        && ($bounds['latest_init_event_id'] ?? null) === $initId
+        && is_int($bounds['max_event_id'] ?? null)
+        && $bounds['max_event_id'] >= $capturedMaxId
+        && $bounds['max_event_id'] >= $eventId
+        && (!$restorePolicyEnabled || sourceIsAfterRestoreBoundary($eventId, $initId));
+}
+
+function writtenEvidenceRuntimeGateStatus(array $event): ?array
+{
+    $generation = $event['interaction_generation'] ?? null;
+    if (!is_int($generation) || $generation < 0 || !function_exists(__NAMESPACE__ . '\\speechAckInteractionStatus')) {
+        return ['status' => 'failed', 'reason' => 'interaction_helpers_unavailable'];
+    }
+    $interactionReason = null;
+    $interactionStatus = speechAckInteractionStatus($interactionReason);
+    if ($interactionStatus !== 'ok') {
+        return [
+            'status' => $interactionStatus === 'interaction-stale' ? 'stale' : 'paused',
+            'reason' => $interactionReason ?? 'interaction_off',
+        ];
+    }
+    if (($GLOBALS['chim_interaction_generation'] ?? null) !== $generation) {
+        return ['status' => 'stale', 'reason' => 'interaction_generation_stale'];
+    }
+    if (!function_exists(__NAMESPACE__ . '\\mindPoisoningPauseStatus')) {
+        return ['status' => 'failed', 'reason' => 'pause_control_unavailable'];
+    }
+    $pauseReason = null;
+    $pauseStatus = mindPoisoningPauseStatus($pauseReason);
+    if ($pauseStatus !== 'enabled') {
+        return [
+            'status' => $pauseStatus === 'plugin-paused' ? 'paused' : 'invalid',
+            'reason' => $pauseReason ?? ($pauseStatus === 'plugin-paused' ? 'plugin_paused' : 'pause_control_invalid'),
+        ];
+    }
+    if (!function_exists('chimIsGlobalLlmConnectorEnabled')
+        || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
+        return ['status' => 'disabled', 'reason' => 'connector_disabled'];
+    }
+    if (!function_exists(__NAMESPACE__ . '\\positiveConnectorId')) {
+        return ['status' => 'failed', 'reason' => 'connector_validation_unavailable'];
+    }
+    $connectorId = positiveConnectorId($GLOBALS['RELLLM_CONNECTOR'] ?? null);
+    return $connectorId !== null ? null : ['status' => 'invalid', 'reason' => 'connector_invalid'];
+}
+
+function writtenEvidenceIdentityRowsCurrent(
+    WrittenEvidenceStoreDb $store,
+    array $event,
+    array $identity,
+    int $throughEventId
+): bool {
+    $rows = $store->writtenEvidenceIdentityEvents(
+        $identity['document_id'],
+        $identity['playthrough_id'],
+        $identity['recipient_id'],
+        $identity['receipt_id'],
+        $identity['operation_id'],
+        0,
+        $throughEventId
+    );
+    if (!is_array($rows) || !array_is_list($rows) || count($rows) !== 1) {
+        return false;
+    }
+    $row = $rows[0];
+    return is_array($row)
+        && ($row['event_id'] ?? null) === $event['event_id']
+        && ($row['document_id'] ?? null) === $identity['document_id']
+        && ($row['receipt_id'] ?? null) === $identity['receipt_id']
+        && ($row['operation_id'] ?? null) === $identity['operation_id']
+        && ($row['playthrough_id'] ?? null) === $identity['playthrough_id']
+        && ($row['recipient_id'] ?? null) === $identity['recipient_id']
+        && ($row['recipient_matches'] ?? null) === true
+        && sameWrittenEvidenceSource($event, $row);
+}
+
+/** Return null when this owner can process the source; otherwise a fixed refusal reason. */
+function writtenEvidenceReceiptPreflightStatus(array $owner, int $recipientNpcId, string $playthroughId, array $identity): ?string
+{
+    $plugins = $owner['plugin_extended_data'] ?? null;
+    if (!$plugins instanceof \stdClass) {
+        return 'ledger-invalid';
+    }
+    $ledger = storedLedgerNamespace($plugins);
+    if ($ledger === null) {
+        return 'ledger-invalid';
+    }
+    if ($ledger === [] || $ledger['playthrough_id'] !== $playthroughId) {
+        return null;
+    }
+    $receipts = $ledger['written_receipts'] ?? [];
+    if (!validStoredWrittenReceipts($receipts, $playthroughId, $recipientNpcId)) {
+        return 'ledger-invalid';
+    }
+    $existing = $receipts[$identity['document_id']] ?? null;
+    if (is_array($existing)) {
+        return $existing['event_id'] === $identity['event_id']
+            && $existing['receipt_id'] === $identity['receipt_id']
+            && $existing['operation_id'] === $identity['operation_id']
+            && $existing['recipient_id'] === $recipientNpcId
+            && $existing['source_digest'] === $identity['source_digest']
+            && $existing['playthrough_id'] === $playthroughId
+            ? 'already-processed'
+            : 'written-receipt-changed';
+    }
+    foreach ($receipts as $receipt) {
+        if (
+            $receipt['event_id'] === $identity['event_id']
+            || $receipt['receipt_id'] === $identity['receipt_id']
+            || $receipt['operation_id'] === $identity['operation_id']
+        ) {
+            return 'written-receipt-reused';
+        }
+    }
+    return count($receipts) >= 1024 ? 'written-receipt-capacity' : null;
 }
 
 function playerInputTypes(): array
@@ -784,6 +1138,10 @@ function nextLedger(
     if (is_array($ledger['arrangements'] ?? null)) {
         $result['arrangements'] = $ledger['arrangements'];
     }
+    if (array_key_exists('written_receipts', $ledger)
+        && validStoredWrittenReceipts($ledger['written_receipts'], $playthroughId)) {
+        $result['written_receipts'] = $ledger['written_receipts'];
+    }
     return $result;
 }
 
@@ -833,6 +1191,23 @@ function reflectionSourceSnapshotsValid(array $event): bool
         && ($event['source_data'] ?? null) === $last['source_data'];
 }
 
+function persistWrittenEvidenceJudgments(
+    array $event,
+    array $subjects,
+    array $judgments,
+    StoreDb $store,
+    ?RequestLog $requestLog = null
+): string {
+    if (($event['source_kind'] ?? null) !== 'written_evidence') {
+        return 'invalid';
+    }
+    $status = persistJudgments($event, $subjects, $judgments, $store, $requestLog);
+    if ($store instanceof PostgresStoreDb && $store->cleanupFailed()) {
+        return 'failed';
+    }
+    return $status;
+}
+
 function persistIntimacyArrangement(
     array $event,
     ?array $change,
@@ -878,13 +1253,15 @@ function persistJudgments(
     $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
     $reflection = ($event['source_kind'] ?? null) === 'reflection';
     $intimacy = ($event['source_kind'] ?? null) === 'intimacy';
+    $writtenEvidence = ($event['source_kind'] ?? null) === 'written_evidence';
     $hasListenerRole = array_key_exists('listener_role', $event);
     $listenerRole = $event['listener_role'] ?? null;
     $hasReplySources = array_key_exists('reflection_sources', $event);
     $replySources = $event['reflection_sources'] ?? null;
     $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
     $playerSpeaker = $speakerKind === 'player';
-    $ownerId = ($reflection || $intimacy)
+    $writtenIdentity = null;
+    $ownerId = ($reflection || $intimacy || $writtenEvidence)
         ? ($event['opinion_owner_id'] ?? null)
         : ($event['listener_id'] ?? null);
     $edgeChanges = [];
@@ -893,6 +1270,7 @@ function persistJudgments(
     $arrangementChanges = [];
     $arrangementChangedCount = 0;
     $arrangementMapToWrite = null;
+    $writtenOutcome = 'committed';
     $done = static function (string $outcome, string $code) use (&$status, &$reason): string {
         $status = $outcome;
         $reason = $code;
@@ -901,22 +1279,28 @@ function persistJudgments(
 
     $requestLog?->context([
         'event_id' => $event['event_id'] ?? null,
-        'utterance_id' => $event['utterance_id'] ?? null,
+        'utterance_id' => $writtenEvidence ? null : ($event['utterance_id'] ?? null),
         'playthrough_id' => $event['playthrough_id'] ?? null,
-        'speaker_id' => $event['speaker_id'] ?? null,
-        'speaker_kind' => $event['speaker_kind'] ?? 'npc',
-        'listener_id' => $event['listener_id'] ?? null,
-        'opinion_owner_id' => ($reflection || $intimacy) ? $ownerId : null,
-        'source_kind' => $intimacy ? 'intimacy' : ($reflection ? 'reflection' : null),
+        'speaker_id' => $writtenEvidence ? null : ($event['speaker_id'] ?? null),
+        'speaker_kind' => $writtenEvidence ? null : ($event['speaker_kind'] ?? 'npc'),
+        'listener_id' => $writtenEvidence ? null : ($event['listener_id'] ?? null),
+        'opinion_owner_id' => ($reflection || $intimacy || $writtenEvidence) ? $ownerId : null,
+        'recipient_id' => $writtenEvidence ? $ownerId : null,
+        'source_kind' => $writtenEvidence ? 'written_evidence' : ($intimacy ? 'intimacy' : ($reflection ? 'reflection' : null)),
         'cleanup_failed' => false,
     ]);
 
     try {
         $restorePolicyEnabled = filter_var($GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        if (!$restorePolicyEnabled && array_key_exists('restore_policy_init_event_id', $event)) {
+        if (!$writtenEvidence && !$restorePolicyEnabled && array_key_exists('restore_policy_init_event_id', $event)) {
             return $done('restore-policy', 'restore-policy-changed');
         }
-        if (
+        if ($writtenEvidence) {
+            $writtenIdentity = writtenEvidenceEventIdentity($event);
+            if (!writtenEvidencePersistenceEventValid($event, $subjects, $judgments, $store, $writtenIdentity)) {
+                return $done('invalid', 'invalid-written-evidence-event');
+            }
+        } elseif (
             !is_int($event['event_id'] ?? null) || $event['event_id'] < 1
             || !is_string($event['utterance_id'] ?? null) || $event['utterance_id'] === ''
             || !is_string($speakerKind) || !in_array($speakerKind, ['npc', 'player'], true)
@@ -1021,14 +1405,28 @@ function persistJudgments(
             }
         }
 
-        $coveredEvents = $hasReplySources
+        $coveredEvents = $writtenEvidence
+            ? []
+            : ($hasReplySources
             ? array_map(static fn(array $source): array => [
                 'event_id' => $source['event_id'],
                 'utterance_id' => $source['utterance_id'],
             ], $replySources)
-            : [['event_id' => $event['event_id'], 'utterance_id' => $event['utterance_id']]];
+            : [['event_id' => $event['event_id'], 'utterance_id' => $event['utterance_id']]]);
 
-        if ($restorePolicyEnabled) {
+        if ($writtenEvidence) {
+            if (!$store instanceof RestorePolicyStoreDb) {
+                return $done('restore-policy', 'restore-policy-store-unavailable');
+            }
+            if (!$store->acquireRestorePolicyBarrier()) {
+                return $done('restore-policy', 'restore-policy-lock-unavailable');
+            }
+            $restorePolicyBarrierHeld = true;
+            $bounds = $store->restoreEventBounds();
+            if (!writtenEvidenceBoundsMatch($bounds, $event, $restorePolicyEnabled)) {
+                return $done('stale', 'written-restore-boundary-stale');
+            }
+        } elseif ($restorePolicyEnabled) {
             if (!$store instanceof RestorePolicyStoreDb) {
                 return $done('restore-policy', 'restore-policy-store-unavailable');
             }
@@ -1067,24 +1465,60 @@ function persistJudgments(
         if (!$store->beginForListener($ownerId)) {
             return $done('busy', 'listener-busy');
         }
+        if ($writtenEvidence) {
+            $gateStatus = writtenEvidenceRuntimeGateStatus($event);
+            if ($gateStatus !== null) {
+                return $done($gateStatus['status'], $gateStatus['reason']);
+            }
+        }
         $stage = 'revalidate-event';
         $listener = $store->npcById($ownerId, true);
         $active = $store->activePlaythrough();
-        $currentEvent = $listenerRole === 'overheard'
-            ? ($store instanceof WitnessSnapshotStoreDb
-                ? $store->eventByIdWithPeople($event['event_id'], $event['utterance_id'])
-                : null)
-            : $store->eventById($event['event_id'], $event['utterance_id']);
+        $currentEvent = $writtenEvidence
+            ? ($store instanceof WrittenEvidenceStoreDb ? $store->writtenEvidenceById($event['event_id']) : null)
+            : ($listenerRole === 'overheard'
+                ? ($store instanceof WitnessSnapshotStoreDb
+                    ? $store->eventByIdWithPeople($event['event_id'], $event['utterance_id'])
+                    : null)
+                : $store->eventById($event['event_id'], $event['utterance_id']));
         if (
             !is_array($listener)
             || !is_array($active)
             || (string)($active['id'] ?? '') !== $event['playthrough_id']
-            || !sameEvent($event, $currentEvent)
+            || ($writtenEvidence
+                ? !sameWrittenEvidenceSource($event, $currentEvent)
+                : !sameEvent($event, $currentEvent))
         ) {
             return $done('stale', 'event-stale');
         }
         $identities = null;
-        if ($intimacy) {
+        if ($writtenEvidence) {
+            $identities = $store->npcIdentities();
+            $transactionBounds = $store instanceof RestorePolicyStoreDb ? $store->restoreEventBounds() : null;
+            $currentSourceEvent = array_merge($event, $currentEvent);
+            $currentIdentity = writtenEvidenceEventIdentity($currentSourceEvent);
+            $sourceEnvelope = $event['written_evidence'];
+            $recipient = $sourceEnvelope['recipient'] ?? null;
+            $claimedSender = $sourceEnvelope['claimed_sender'] ?? null;
+            if (
+                !is_array($currentIdentity)
+                || !sameJsonValue($writtenIdentity, $currentIdentity)
+                || !is_array($recipient)
+                || !is_array($claimedSender)
+                || !is_string($active['player_name'] ?? null)
+                || !sameActorName($listener['npc_name'] ?? null, $writtenIdentity['recipient_name'])
+                || ($currentEvent['source_people'] ?? null) !== ('|' . $writtenIdentity['recipient_name'] . '|')
+                || !function_exists(__NAMESPACE__ . '\\writtenEvidenceUniqueNpcIdentity')
+                || !writtenEvidenceUniqueNpcIdentity($identities, $recipient, $active['player_name'])
+                || (int)($recipient['id'] ?? 0) !== $ownerId
+                || !function_exists(__NAMESPACE__ . '\\writtenEvidenceActorIsCurrent')
+                || !writtenEvidenceActorIsCurrent($store, $identities, $claimedSender, $active['player_name'])
+                || !writtenEvidenceBoundsMatch($transactionBounds, $event, $restorePolicyEnabled)
+                || !writtenEvidenceIdentityRowsCurrent($store, $event, $writtenIdentity, $transactionBounds['max_event_id'])
+            ) {
+                return $done('stale', 'written-source-stale');
+            }
+        } elseif ($intimacy) {
             $identities = $store->npcIdentities();
             if (!intimacyDirectSourceCurrent($event, $currentEvent, $active, $identities)) {
                 return $done('stale', 'intimacy-source-stale');
@@ -1168,18 +1602,18 @@ function persistJudgments(
             }
         }
         if (
-            ($reflection || $intimacy || $playerSpeaker || array_key_exists('player', $subjects))
+            ($writtenEvidence || $reflection || $intimacy || $playerSpeaker || array_key_exists('player', $subjects))
             && is_string($event['player_name'] ?? null)
             && trim($event['player_name']) !== ''
             && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
         ) {
             return $done('stale', 'player-identity-stale');
         }
-        if (
-            ($reflection || $intimacy)
-            ? !sameActorName($listener['npc_name'] ?? null, $event['speaker_name'])
-            : !sameActorName($listener['npc_name'] ?? null, $event['listener_name'])
-        ) {
+        if ($writtenEvidence
+            ? !sameActorName($listener['npc_name'] ?? null, $writtenIdentity['recipient_name'])
+            : (($reflection || $intimacy)
+                ? !sameActorName($listener['npc_name'] ?? null, $event['speaker_name'])
+                : !sameActorName($listener['npc_name'] ?? null, $event['listener_name']))) {
             return $done('stale', 'listener-identity-stale');
         }
         $extendedData = $listener['extended_data'] ?? null;
@@ -1198,14 +1632,26 @@ function persistJudgments(
         $stage = 'revalidate-actors';
         $identities ??= $store->npcIdentities();
         $currentPlayerName = is_string($active['player_name'] ?? null) ? $active['player_name'] : '';
-        $currentSubjects = findSubjects($event, $identities, $currentPlayerName);
-        $actors = ($reflection || $intimacy)
-            ? [$event['opinion_owner_id'] => $event['speaker_name']]
-            : [$event['listener_id'] => $event['listener_name']];
+        if ($writtenEvidence) {
+            if (!function_exists(__NAMESPACE__ . '\\writtenEvidenceSubjects')) {
+                return $done('failed', 'written-subject-resolver-unavailable');
+            }
+            $currentSubjects = writtenEvidenceSubjects($event, $identities, $currentPlayerName);
+            if (!is_array($currentSubjects) || !sameJsonValue($subjects, $currentSubjects)) {
+                return $done('stale', 'written-subjects-stale');
+            }
+        } else {
+            $currentSubjects = findSubjects($event, $identities, $currentPlayerName);
+        }
+        $actors = $writtenEvidence
+            ? [$ownerId => $writtenIdentity['recipient_name']]
+            : (($reflection || $intimacy)
+                ? [$event['opinion_owner_id'] => $event['speaker_name']]
+                : [$event['listener_id'] => $event['listener_name']]);
         if ($hasListenerRole && $listenerRole === 'overheard') {
             $actors[$event['addressed_listener_id']] = $event['addressed_listener_name'];
         }
-        if (!$playerSpeaker && !$reflection && !$intimacy) {
+        if (!$playerSpeaker && !$reflection && !$intimacy && !$writtenEvidence) {
             $actors[$event['speaker_id']] = $event['speaker_name'];
         }
         foreach ($actors as $id => $name) {
@@ -1236,7 +1682,7 @@ function persistJudgments(
                 return $done('stale', 'subject-stale');
             }
         }
-        if (!$playerSpeaker && !$reflection) {
+        if (!$playerSpeaker && !$reflection && !$writtenEvidence) {
             $stage = 'revalidate-speaker';
             $speaker = $store->npcById($event['speaker_id']);
             if (!is_array($speaker) || !sameActorName($speaker['npc_name'] ?? null, $event['speaker_name'])) {
@@ -1390,7 +1836,20 @@ function persistJudgments(
         if ($restorePolicyEnabled && $pluginNamespace !== [] && $pluginNamespace['playthrough_id'] !== $event['playthrough_id']) {
             return $done('restore-policy', 'restore-policy-baseline-required');
         }
-        if ($pluginNamespace !== [] && $pluginNamespace['playthrough_id'] === $event['playthrough_id']) {
+        if ($writtenEvidence) {
+            if ($writtenIdentity === null) {
+                return $done('invalid', 'written-source-invalid');
+            }
+            $receiptStatus = writtenEvidenceReceiptPreflightStatus($listener, $ownerId, $event['playthrough_id'], $writtenIdentity);
+            if ($receiptStatus !== null) {
+                return match ($receiptStatus) {
+                    'already-processed' => $done('duplicate', 'written-already-processed'),
+                    'written-receipt-reused' => $done('duplicate', $receiptStatus),
+                    'written-receipt-capacity' => $done('invalid', $receiptStatus),
+                    default => $done('stale', $receiptStatus),
+                };
+            }
+        } elseif ($pluginNamespace !== [] && $pluginNamespace['playthrough_id'] === $event['playthrough_id']) {
             foreach ($coveredEvents as $coveredEvent) {
                 if ($coveredEvent['event_id'] <= $pluginNamespace['floor_event_id']) {
                     return $done('below-floor', 'ledger-floor');
@@ -1482,21 +1941,53 @@ function persistJudgments(
                 $arrangementMapToWrite = $arrangements;
             }
         }
-        $nextLedger = $pluginNamespace;
-        foreach ($coveredEvents as $index => $coveredEvent) {
-            $isFinal = $index === array_key_last($coveredEvents);
-            $nextLedger = nextLedger(
-                $nextLedger,
-                $event['playthrough_id'],
-                $coveredEvent['event_id'],
-                $coveredEvent['utterance_id'],
-                $isFinal ? $judgments : [],
-                $reflectionState,
-                $isFinal ? $typeDecisions : [],
-                $isFinal ? $typeChanges : [],
-                $isFinal ? ($intimacy ? 'intimacy' : ($reflection ? 'reflection' : null)) : null,
-                $isFinal ? $arrangementChanges : []
-            );
+        if ($writtenEvidence) {
+            $nextLedger = $sameScopeLedger
+                ? $pluginNamespace
+                : ['playthrough_id' => $event['playthrough_id'], 'floor_event_id' => 0, 'events' => []];
+            $hasActualAffinityChange = false;
+            foreach ($edgeChanges as $change) {
+                if ((float)$change['before'] !== (float)$change['after']) {
+                    $hasActualAffinityChange = true;
+                    break;
+                }
+            }
+            $writtenOutcome = $hasActualAffinityChange || $typeChanges !== [] ? 'committed' : 'zero_change';
+            $receipt = [
+                'event_id' => $writtenIdentity['event_id'] ?? $event['event_id'],
+                'document_id' => $writtenIdentity['document_id'],
+                'receipt_id' => $writtenIdentity['receipt_id'],
+                'operation_id' => $writtenIdentity['operation_id'],
+                'playthrough_id' => $event['playthrough_id'],
+                'recipient_id' => $ownerId,
+                'source_digest' => $writtenIdentity['source_digest'],
+                'outcome' => $writtenOutcome,
+            ];
+            try {
+                $nextLedger['written_receipts'] = appendWrittenEvidenceReceipt(
+                    $nextLedger['written_receipts'] ?? [],
+                    $receipt
+                );
+            } catch (Throwable) {
+                return $done('invalid', 'written-receipt-unavailable');
+            }
+        } else {
+            $nextLedger = $pluginNamespace;
+            foreach ($coveredEvents as $index => $coveredEvent) {
+                $isFinal = $index === array_key_last($coveredEvents);
+                $nextLedger = nextLedger(
+                    $nextLedger,
+                    $event['playthrough_id'],
+                    $coveredEvent['event_id'],
+                    $coveredEvent['utterance_id'],
+                    $isFinal ? $judgments : [],
+                    $reflectionState,
+                    $isFinal ? $typeDecisions : [],
+                    $isFinal ? $typeChanges : [],
+                    $isFinal ? ($intimacy ? 'intimacy' : ($reflection ? 'reflection' : null)) : null,
+                    $isFinal ? $arrangementChanges : []
+                );
+            }
         }
         if ($arrangementMapToWrite !== null) {
             $nextLedger['arrangements'] = $arrangementMapToWrite;
@@ -1592,6 +2083,49 @@ function persistJudgments(
                 }
             }
         }
+        if ($writtenEvidence) {
+            $gateStatus = writtenEvidenceRuntimeGateStatus($event);
+            $precommitBounds = $store instanceof RestorePolicyStoreDb ? $store->restoreEventBounds() : null;
+            $precommitSource = $store instanceof WrittenEvidenceStoreDb
+                ? $store->writtenEvidenceById($event['event_id'])
+                : null;
+            $precommitActive = $store->activePlaythrough();
+            $precommitIdentities = $store->npcIdentities();
+            $precommitOwner = $store->npcById($ownerId);
+            $precommitIdentity = is_array($precommitSource)
+                ? writtenEvidenceEventIdentity(array_merge($event, $precommitSource))
+                : null;
+            $precommitEnvelope = $event['written_evidence'];
+            $precommitRecipient = $precommitEnvelope['recipient'] ?? null;
+            $precommitSender = $precommitEnvelope['claimed_sender'] ?? null;
+            if (
+                $gateStatus !== null
+                || !writtenEvidenceBoundsMatch($precommitBounds, $event, $restorePolicyEnabled)
+                || !is_array($precommitActive)
+                || ($precommitActive['id'] ?? null) !== $event['playthrough_id']
+                || !sameWrittenEvidenceSource($event, $precommitSource)
+                || !is_array($precommitIdentity)
+                || !sameJsonValue($writtenIdentity, $precommitIdentity)
+                || !is_array($precommitOwner)
+                || !is_string($precommitActive['player_name'] ?? null)
+                || !sameActorName($precommitOwner['npc_name'] ?? null, $writtenIdentity['recipient_name'])
+                || ($precommitSource['source_people'] ?? null) !== ('|' . $writtenIdentity['recipient_name'] . '|')
+                || !is_array($precommitRecipient)
+                || !is_array($precommitSender)
+                || !function_exists(__NAMESPACE__ . '\\writtenEvidenceUniqueNpcIdentity')
+                || !writtenEvidenceUniqueNpcIdentity($precommitIdentities, $precommitRecipient, $precommitActive['player_name'])
+                || (int)($precommitRecipient['id'] ?? 0) !== $ownerId
+                || !function_exists(__NAMESPACE__ . '\\writtenEvidenceActorIsCurrent')
+                || !writtenEvidenceActorIsCurrent($store, $precommitIdentities, $precommitSender, $precommitActive['player_name'])
+                || !$store instanceof WrittenEvidenceStoreDb
+                || !writtenEvidenceIdentityRowsCurrent($store, $event, $writtenIdentity, $precommitBounds['max_event_id'])
+            ) {
+                return $done(
+                    $gateStatus['status'] ?? 'stale',
+                    $gateStatus['reason'] ?? 'written-source-precommit-stale'
+                );
+            }
+        }
         if ($listenerRole === 'overheard') {
             $stage = 'listener-scope-precommit';
             if (!$revalidateListenerScope($event, $currentEvent, $active)) {
@@ -1604,7 +2138,9 @@ function persistJudgments(
             return $done('failed', 'commit-failed');
         }
         $committed = true;
-        return $done('committed', 'committed');
+        return $writtenEvidence
+            ? $done($writtenOutcome, $writtenOutcome === 'committed' ? 'committed' : 'zero-change')
+            : $done('committed', 'committed');
     } catch (Throwable $error) {
         return $done('failed', $stage . '-failed');
     } finally {
@@ -1770,24 +2306,39 @@ function deliveryStateNotRegressed(mixed $expected, mixed $current): bool
         : ($expected === 'spoken' && $current === 'spoken');
 }
 
-final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestorePolicyStoreDb
+final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestorePolicyStoreDb, WrittenEvidenceStoreDb
 {
-    private object $db;
+    private ?object $db = null;
     private ?RequestLog $requestLog;
     private mixed $connection = null;
+    private mixed $trustedPgConnection = null;
+    private bool $usesTrustedPgConnection = false;
     private bool $ownsTransaction = false;
     private bool $ownsAdvisoryLock = false;
     private bool $cleanupFailed = false;
     private int $advisoryKey = 0;
     private bool $ownsRestorePolicyBarrier = false;
 
-    public function __construct(?RequestLog $requestLog = null)
+    public function __construct(?RequestLog $requestLog = null, mixed $trustedPgConnection = null)
     {
-        $db = $GLOBALS['db'] ?? null;
-        if (!is_object($db)) {
-            throw new RuntimeException('CHIM database helper is unavailable.');
+        if ($trustedPgConnection !== null) {
+            assertPgSqlConnection($trustedPgConnection);
+            if (
+                pg_connection_status($trustedPgConnection) !== PGSQL_CONNECTION_OK
+                || pg_transaction_status($trustedPgConnection) !== PGSQL_TRANSACTION_IDLE
+            ) {
+                throw new RuntimeException('The supplied CHIM PostgreSQL connection must be healthy and idle.');
+            }
+            $this->trustedPgConnection = $trustedPgConnection;
+            $this->connection = $trustedPgConnection;
+            $this->usesTrustedPgConnection = true;
+        } else {
+            $db = $GLOBALS['db'] ?? null;
+            if (!is_object($db)) {
+                throw new RuntimeException('CHIM database helper is unavailable.');
+            }
+            $this->db = $db;
         }
-        $this->db = $db;
         $this->requestLog = $requestLog;
     }
 
@@ -1905,6 +2456,112 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
             return null;
         }
         return normalizeEventRow($events[0]);
+    }
+
+    public function writtenEvidenceById(int $eventId): ?array
+    {
+        if ($eventId < 1) {
+            return null;
+        }
+        $lock = $this->ownsTransaction ? ' FOR SHARE OF e' : '';
+        $row = $this->one(
+            "SELECT e.rowid::text AS event_id, e.type AS source_type, e.sess AS source_sess,
+                    e.ts::text AS source_ts, e.gamets::text AS source_gamets,
+                    e.gamets::text AS gamets, e.localts::text AS source_localts,
+                    CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
+                    CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data
+             FROM eventlog e
+             WHERE e.rowid = $1 AND e.type = 'info' AND e.sess = 'written_evidence_v1'{$lock}",
+            [$eventId]
+        );
+        return $row ? normalizeWrittenEvidenceSourceRow($row) : null;
+    }
+
+    public function writtenEvidenceIdentityEvents(
+        string $documentId,
+        string $playthroughId,
+        int $recipientNpcId,
+        string $receiptId,
+        string $operationId,
+        int $afterEventIdExclusive,
+        int $throughEventIdInclusive
+    ): ?array {
+        if (
+            preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $documentId) !== 1
+            || preg_match('/\A(?:unprofiled|[1-9][0-9]{0,18})\z/D', $playthroughId) !== 1
+            || $recipientNpcId < 1
+            || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $receiptId) !== 1
+            || preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/D', $operationId) !== 1
+            || $afterEventIdExclusive < 0 || $throughEventIdInclusive <= $afterEventIdExclusive
+        ) {
+            return null;
+        }
+        try {
+            $rows = $this->readRows(
+                "WITH marked AS MATERIALIZED (
+                    SELECT e.rowid::text AS event_id, e.type AS source_type, e.sess AS source_sess,
+                           e.ts::text AS source_ts, e.gamets::text AS source_gamets,
+                           e.gamets::text AS gamets, e.localts::text AS source_localts,
+                           CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
+                           CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data,
+                           e.data::jsonb AS payload
+                    FROM eventlog e
+                    WHERE e.rowid > $6 AND e.rowid <= $7
+                      AND e.type = 'info' AND e.sess = 'written_evidence_v1'
+                 ), matches AS MATERIALIZED (
+                    SELECT marked.*
+                    FROM marked
+                    WHERE payload->>'playthrough_id' = $2
+                      AND (payload->>'document_id' = $1
+                           OR payload #>> '{receipt,receipt_id}' = $4
+                           OR payload #>> '{receipt,operation_id}' = $5)
+                    ORDER BY event_id::bigint
+                    LIMIT 2
+                 )
+                 SELECT event_id, source_type, source_sess, source_ts, source_gamets,
+                        gamets, source_localts, source_people, source_data,
+                        payload->>'document_id' AS document_id,
+                        payload #>> '{receipt,receipt_id}' AS receipt_id,
+                        payload #>> '{receipt,operation_id}' AS operation_id,
+                        payload->>'playthrough_id' AS playthrough_id,
+                        CASE WHEN jsonb_typeof(payload->'recipient') = 'object'
+                             THEN payload #>> '{recipient,id}' ELSE NULL END AS recipient_id,
+                        (payload #>> '{recipient,id}' = $3::text) AS recipient_matches
+                 FROM matches ORDER BY event_id::bigint",
+                [$documentId, $playthroughId, $recipientNpcId, $receiptId, $operationId, $afterEventIdExclusive, $throughEventIdInclusive]
+            );
+            $result = [];
+            foreach ($rows as $row) {
+                $source = normalizeWrittenEvidenceSourceRow($row);
+                $id = filter_var($row['recipient_id'] ?? null, FILTER_VALIDATE_INT);
+                if (
+                    $source === null
+                    || !is_string($row['document_id'] ?? null)
+                    || !is_string($row['receipt_id'] ?? null)
+                    || !is_string($row['operation_id'] ?? null)
+                    || !is_string($row['playthrough_id'] ?? null)
+                    || $id === false || $id < 1
+                ) {
+                    return null;
+                }
+                $source['document_id'] = $row['document_id'];
+                $source['receipt_id'] = $row['receipt_id'];
+                $source['operation_id'] = $row['operation_id'];
+                $source['playthrough_id'] = $row['playthrough_id'];
+                $source['recipient_id'] = (int)$id;
+                $source['recipient_matches'] = ($row['recipient_matches'] ?? null) === 't';
+                if ($this->ownsTransaction) {
+                    $locked = $this->writtenEvidenceById($source['event_id']);
+                    if ($locked === null || !sameJsonValue(normalizeWrittenEvidenceSourceRow($locked), array_intersect_key($source, $locked))) {
+                        return null;
+                    }
+                }
+                $result[] = $source;
+            }
+            return $result;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     public function acknowledgedEventWithPeople(string $utteranceId): ?array
@@ -2308,11 +2965,31 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
             }
             return $rows;
         }
+        if ($this->usesTrustedPgConnection) {
+            $this->captureConnection();
+            assertIdleTransactionStatus(pg_transaction_status($this->connection));
+            $result = $params
+                ? @pg_query_params($this->connection, $query, $params)
+                : @pg_query($this->connection, $query);
+            $this->assertConnectionIdentity();
+            if ($result === false) {
+                throw new RuntimeException('Trusted PostgreSQL read failed.');
+            }
+            try {
+                $rows = [];
+                while ($row = pg_fetch_assoc($result)) {
+                    $rows[] = $row;
+                }
+                return $rows;
+            } finally {
+                pg_free_result($result);
+            }
+        }
         if ($params) {
-            $row = $this->db->fetchOne($query, $params);
+            $row = $this->db?->fetchOne($query, $params);
             return is_array($row) && $row !== [] ? [$row] : [];
         }
-        $rows = $this->db->fetchAll($query);
+        $rows = $this->db?->fetchAll($query);
         return is_array($rows) ? $rows : [];
     }
 
@@ -2348,7 +3025,24 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if ($this->ownsTransaction) {
             return $this->nativeOne($query, $params) ?? [];
         }
-        $row = $this->db->fetchOne($query, $params);
+        if ($this->usesTrustedPgConnection) {
+            $this->captureConnection();
+            assertIdleTransactionStatus(pg_transaction_status($this->connection));
+            $result = $params
+                ? @pg_query_params($this->connection, $query, $params)
+                : @pg_query($this->connection, $query);
+            $this->assertConnectionIdentity();
+            if ($result === false) {
+                throw new RuntimeException('Trusted PostgreSQL read failed.');
+            }
+            try {
+                $row = pg_fetch_assoc($result);
+                return is_array($row) ? $row : [];
+            } finally {
+                pg_free_result($result);
+            }
+        }
+        $row = $this->db?->fetchOne($query, $params);
         return is_array($row) ? $row : [];
     }
 
@@ -2374,6 +3068,16 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
 
     private function captureConnection(): void
     {
+        if ($this->usesTrustedPgConnection) {
+            assertPgSqlConnection($this->trustedPgConnection);
+            if (
+                $this->trustedPgConnection !== $this->connection
+                || pg_connection_status($this->trustedPgConnection) !== PGSQL_CONNECTION_OK
+            ) {
+                throw new RuntimeException('The supplied CHIM PostgreSQL connection changed or became unhealthy.');
+            }
+            return;
+        }
         if (!class_exists(\sql::class)) {
             throw new RuntimeException('CHIM sql helper is unavailable.');
         }
@@ -2389,6 +3093,16 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
 
     private function assertConnectionIdentity(): void
     {
+        if ($this->usesTrustedPgConnection) {
+            if ($this->connection !== $this->trustedPgConnection) {
+                throw new RuntimeException('The supplied CHIM PostgreSQL connection changed during persistence.');
+            }
+            assertPgSqlConnection($this->connection);
+            if (pg_connection_status($this->connection) !== PGSQL_CONNECTION_OK) {
+                throw new RuntimeException('The supplied CHIM PostgreSQL connection failed during persistence.');
+            }
+            return;
+        }
         if (!class_exists(\sql::class)) {
             throw new RuntimeException('CHIM sql helper disappeared during persistence.');
         }

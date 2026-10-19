@@ -43,6 +43,7 @@ SERVER_FILES = (
     "reflection.php",
     "restore_policy.php",
     "store.php",
+    "written_evidence.php",
 )
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 _VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$")

@@ -3,8 +3,28 @@ declare(strict_types=1);
 
 namespace ChimMindPoisoning;
 
-if (!isset($gameRequest) || !is_array($gameRequest)
-    || !in_array($gameRequest[0] ?? null, ['inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s'], true)) {
+if (!isset($gameRequest) || !is_array($gameRequest)) {
+    return;
+}
+
+$chimMindPoisoningRequestVerb = $gameRequest[0] ?? null;
+if (is_string($chimMindPoisoningRequestVerb) && strtoupper($chimMindPoisoningRequestVerb) === 'INIT') {
+    return;
+}
+
+$chimMindPoisoningDrainWrittenEvidence = static function (): void {
+    if (!function_exists(__NAMESPACE__ . '\\drainWrittenEvidenceHints')) {
+        return;
+    }
+    try {
+        drainWrittenEvidenceHints(null, null);
+    } catch (\Throwable) {
+        @error_log('Mind Poisoning written evidence failed: runtime_dispatch_failed');
+    }
+};
+
+if (!in_array($chimMindPoisoningRequestVerb, ['inputtext', 'inputtext_s', 'ginputtext', 'ginputtext_s'], true)) {
+    $chimMindPoisoningDrainWrittenEvidence();
     return;
 }
 
@@ -34,3 +54,5 @@ try {
         @error_log('Mind Poisoning player input failed: runtime_bootstrap_failed');
     }
 }
+
+$chimMindPoisoningDrainWrittenEvidence();

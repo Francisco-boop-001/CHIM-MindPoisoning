@@ -1,4 +1,6 @@
-# Mind Poisoning 0.1.25 BETA CANDIDATE — evidence and limits
+# Historical Mind Poisoning 0.1.25 BETA CANDIDATE — evidence and limits
+
+This page preserves evidence for the 0.1.25 candidate. The current candidate is 0.1.27; see its [verification summary](verification-v0.1.27.md).
 
 The 0.1.25 candidate keeps the **BETA CANDIDATE** label. Standard GitHub classification (`prerelease=false`) supports CHIM topic discovery; it is not a maturity promotion. This page combines bounded 0.1.25 compatibility evidence with explicitly historical checks for earlier versions. Source and native fixture results do not establish a published installer, provider, or gameplay outcome.
 

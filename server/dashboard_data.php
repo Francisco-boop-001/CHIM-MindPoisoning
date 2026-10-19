@@ -45,7 +45,7 @@ function dashboardFilters(array $query): array
         || preg_match('/[\x00-\x1F\x7F]/', $q) === 1
         || preg_match_all('/./us', $q, $unused) === false
         || count($unused[0]) > 120
-        || !in_array($outcome, ['', 'committed', 'zero-change', 'unconfirmed', 'skipped', 'rejected', 'failed'], true)
+        || !in_array($outcome, ['', 'committed', 'zero-change', 'unconfirmed', 'skipped', 'rejected', 'failed', 'processed', 'pending', 'paused', 'abstained', 'invalid'], true)
         || !in_array($level, ['', 'debug', 'info', 'warning', 'error'], true)
     ) {
         throw new \InvalidArgumentException('Invalid dashboard filter.');
@@ -252,7 +252,7 @@ function dashboardParseLogLine(string $line): ?array
         'level' => $level,
         'event' => $event,
     ];
-    foreach (['event_id', 'playthrough_id', 'speaker_id', 'listener_id', 'connector_id'] as $field) {
+    foreach (['event_id', 'playthrough_id', 'speaker_id', 'listener_id', 'connector_id', 'recipient_id'] as $field) {
         $id = $field === 'playthrough_id'
             ? dashboardPlaythroughId($record->{$field} ?? null)
             : dashboardId($record->{$field} ?? null);
@@ -265,7 +265,32 @@ function dashboardParseLogLine(string $line): ?array
     if (in_array($speakerKind, ['npc', 'player'], true)) {
         $clean['speaker_kind'] = $speakerKind;
     }
-    if (in_array($sourceKind, ['reflection', 'intimacy'], true)) {
+    if ($sourceKind === 'written_evidence') {
+        $ownerId = dashboardId($record->opinion_owner_id ?? null);
+        $recipientId = dashboardId($record->recipient_id ?? null);
+        foreach (['speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'utterance_id'] as $field) {
+            if (property_exists($record, $field) && $record->{$field} !== null) {
+                return null;
+            }
+        }
+        if (
+            !in_array($event, [
+                'request_finished',
+                'persistence_finished',
+                'written_evidence_model_finished',
+                'persistence_cleanup_failed',
+            ], true)
+            || dashboardId($record->event_id ?? null) === null
+            || dashboardPlaythroughId($record->playthrough_id ?? null) === null
+            || $ownerId === null || $recipientId === null || $ownerId !== $recipientId
+        ) {
+            return null;
+        }
+        $clean['source_kind'] = 'written_evidence';
+        $clean['opinion_owner_id'] = $ownerId;
+        $clean['recipient_id'] = $recipientId;
+        unset($clean['speaker_kind'], $clean['speaker_id'], $clean['listener_id']);
+    } elseif (in_array($sourceKind, ['reflection', 'intimacy'], true)) {
         if ($speakerKind !== null && $speakerKind !== 'npc') {
             return null;
         }
@@ -961,13 +986,18 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         if (!is_array($record)) {
             continue;
         }
+        $writtenTerminal = ($record['event'] ?? null) === 'request_finished'
+            && ($record['source_kind'] ?? null) === 'written_evidence';
         $intimacyTerminal = ($record['event'] ?? null) === 'intimacy_finished'
             && ($record['source_kind'] ?? null) === 'intimacy';
-        if (!$intimacyTerminal && ($record['event'] ?? null) !== 'request_finished') {
+        if (!$writtenTerminal && !$intimacyTerminal && ($record['event'] ?? null) !== 'request_finished') {
             continue;
         }
         $outcome = $record['outcome'] ?? null;
-        if (!$intimacyTerminal && !in_array($outcome, ['skipped', 'rejected', 'failed'], true)) {
+        if ($writtenTerminal && !dashboardWrittenTerminalOutcome($outcome)) {
+            continue;
+        }
+        if (!$writtenTerminal && !$intimacyTerminal && !in_array($outcome, ['skipped', 'rejected', 'failed'], true)) {
             continue;
         }
         if ($intimacyTerminal && !in_array($outcome, [
@@ -984,11 +1014,16 @@ function dashboardBuildInteractions(array $database, array $records, bool &$limi
         }
         $eventId = dashboardId($record['event_id'] ?? null);
         $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
-        $sourceKind = in_array($record['source_kind'] ?? null, ['reflection', 'intimacy'], true)
+        $sourceKind = in_array($record['source_kind'] ?? null, ['reflection', 'intimacy', 'written_evidence'], true)
             ? $record['source_kind']
             : null;
         $ownerId = dashboardOpinionOwnerId($record);
-        if ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null) {
+        if ($sourceKind === 'written_evidence' && $playthroughId !== null && $eventId !== null && $ownerId !== null) {
+            $key = dashboardWrittenInteractionKey($playthroughId, $eventId, $ownerId);
+            if (isset($ledgerKeys[$key])) {
+                continue;
+            }
+        } elseif ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null) {
             $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $ownerId);
             if (isset($ledgerKeys[$key])) {
                 continue;
@@ -1031,8 +1066,18 @@ function dashboardInteractionKey(string $playthroughId, string $eventId, string 
     return implode("\x1f", [$playthroughId, $eventId, $utteranceId, $opinionOwnerId]);
 }
 
+function dashboardWrittenInteractionKey(string $playthroughId, string $eventId, string $recipientId): string
+{
+    return implode("\x1f", ['written_evidence', $playthroughId, $eventId, $recipientId]);
+}
+
 function dashboardOpinionOwnerId(array $record): ?string
 {
+    if (($record['source_kind'] ?? null) === 'written_evidence') {
+        $ownerId = dashboardId($record['opinion_owner_id'] ?? null);
+        $recipientId = dashboardId($record['recipient_id'] ?? null);
+        return $ownerId !== null && $ownerId === $recipientId ? $ownerId : null;
+    }
     if (in_array($record['source_kind'] ?? null, ['reflection', 'intimacy'], true)) {
         $ownerId = dashboardId($record['opinion_owner_id'] ?? null);
         return ($record['speaker_kind'] ?? null) === 'npc' && $ownerId !== null && $ownerId === dashboardId($record['speaker_id'] ?? null)
@@ -1040,6 +1085,11 @@ function dashboardOpinionOwnerId(array $record): ?string
             : null;
     }
     return dashboardId($record['listener_id'] ?? null);
+}
+
+function dashboardWrittenTerminalOutcome(mixed $outcome): bool
+{
+    return in_array($outcome, ['processed', 'pending', 'paused', 'abstained', 'invalid', 'failed'], true);
 }
 
 function dashboardIndexRecords(array $records): array
@@ -1054,10 +1104,14 @@ function dashboardIndexRecords(array $records): array
         $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
         $opinionOwnerId = dashboardOpinionOwnerId($record);
         $event = $record['event'] ?? null;
-        if ($playthroughId === null || $eventId === null || $utteranceId === null || $opinionOwnerId === null || !is_string($event)) {
+        $written = ($record['source_kind'] ?? null) === 'written_evidence';
+        if ($playthroughId === null || $eventId === null || $opinionOwnerId === null || !is_string($event)
+            || (!$written && $utteranceId === null)) {
             continue;
         }
-        $key = dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $opinionOwnerId);
+        $key = $written
+            ? dashboardWrittenInteractionKey($playthroughId, $eventId, $opinionOwnerId)
+            : dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $opinionOwnerId);
         $index[$key][$event][] = $record;
     }
     return $index;
@@ -1402,18 +1456,23 @@ function dashboardLogInteractions(array $records, ?string $activeId, bool $datab
         if (!is_array($record)) {
             continue;
         }
+        $writtenTerminal = ($record['event'] ?? null) === 'request_finished'
+            && ($record['source_kind'] ?? null) === 'written_evidence';
         $intimacyTerminal = ($record['event'] ?? null) === 'intimacy_finished'
             && ($record['source_kind'] ?? null) === 'intimacy';
-        if (!$intimacyTerminal && ($record['event'] ?? null) !== 'request_finished') {
+        if (!$writtenTerminal && !$intimacyTerminal && ($record['event'] ?? null) !== 'request_finished') {
             continue;
         }
         $playthroughId = dashboardPlaythroughId($record['playthrough_id'] ?? null);
         $outcome = $record['outcome'] ?? null;
+        if ($writtenTerminal && !dashboardWrittenTerminalOutcome($outcome)) {
+            continue;
+        }
         if ($databaseAvailable) {
             if ($activeId !== null && $playthroughId !== null && $playthroughId !== $activeId) {
                 continue;
             }
-            if (!$intimacyTerminal && !in_array($outcome, ['skipped', 'rejected', 'failed'], true)) {
+            if (!$writtenTerminal && !$intimacyTerminal && !in_array($outcome, ['skipped', 'rejected', 'failed'], true)) {
                 continue;
             }
             if ($intimacyTerminal && !in_array($outcome, ['committed', 'zero-change', 'unconfirmed', 'skipped', 'rejected', 'failed'], true)) {
@@ -1442,14 +1501,17 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     $listenerId = dashboardId($record['listener_id'] ?? null);
     $reflection = ($record['source_kind'] ?? null) === 'reflection';
     $intimacy = ($record['source_kind'] ?? null) === 'intimacy';
-    $ownerScoped = $reflection || $intimacy;
+    $writtenEvidence = ($record['source_kind'] ?? null) === 'written_evidence';
+    $ownerScoped = $reflection || $intimacy || $writtenEvidence;
     $opinionOwnerId = $ownerScoped ? dashboardId($record['opinion_owner_id'] ?? null) : null;
     $ownerId = dashboardOpinionOwnerId($record);
     $eventId = dashboardId($record['event_id'] ?? null);
     $utteranceId = dashboardUtteranceId($record['utterance_id'] ?? null);
-    $key = $playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null
-        ? dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $ownerId)
-        : null;
+    $key = $writtenEvidence && $playthroughId !== null && $eventId !== null && $ownerId !== null
+        ? dashboardWrittenInteractionKey($playthroughId, $eventId, $ownerId)
+        : ($playthroughId !== null && $eventId !== null && $utteranceId !== null && $ownerId !== null
+            ? dashboardInteractionKey($playthroughId, $eventId, $utteranceId, $ownerId)
+            : null);
     $group = $key === null ? [] : ($recordIndex[$key] ?? []);
     $group = array_map(
         static fn(array $items): array => array_values(array_filter(
@@ -1545,11 +1607,13 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     $rawArrangementChanges = dashboardArrangementChanges($persistence['arrangement_changes'] ?? $record['arrangement_changes'] ?? null) ?? [];
     $arrangementChanges = dashboardArrangementHistory($rawArrangementChanges, $names, $playerName, $commitState);
     $arrangementChangedCount = dashboardArrangementChangeCount($rawArrangementChanges, $commitState);
-    $speaker = ($record['speaker_kind'] ?? null) === 'player'
+    $speaker = $writtenEvidence
+        ? null
+        : (($record['speaker_kind'] ?? null) === 'player'
         ? 'Player'
         : ($ownerScoped && $opinionOwnerId !== null
             ? ($names[$opinionOwnerId] ?? 'NPC #' . $opinionOwnerId)
-            : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId)));
+            : ($speakerId === null ? null : ($names[$speakerId] ?? 'NPC #' . $speakerId))));
     $opinionOwner = $ownerScoped && $opinionOwnerId !== null
         ? ($names[$opinionOwnerId] ?? 'NPC #' . $opinionOwnerId)
         : null;
@@ -1573,6 +1637,8 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
         'batch_id' => $listenerRole === null ? null : ($record['batch_id'] ?? null),
         'outcome' => $outcome,
         'reason' => $record['reason'] ?? $persistence['persistence_reason'] ?? null,
+        'commit_state' => $commitState,
+        'persistence_outcome' => $persistence['persistence_outcome'] ?? null,
         'model_ms' => $record['model_ms'] ?? null,
         'persistence_ms' => $record['persistence_ms'] ?? $persistence['persistence_ms'] ?? null,
         'changes' => $changes,
