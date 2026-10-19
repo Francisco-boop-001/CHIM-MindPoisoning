@@ -1,8 +1,34 @@
+# Read-only intimacy arrangement API
+
+The optional capability `\ChimMindPoisoning\MIND_POISONING_INTIMACY_API_VERSION = 1` is separate from both reflection API versions. Consumers must check the exact version and function; they must not infer an arrangement from affinity, emotional type, notes or a custom tag.
+
+```php
+\ChimMindPoisoning\mindPoisoningReadIntimacyArrangement(
+    int $ownerNpcId,
+    string $targetSubject,
+    ?\ChimMindPoisoning\StoreDb $store = null
+): array
+```
+
+Normal consumers pass two arguments. The optional store is an isolated test seam, not a request-supplied database. Accept only canonical target tokens `player` or `npc:<positive catalog ID>`. The API checks the active scope, exact owner/target and retained immutable sources; it performs no provider call, initialization, baseline or write. Missing/invalid/pruned/wrong-scope identity returns unavailable rather than authority.
+
+The fixed projection has `state` (`active`, `ended`, `none`, `unavailable`), `kind` (`casual`, `romantic`, or null), `owner_id`, `target`, `playthrough_id`, `basis`, a fixed `reason`, and source references. It contains no dialogue or model reasoning. `none` with `arrangement_absent` is unknown; it does not establish an explicit denial. `ended` removes the added arrangement lane, not every independent basis on which a later action may be considered.
+
+Read again when validating an action. A prompt-time snapshot cannot authorize a later start after an ending. The result is one owner's self-report; do not create a reciprocal record, infer exclusivity or replace current willingness. Recognition and consumption are independent opt-in settings. Turning recognition off does not erase stored state. State follows restored plugin data under either CHIM relationship-restore policy.
+
+[Player/operator guide and limits](intimacy-arrangements.md). Reflection callers retain their existing signatures and registration rules; the evaluator may add optional `arrangement_change` judgments when recognition is enabled. A new valid source with an already-processed affinity basis may record an arrangement-only change, but its affinity delta must be zero and it cannot change the emotional type. Opt-in reflection keeps one model request and uses the existing bounded 4,096-token budget for up to eight enlarged judgments; feature-off calls retain the original default budget and callable shape.
+
+---
+
 # Solo reflection integration API
 
 `server/reflection.php` exposes the opt-in evaluator below. Loading it does not register a hook or call the model.
 
 The API declares `\ChimMindPoisoning\MIND_POISONING_REFLECTION_API_VERSION = 1`. Private Conversation 0.1.15 still requires exactly version 1 before using reflection; a missing or unsupported version is treated as unavailable. This check is a companion compatibility contract, not a CHIM core pin.
+
+## Arrangement diagnostics and older observers
+
+`arrangement_changes` contains bounded confirmed arrangement transitions; `arrangement_changed_count` counts that separate state. Existing `changed_count`, affinity changes and type changes retain their prior opinion-edge meaning. A reflection can therefore commit an arrangement with zero affinity/type changes. An older companion observer may summarize that as zero opinion change and ignore the new arrangement fields; use Mind Poisoning's Interactions view for arrangement details. Do not reinterpret an unconfirmed commit as a confirmed transition.
 
 ## Relationship-type judgments in v0.1.20
 

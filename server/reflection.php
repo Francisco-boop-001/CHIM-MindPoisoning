@@ -13,6 +13,7 @@ require_once __DIR__ . '/controls.php';
 require_once __DIR__ . '/influence.php';
 require_once __DIR__ . '/model.php';
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/intimacy_request.php';
 
 /**
  * Evaluate one registered solo-reflection ACK. The revalidation callback must
@@ -546,7 +547,8 @@ function evaluateReflection(
             $pending[$token] = $subject;
         }
     }
-    if ($pending === []) {
+    $intimacyEnabled = mindPoisoningIntimacyRecognitionEnabled();
+    if ($pending === [] && !$intimacyEnabled) {
         return $fail('duplicate', 'reflection-basis-duplicate');
     }
     $storedState = $ledger !== [] && $ledger['playthrough_id'] === $event['playthrough_id'] ? ($ledger['reflection_state'] ?? null) : null;
@@ -555,7 +557,19 @@ function evaluateReflection(
     if ($existingCount + $newCount > 32) {
         return $fail('duplicate', 'reflection-subject-cap');
     }
-    $subjects = $pending;
+    $unchangedSubjects = $intimacyEnabled ? array_values(array_diff(array_keys($subjects), array_keys($pending))) : [];
+    $subjects = $intimacyEnabled ? $subjects : $pending;
+    if ($intimacyEnabled) {
+        $expectedRecords = [];
+        foreach ($subjects as $token => $_subject) {
+            try {
+                $expectedRecords[$token] = mindPoisoningCaptureIntimacyRecord($actor, $token, $event['playthrough_id']);
+            } catch (Throwable) {
+                return $fail('invalid', 'intimacy-state-invalid');
+            }
+        }
+        $event['intimacy_expected_records'] = $expectedRecords;
+    }
 
     $interactionReason = null;
     if (speechAckInteractionStatus($interactionReason) !== 'ok') {
@@ -580,12 +594,20 @@ function evaluateReflection(
     $actorPrompt = $actor;
     $actorPrompt['extended_data'] = json_decode(json_encode($extendedData, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), true, 512, JSON_THROW_ON_ERROR);
     $currentTypes = relationshipTypeSnapshot($actorPrompt, $subjects, $event['player_name']);
-    $messages = buildReflectionMessages($event + ['reflection_basis' => $basis], $actorPrompt, $subjects, $history, $currentTypes);
+    $messages = buildReflectionMessages(
+        $event + ['reflection_basis' => $basis],
+        $actorPrompt,
+        $subjects,
+        $history,
+        $currentTypes,
+        $intimacyEnabled,
+        $unchangedSubjects
+    );
     $requestLog?->context(['connector_id' => $connectorId, 'subject_count' => count($subjects)]);
     $requestLog?->event('reflection_model_started', 'debug', ['stage' => 'model', 'connector_id' => $connectorId, 'subject_count' => count($subjects)]);
     $started = hrtime(true);
     try {
-        $response = $requestModel($messages);
+        $response = $intimacyEnabled ? $requestModel($messages, 4096) : $requestModel($messages);
     } catch (Throwable $error) {
         $reason = $error instanceof ModelRequestFailure ? $error->reasonCode : 'model_request_failed';
         $logFields['model_outcome'] = 'failed';
@@ -601,7 +623,7 @@ function evaluateReflection(
         return $fail('model-invalid', 'model_response_invalid_type');
     }
     try {
-        $judgments = parseJudgments($response, $subjects, $event['text'], $currentTypes);
+        $judgments = parseJudgments($response, $subjects, $event['text'], $currentTypes, $intimacyEnabled, $unchangedSubjects);
     } catch (JudgmentValidationFailure $error) {
         $logFields['model_outcome'] = 'invalid';
         $logFields['reason'] = $error->reasonCode;

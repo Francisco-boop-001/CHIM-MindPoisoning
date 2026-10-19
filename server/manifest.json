@@ -1,9 +1,9 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
-  "description": "BETA CANDIDATE: Conservative affinity updates from identity-checked NPC acknowledgements and Player input, with optional single-type judgments, actor-owned reflection, default-off NPC ACK overhearing, canonical Player handling, sentinel exclusion, and a read-only dashboard. Evaluations may receive bounded owner-to-subject context. Version 0.1.25 adds preserve-mode source-ID fencing and mismatched-scope baselining while leaving disabled-policy behavior unchanged. The native compatibility fixture passed against CHIM 3.5.1; provider, installed-package, full ACK runtime, and gameplay behavior remain unverified. Standard release classification supports topic discovery and does not promote maturity.",
+  "description": "BETA CANDIDATE 0.1.26: identity-checked gossip and reflection can influence CHIM opinions. Optional default-off recognition records an NPC's own current intimacy report separately from affinity and emotional type, with bounded private context, read-only API v1 and dashboard history. Reports do not establish mutual agreement or current willingness. Arrangements follow restored plugin state under either restore policy. Deterministic source, storage and optional SHARMAT-consumer fixtures passed; real-model interpretation, installed behavior and gameplay remain unverified. Standard release classification supports discovery without promoting maturity.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",

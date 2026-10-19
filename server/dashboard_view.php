@@ -74,7 +74,7 @@ function renderDashboard(array $model, array $filters): void
         'event_id', 'playthrough_id', 'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'opinion_owner_id', 'source_kind', 'connector_id', 'utterance_id',
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
         'commit_state', 'elapsed_ms', 'model_ms', 'persistence_ms', 'payload_bytes', 'subject_count',
-        'speech_bytes', 'changed_count', 'affinity_changed_count', 'type_changed_count', 'delta', 'subject', 'committed', 'cleanup_failed', 'changes', 'type_changes', 'type_decisions',
+        'speech_bytes', 'changed_count', 'affinity_changed_count', 'arrangement_changed_count', 'type_changed_count', 'delta', 'subject', 'committed', 'cleanup_failed', 'changes', 'arrangement_changes', 'type_changes', 'type_decisions',
     ], true);
     $tab = ($filters['tab'] ?? null) === 'diagnostics' ? 'diagnostics' : 'interactions';
     $q = is_string($filters['q'] ?? null) ? $filters['q'] : '';
@@ -115,7 +115,9 @@ function renderDashboard(array $model, array $filters): void
         return match (strtolower($value)) {
             'committed' => 'status--success',
             'zero-change', 'skipped', 'ignored' => 'status--quiet',
-            'rejected', 'failed', 'unconfirmed', 'commit-unconfirmed', 'commit_unconfirmed' => 'status--warning',
+            'rejected', 'failed', 'unconfirmed', 'commit-unconfirmed', 'commit_unconfirmed',
+            'invalid', 'model-invalid', 'stale', 'busy', 'locked', 'event-mismatch', 'event-unmatched',
+            'target-ambiguous', 'speaker-ambiguous', 'speaker-locked', 'interaction-stale', 'paused', 'restore-policy' => 'status--warning',
             default => 'status--quiet',
         };
     };
@@ -282,6 +284,7 @@ function renderDashboard(array $model, array $filters): void
                             $scopeTerm = $playthroughId === 'unprofiled' ? 'Scope' : 'Playthrough';
                             $scopeValue = $playthroughId === 'unprofiled' ? 'Shared server' : $playthroughId;
                             $changes = is_array($interaction['changes'] ?? null) ? $interaction['changes'] : [];
+                            $arrangementChanges = is_array($interaction['arrangement_changes'] ?? null) ? $interaction['arrangement_changes'] : [];
                             $typeDecisions = is_array($interaction['type_decisions'] ?? null) ? $interaction['type_decisions'] : [];
                             $typeChanges = is_array($interaction['type_changes'] ?? null) ? $interaction['type_changes'] : [];
                             ?>
@@ -295,6 +298,8 @@ function renderDashboard(array $model, array $filters): void
                                         <p class="interaction-time"><?= $escape($timestamp) ?></p>
                                         <?php if (($interaction['source_kind'] ?? null) === 'reflection'): ?>
                                             <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Solo reflection</h4>
+                                        <?php elseif (($interaction['source_kind'] ?? null) === 'intimacy'): ?>
+                                            <h4><?= $escape($text($interaction['opinion_owner'] ?? $interaction['speaker'] ?? null, 'Unknown NPC')) ?> · Directed intimacy report</h4>
                                         <?php else: ?>
                                             <h4><?= $escape($text($interaction['speaker'] ?? null)) ?><span class="exchange-arrow" aria-hidden="true">→</span><span class="visually-hidden"> to </span><?= $escape($text($interaction['listener'] ?? null)) ?></h4>
                                             <?php if (($interaction['listener_role'] ?? null) === 'addressed'): ?>
@@ -306,6 +311,9 @@ function renderDashboard(array $model, array $filters): void
                                     </div>
                                     <span class="status <?= $escape($outcomeClass($eventOutcome)) ?>"><?= $escape($outcomeLabel($eventOutcome)) ?></span>
                                 </header>
+                                <?php if (($interaction['source_kind'] ?? null) === 'intimacy'): ?>
+                                    <p class="exposure-label">This is one NPC's directed report; it does not establish the target's view.</p>
+                                <?php endif; ?>
                                 <p class="event-identifiers">
                                     <span>Event <code><?= $escape($text($interaction['event_id'] ?? null)) ?></code></span>
                                     <span><?= $escape($correlationLabel) ?> <code><?= $escape($text($interaction['utterance_id'] ?? null)) ?></code></span>
@@ -366,6 +374,43 @@ function renderDashboard(array $model, array $filters): void
                                                     <dd class="numeric"><?= $escape($current) ?></dd>
                                                     <dt>Current type</dt>
                                                     <dd><?= $currentTypeDisplay($change['current_type'] ?? null, $change['current_type_state'] ?? null) ?></dd>
+                                                </div>
+                                            </dl>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($arrangementChanges !== []): ?>
+                                    <div class="change-list" aria-label="Directed arrangement reports">
+                                        <h5>Directed arrangement report</h5>
+                                        <?php foreach ($arrangementChanges as $arrangement): ?>
+                                            <?php if (!is_array($arrangement)) { continue; } ?>
+                                            <?php
+                                                $subject = $text($arrangement['label'] ?? null, $text($arrangement['subject'] ?? null));
+                                                $proposal = $arrangement['proposal'] ?? null;
+                                                $proposalLabel = is_string($proposal) ? $codeLabel($proposal) : 'No specific claim';
+                                                $arrangementOutcome = strtolower(is_string($arrangement['outcome'] ?? null) ? $arrangement['outcome'] : 'unavailable');
+                                                $resultLabel = match ($arrangementOutcome) {
+                                                    'applied' => 'Recorded',
+                                                    'ended' => 'Ended',
+                                                    'none' => 'Recorded as none',
+                                                    'reaffirmed' => 'Reaffirmed',
+                                                    'older' => 'Not applied: older source',
+                                                    'capacity' => 'Not applied: capacity reached',
+                                                    'no_claim' => 'No arrangement claim',
+                                                    'unconfirmed' => 'Unconfirmed',
+                                                    default => $codeLabel($arrangementOutcome),
+                                                };
+                                                $before = is_string($arrangement['before'] ?? null) ? $codeLabel($arrangement['before']) : null;
+                                                $after = is_string($arrangement['after'] ?? null) ? $codeLabel($arrangement['after']) : null;
+                                                $transitionUnavailable = $before === null && $after === null;
+                                            ?>
+                                            <dl class="change-row">
+                                                <div class="change-subject"><dt>Directed to</dt><dd><?= $escape($subject) ?></dd></div>
+                                                <div><dt>Reported</dt><dd><?= $escape($proposalLabel) ?></dd></div>
+                                                <div><dt>Recorded result</dt><dd><?= $escape($resultLabel) ?></dd></div>
+                                                <div class="change-transition">
+                                                    <dt>At event (before to after)</dt>
+                                                    <dd><?php if ($transitionUnavailable): ?><?= $escape($arrangementOutcome === 'unconfirmed' ? 'Unconfirmed' : 'Unavailable') ?><?php else: ?><?= $escape($before ?? 'Unavailable') ?><span class="transition-arrow" aria-hidden="true">→</span><?= $escape($after ?? 'Unavailable') ?><?php endif; ?></dd>
                                                 </div>
                                             </dl>
                                         <?php endforeach; ?>

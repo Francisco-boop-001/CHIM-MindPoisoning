@@ -53,6 +53,7 @@ try {
     @require_once __DIR__ . '/model.php';
     @require_once __DIR__ . '/store.php';
     @require_once __DIR__ . '/controls.php';
+    @require_once __DIR__ . '/intimacy_request.php';
 } catch (Throwable) {
     if ($chimMindPoisoningRequestLog instanceof RequestLog) {
         $chimMindPoisoningRequestLog->finish('failed', 'dependency_bootstrap_failed', ['stage' => 'bootstrap']);
@@ -143,8 +144,9 @@ function handleSpeechAck(
     $logFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
     $requestLog?->context(['payload_bytes' => is_string($gameRequest[3] ?? null) ? strlen($gameRequest[3]) : 0]);
     $requestLog?->event('ack_started', 'debug', ['stage' => 'preflight']);
+    $intimacyRequestLog = mindPoisoningIntimacyRecognitionEnabled() ? $requestLog?->fork() : null;
 
-    $status = evaluateInfluenceRequest($gameRequest, $store, $requestModel, $requestLog, $logFields);
+    $status = evaluateInfluenceRequest($gameRequest, $store, $requestModel, $requestLog, $logFields, null, $intimacyRequestLog);
     $finishedByBatch = ($logFields['_finished_by_batch'] ?? false) === true;
     unset($logFields['_finished_by_batch']);
     if ($finishedByBatch) {
@@ -920,7 +922,8 @@ function evaluateInfluenceRequest(
     ?callable $requestModel,
     ?RequestLog $requestLog,
     array &$logFields,
-    ?array $playerInputInsert = null
+    ?array $playerInputInsert = null,
+    ?RequestLog $intimacyRequestLog = null
 ): string
 {
     try {
@@ -1203,7 +1206,21 @@ function evaluateInfluenceRequest(
             }
             $requestLog?->context(['playthrough_id' => $profile['id']]);
             $playerName = is_string($profile['player_name'] ?? null) ? trim($profile['player_name']) : '';
-            if (isPlayerName($speakerInput, $playerName) || isPlayerName($listenerInput, $playerName)) {
+            if (isPlayerName($speakerInput, $playerName)) {
+                return 'player-actor';
+            }
+            if (isPlayerName($listenerInput, $playerName)) {
+                classifyPlayerDirectedIntimacyAck(
+                    $gameRequest,
+                    $utteranceId,
+                    $speakerInput,
+                    $listenerInput,
+                    $speech,
+                    $profile,
+                    $store,
+                    $requestModel,
+                    $intimacyRequestLog
+                );
                 return 'player-actor';
             }
             if (sameActorName($listenerInput, 'explicit_disable_rechat')) {
@@ -1248,6 +1265,15 @@ function evaluateInfluenceRequest(
                 'speaker_id' => $speakerIdentity['id'],
                 'listener_id' => $listenerIdentity['id'],
             ]);
+            $intimacyRequestLog?->context([
+                'event_id' => $source['event_id'],
+                'utterance_id' => $utteranceId,
+                'playthrough_id' => $profile['id'],
+                'speaker_id' => $speakerIdentity['id'],
+                'speaker_kind' => 'npc',
+                'source_kind' => 'intimacy',
+                'opinion_owner_id' => $speakerIdentity['id'],
+            ]);
             $event = [
                 'utterance_id' => $utteranceId,
                 'speaker_id' => $speakerIdentity['id'],
@@ -1276,6 +1302,22 @@ function evaluateInfluenceRequest(
             }
             if (is_int($restorePolicyInitEventId)) {
                 $event['restore_policy_init_event_id'] = $restorePolicyInitEventId;
+            }
+            $directGeneration = $GLOBALS['chim_interaction_generation'] ?? null;
+            if (is_int($directGeneration) && $directGeneration >= 0) {
+                $directEvent = $event + [
+                    'source_kind' => 'intimacy',
+                    'speaker_kind' => 'npc',
+                    'opinion_owner_id' => $speakerIdentity['id'],
+                    'listener_role' => 'addressed',
+                    'addressed_listener_id' => $listenerIdentity['id'],
+                    'addressed_listener_name' => $listener['npc_name'],
+                    'target_subject' => 'npc:' . $listenerIdentity['id'],
+                    'interaction_generation' => $directGeneration,
+                    'speech_hash' => hash('sha256', $speech),
+                ];
+                $directRevalidate = static fn(array $candidate, string $_stage): bool => intimacyDirectAckRevalidate($candidate, $gameRequest, $store);
+                classifyDirectIntimacyEvent($directEvent, $speaker, $store, $directRevalidate, $requestModel, $intimacyRequestLog);
             }
             if (!mindPoisoningRestorePolicyEnabled()) {
                 $dedupeReason = null;

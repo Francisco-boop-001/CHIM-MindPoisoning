@@ -414,6 +414,44 @@ final class RequestLog
         return $decisions;
     }
 
+    private static function sanitizeArrangementChanges(mixed $value): ?array
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return null;
+        }
+        $changes = [];
+        $seen = [];
+        foreach (array_slice($value, 0, self::MAX_CHANGES) as $change) {
+            $keys = is_array($change) ? array_keys($change) : [];
+            sort($keys, SORT_STRING);
+            if (!is_array($change) || $keys !== ['after', 'basis', 'before', 'outcome', 'proposal', 'subject']) {
+                continue;
+            }
+            $subject = self::sanitizeSubject($change['subject'] ?? null);
+            $kindIsValid = static fn(mixed $kind): bool => $kind === null || in_array($kind, ['casual', 'romantic', 'none'], true);
+            if (
+                $subject === null || isset($seen[$subject])
+                || !in_array($change['basis'] ?? null, ['direct_npc_dialogue', 'registered_reflection'], true)
+                || !in_array($change['outcome'] ?? null, ['applied', 'ended', 'none', 'reaffirmed', 'older', 'capacity', 'no_claim'], true)
+                || !$kindIsValid($change['before'] ?? null)
+                || !$kindIsValid($change['after'] ?? null)
+                || !$kindIsValid($change['proposal'] ?? null)
+            ) {
+                continue;
+            }
+            $changes[] = [
+                'subject' => $subject,
+                'basis' => $change['basis'],
+                'before' => $change['before'],
+                'after' => $change['after'],
+                'proposal' => $change['proposal'],
+                'outcome' => $change['outcome'],
+            ];
+            $seen[$subject] = true;
+        }
+        return $changes;
+    }
+
     private static function sanitizeField(string $key, mixed $value, bool $diagnostic, string $level = 'info'): mixed
     {
         if (in_array($key, self::CONTEXT_FIELDS, true)) {
@@ -427,7 +465,7 @@ final class RequestLog
                 return in_array($value, ['npc', 'player'], true) ? $value : null;
             }
             if ($key === 'source_kind') {
-                return $value === 'reflection' ? $value : null;
+                return in_array($value, ['reflection', 'intimacy'], true) ? $value : null;
             }
             if ($key === 'listener_role') {
                 return in_array($value, ['addressed', 'overheard'], true) ? $value : null;
@@ -452,6 +490,7 @@ final class RequestLog
             'speech_bytes' => self::boundedInteger($value, 0, 12000),
             'changed_count' => self::boundedInteger($value, 0, 8),
             'affinity_changed_count', 'type_changed_count' => self::boundedInteger($value, 0, 8),
+            'arrangement_changed_count' => self::boundedInteger($value, 0, 8),
             'delta' => self::boundedInteger($value, -5, 5),
             'elapsed_ms', 'model_ms', 'persistence_ms' => self::boundedNumber($value, 0, 86_400_000),
             'subject' => self::sanitizeSubject($value),
@@ -459,6 +498,7 @@ final class RequestLog
             'changes' => self::sanitizeChanges($value),
             'type_changes' => self::sanitizeTypeChanges($value),
             'type_decisions' => self::sanitizeTypeDecisions($value),
+            'arrangement_changes' => self::sanitizeArrangementChanges($value),
             'model_reason' => $diagnostic && $level === 'debug' ? self::boundedText($value, 240) : null,
             default => null,
         };
@@ -477,7 +517,10 @@ final class RequestLog
             }
         }
         if (($clean['commit_state'] ?? null) !== 'confirmed' || ($clean['committed'] ?? null) !== true) {
-            unset($clean['type_changes'], $clean['type_changed_count']);
+            unset($clean['type_changes'], $clean['type_changed_count'], $clean['arrangement_changes']);
+            if (array_key_exists('arrangement_changed_count', $clean)) {
+                $clean['arrangement_changed_count'] = 0;
+            }
         }
         if (($clean['speaker_kind'] ?? null) === 'player') {
             unset($clean['speaker_id']);

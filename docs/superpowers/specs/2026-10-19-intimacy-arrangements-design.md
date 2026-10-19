@@ -59,3 +59,10 @@ Publish MP as experimental BETA CANDIDATE only after complete gates; explicitly 
 The inspected reflection basis hashes prior evidence/profile, not the newly registered reflection text. With recognition enabled, a new valid registered source can therefore require an arrangement-only result even when the affinity basis was already processed. Use the existing one request, keep affinity/type pending subjects distinct, and require delta0/no type change on already-processed subjects. Exact source retries still skip before model, including null result receipts. This changes intent tracking without manufacturing new experience for affinity. No extra reflection classifier request and no-subject remains no-call.
 
 Recognition-off stops new classifications/writes; it does not erase or invalidate stored state. SHARMAT consumption remains an independent setting. No shared mutual-state, arbitrary time expiry, or automatic affinity price is introduced.
+
+## Implementation review clarifications
+
+- A direct arrangement is speaker-owned: the speaker's manual locks block its update; the addressee's relationship lock does not protect the speaker's row. Exact addressee identity is still required and the addressee is never written.
+- The ordinary ACK and its additional arrangement evaluation use the existing request-log fork mechanism. Their terminal ownership/results remain distinct and batch-correlated.
+- SHARMAT may cache bounded projections only during offer/schema construction; final dispatch clears/bypasses that cache and rereads current state. Production-derived call counts justify this narrow cache; the public MP API remains uncached.
+- On a new scope, disabled preserve policy treats old arrangement state as absent and clears it through the existing ledger reset. Enabled preserve policy runs the existing owner baseline before model work and skips its triggering source. No identity is faked to reuse the baseline helper.

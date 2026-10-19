@@ -977,3 +977,6 @@ Final lead review: All three task gates and the combined source review are appro
 Authorization: the user requested merge as needed, commit, push and publish. Scope is MP only; installed CHIM, game/modlist and live database/providers remain untouched. Plan and boundaries: release-v0.1.15-plan.md.
 
 Review: 0.1.15 is committed, immutably tagged and published PRE-ALPHA in the dedicated repository and migration hub. Clean-tag rebuilds, both draft downloads and both public downloads match exact bytes/checksums. Update branches advanced after publication and identify 0.1.15. Unrelated dirty work and historical assets remain preserved. Full evidence: release-v0.1.15.md. Companion v2 adoption and live runtime remain unverified; no installation occurred.
+
+## Automatic intimacy arrangements — 2026-10-19
+See tasks/intimacy-arrangements.md for the scoped checklist. Design/evidence ledger: artifacts/mp-intimacy-arrangements-20261019/. New isolated branch; canonical dirty work preserved. No product edits authorized to workers until the cross-plugin contract is reviewed.

@@ -125,6 +125,97 @@ function validHistoricalTypeToken(mixed $type): bool
     return is_string($type) && strlen($type) <= 50 && preg_match('/\A[A-Za-z0-9][A-Za-z0-9_-]{0,49}\z/D', $type) === 1;
 }
 
+function validStoredIntimacySources(mixed $sources): bool
+{
+    if (!is_array($sources) || !array_is_list($sources) || count($sources) < 1 || count($sources) > MIND_POISONING_REFLECTION_REPLY_MAX_LINES) {
+        return false;
+    }
+    $previousId = 0;
+    $utterances = [];
+    foreach ($sources as $source) {
+        $keys = is_array($source) ? array_keys($source) : [];
+        sort($keys, SORT_STRING);
+        if (
+            $keys !== ['event_id', 'speech_hash', 'utterance_id']
+            || !is_int($source['event_id'] ?? null) || $source['event_id'] <= $previousId
+            || !is_string($source['utterance_id'] ?? null)
+            || preg_match('/\Autt_[A-Za-z0-9_-]{8,128}\z/D', $source['utterance_id']) !== 1
+            || isset($utterances[$source['utterance_id']])
+            || !is_string($source['speech_hash'] ?? null)
+            || preg_match('/\A[a-f0-9]{64}\z/D', $source['speech_hash']) !== 1
+        ) {
+            return false;
+        }
+        $previousId = $source['event_id'];
+        $utterances[$source['utterance_id']] = true;
+    }
+    return true;
+}
+
+function validIntimacyArrangementMap(mixed $value): ?array
+{
+    $arrangements = knownLedgerArray($value);
+    if (!is_array($arrangements) || count($arrangements) > 64) {
+        return null;
+    }
+    foreach ($arrangements as $target => $record) {
+        $keys = is_array($record) ? array_keys($record) : [];
+        sort($keys, SORT_STRING);
+        $expectedKeys = ['basis', 'gamets', 'kind', 'owner_id', 'playthrough_id', 'sources', 'target'];
+        if (is_array($record) && array_key_exists('prior_kind', $record)) {
+            $expectedKeys[] = 'prior_kind';
+            sort($expectedKeys, SORT_STRING);
+        }
+        if (
+            !is_string($target)
+            || ($target !== 'player' && preg_match('/\Anpc:[1-9][0-9]*\z/D', $target) !== 1)
+            || !is_array($record) || $keys !== $expectedKeys
+            || !is_int($record['owner_id'] ?? null) || $record['owner_id'] < 1
+            || ($record['target'] ?? null) !== $target
+            || !is_string($record['playthrough_id'] ?? null) || trim($record['playthrough_id']) === ''
+            || !in_array($record['kind'] ?? null, ['casual', 'romantic', 'none'], true)
+            || !in_array($record['basis'] ?? null, ['direct_npc_dialogue', 'registered_reflection'], true)
+            || (!is_int($record['gamets'] ?? null) && !is_float($record['gamets'] ?? null))
+            || !is_finite((float)$record['gamets']) || $record['gamets'] < 0
+            || !validStoredIntimacySources($record['sources'] ?? null)
+            || (($record['basis'] ?? null) === 'direct_npc_dialogue' && count($record['sources']) !== 1)
+            || (array_key_exists('prior_kind', $record)
+                && (!in_array($record['prior_kind'], ['casual', 'romantic'], true) || $record['kind'] !== 'none'))
+        ) {
+            return null;
+        }
+    }
+    return $arrangements;
+}
+
+function validStoredArrangementChanges(mixed $changes): bool
+{
+    if (!is_array($changes) || !array_is_list($changes) || count($changes) > 8) {
+        return false;
+    }
+    $seen = [];
+    foreach ($changes as $change) {
+        $keys = is_array($change) ? array_keys($change) : [];
+        sort($keys, SORT_STRING);
+        if (
+            !is_array($change)
+            || $keys !== ['after', 'basis', 'before', 'outcome', 'proposal', 'subject']
+            || !is_string($change['subject'] ?? null)
+            || ($change['subject'] !== 'player' && preg_match('/\Anpc:[1-9][0-9]*\z/D', $change['subject']) !== 1)
+            || isset($seen[$change['subject']])
+            || !in_array($change['basis'] ?? null, ['direct_npc_dialogue', 'registered_reflection'], true)
+            || !in_array($change['outcome'] ?? null, ['applied', 'ended', 'none', 'reaffirmed', 'older', 'capacity', 'no_claim'], true)
+            || !in_array($change['before'] ?? null, [null, 'casual', 'romantic', 'none'], true)
+            || !in_array($change['after'] ?? null, [null, 'casual', 'romantic', 'none'], true)
+            || !in_array($change['proposal'] ?? null, [null, 'casual', 'romantic', 'none'], true)
+        ) {
+            return false;
+        }
+        $seen[$change['subject']] = true;
+    }
+    return true;
+}
+
 function storedLedgerNamespace(object $pluginExtendedData): ?array
 {
     if (!property_exists($pluginExtendedData, 'mind_poisoning')) {
@@ -164,18 +255,32 @@ function storedLedgerNamespace(object $pluginExtendedData): ?array
             $seen[$subject] = true;
         }
     }
+    if (array_key_exists('arrangements', $ledger)) {
+        $arrangements = validIntimacyArrangementMap($ledger['arrangements']);
+        if ($arrangements === null) {
+            return null;
+        }
+        $ledger['arrangements'] = $arrangements;
+    }
     $hasReflectionEvents = false;
     foreach ($ledger['events'] as $entry) {
+        $sourceKind = $entry['source_kind'] ?? null;
         if (
             !is_array($entry)
             || !is_int($entry['event_id'] ?? null) || $entry['event_id'] < 1
             || !is_string($entry['utterance_id'] ?? null) || $entry['utterance_id'] === ''
-            || (array_key_exists('source_kind', $entry) && $entry['source_kind'] !== 'reflection')
-            || (($entry['source_kind'] ?? null) === 'reflection' && !is_array($entry['judgments'] ?? null))
+            || (array_key_exists('source_kind', $entry) && !in_array($sourceKind, ['reflection', 'intimacy'], true))
+            || ($sourceKind === 'reflection' && !is_array($entry['judgments'] ?? null))
+            || ($sourceKind === 'intimacy' && (
+                !is_array($entry['judgments'] ?? null) || !array_is_list($entry['judgments'])
+                || !array_key_exists('arrangement_changes', $entry)
+                || !validStoredArrangementChanges($entry['arrangement_changes'])
+            ))
+            || (array_key_exists('arrangement_changes', $entry) && !validStoredArrangementChanges($entry['arrangement_changes']))
         ) {
             return null;
         }
-        $isReflectionEntry = ($entry['source_kind'] ?? null) === 'reflection';
+        $isReflectionEntry = $sourceKind === 'reflection';
         if ($isReflectionEntry) {
             $hasReflectionEvents = true;
             if (!is_array($entry['judgments'] ?? null) || !array_is_list($entry['judgments']) || count($entry['judgments']) > 8) {
@@ -610,7 +715,9 @@ function nextLedger(
     array $judgments,
     ?array $reflectionState = null,
     array $typeDecisions = [],
-    array $typeChanges = []
+    array $typeChanges = [],
+    ?string $sourceKind = null,
+    array $arrangementChanges = []
 ): array
 {
     if (($ledger['playthrough_id'] ?? null) !== $playthroughId) {
@@ -647,8 +754,12 @@ function nextLedger(
         $details[] = $detail;
     }
     $entry = ['event_id' => $eventId, 'utterance_id' => $utteranceId, 'judgments' => $details];
-    if ($reflectionState !== null) {
-        $entry['source_kind'] = 'reflection';
+    $sourceKind ??= $reflectionState !== null ? 'reflection' : null;
+    if ($sourceKind !== null) {
+        $entry['source_kind'] = $sourceKind;
+    }
+    if ($arrangementChanges !== [] || $sourceKind === 'intimacy') {
+        $entry['arrangement_changes'] = array_values($arrangementChanges);
     }
     if ($typeDecisions !== []) {
         $entry['type_decisions'] = $typeDecisions;
@@ -669,6 +780,9 @@ function nextLedger(
         $result['reflection_state'] = $reflectionState;
     } elseif (is_array($ledger['reflection_state'] ?? null)) {
         $result['reflection_state'] = $ledger['reflection_state'];
+    }
+    if (is_array($ledger['arrangements'] ?? null)) {
+        $result['arrangements'] = $ledger['arrangements'];
     }
     return $result;
 }
@@ -719,6 +833,22 @@ function reflectionSourceSnapshotsValid(array $event): bool
         && ($event['source_data'] ?? null) === $last['source_data'];
 }
 
+function persistIntimacyArrangement(
+    array $event,
+    ?array $change,
+    ?array $expectedRecord,
+    StoreDb $store,
+    ?RequestLog $requestLog = null,
+    ?callable $revalidateIntimacy = null
+): string {
+    if (($event['source_kind'] ?? null) !== 'intimacy') {
+        return 'invalid';
+    }
+    $event['intimacy_change'] = $change;
+    $event['intimacy_expected_record'] = $expectedRecord;
+    return persistJudgments($event, [], [], $store, $requestLog, null, null, null, $revalidateIntimacy);
+}
+
 function persistJudgments(
     array $event,
     array $subjects,
@@ -727,9 +857,11 @@ function persistJudgments(
     ?RequestLog $requestLog = null,
     ?callable $revalidateReflection = null,
     ?array $registration = null,
-    ?callable $revalidateListenerScope = null
+    ?callable $revalidateListenerScope = null,
+    ?callable $revalidateIntimacy = null
 ): string
 {
+    require_once __DIR__ . '/intimacy.php';
     $startedAt = hrtime(true);
     $committed = false;
     $commitAttempted = false;
@@ -745,16 +877,22 @@ function persistJudgments(
     $stage = 'validation';
     $speakerKind = array_key_exists('speaker_kind', $event) ? $event['speaker_kind'] : 'npc';
     $reflection = ($event['source_kind'] ?? null) === 'reflection';
+    $intimacy = ($event['source_kind'] ?? null) === 'intimacy';
     $hasListenerRole = array_key_exists('listener_role', $event);
     $listenerRole = $event['listener_role'] ?? null;
     $hasReplySources = array_key_exists('reflection_sources', $event);
     $replySources = $event['reflection_sources'] ?? null;
     $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
     $playerSpeaker = $speakerKind === 'player';
-    $ownerId = $reflection ? ($event['opinion_owner_id'] ?? null) : ($event['listener_id'] ?? null);
+    $ownerId = ($reflection || $intimacy)
+        ? ($event['opinion_owner_id'] ?? null)
+        : ($event['listener_id'] ?? null);
     $edgeChanges = [];
     $typeDecisions = [];
     $typeChanges = [];
+    $arrangementChanges = [];
+    $arrangementChangedCount = 0;
+    $arrangementMapToWrite = null;
     $done = static function (string $outcome, string $code) use (&$status, &$reason): string {
         $status = $outcome;
         $reason = $code;
@@ -768,8 +906,8 @@ function persistJudgments(
         'speaker_id' => $event['speaker_id'] ?? null,
         'speaker_kind' => $event['speaker_kind'] ?? 'npc',
         'listener_id' => $event['listener_id'] ?? null,
-        'opinion_owner_id' => $reflection ? $ownerId : null,
-        'source_kind' => $reflection ? 'reflection' : null,
+        'opinion_owner_id' => ($reflection || $intimacy) ? $ownerId : null,
+        'source_kind' => $intimacy ? 'intimacy' : ($reflection ? 'reflection' : null),
         'cleanup_failed' => false,
     ]);
 
@@ -815,18 +953,25 @@ function persistJudgments(
                     || !is_callable($revalidateReflection)
                     || !is_array($registration)
                 )
-                : (
+                : ($intimacy
+                    ? (
+                        $speakerKind !== 'npc' || $playerSpeaker
+                        || ($event['speaker_id'] ?? null) !== $ownerId
+                        || !validIntimacyAckEnvelope($event)
+                        || $subjects !== [] || $judgments !== []
+                    )
+                    : (
                     !is_int($event['listener_id'] ?? null) || $event['listener_id'] < 1
                     || (!$playerSpeaker && $event['speaker_id'] === $event['listener_id'])
-                ))
+                    )))
             || !is_string($event['speaker_name'] ?? null) || trim($event['speaker_name']) === ''
             || (!$reflection && (!is_string($event['listener_name'] ?? null) || trim($event['listener_name']) === ''))
             || !is_string($event['text'] ?? null) || $event['text'] === ''
             || !is_string($event['playthrough_id'] ?? null) || $event['playthrough_id'] === ''
             || !is_numeric($event['gamets'] ?? null) || !is_finite((float)$event['gamets'])
             || !is_string($event['source_data'] ?? null)
-            || ($hasListenerRole && !in_array($listenerRole, ['addressed', 'overheard'], true))
-            || ($hasListenerRole && (
+            || ($hasListenerRole && !$intimacy && !in_array($listenerRole, ['addressed', 'overheard'], true))
+            || ($hasListenerRole && !$intimacy && (
                 !is_int($event['addressed_listener_id'] ?? null) || $event['addressed_listener_id'] < 1
                 || !is_string($event['addressed_listener_name'] ?? null) || trim($event['addressed_listener_name']) === ''
                 || !is_int($event['listener_id'] ?? null)
@@ -846,6 +991,34 @@ function persistJudgments(
             || !validSubjectsAndJudgments($subjects, $judgments, $event)
         ) {
             return $done('invalid', 'invalid-event');
+        }
+
+        $reflectionIntimacyRecords = [];
+        if ($intimacy) {
+            if (!mindPoisoningIntimacyRecognitionEnabled()) {
+                return $done('paused', 'intimacy-recognition-disabled');
+            }
+        } elseif (array_key_exists('intimacy_expected_records', $event)) {
+            if (
+                !$reflection || !mindPoisoningIntimacyRecognitionEnabled()
+                || !validIntimacyExpectedRecords($event['intimacy_expected_records'], $subjects)
+            ) {
+                return $done('invalid', 'intimacy-reflection-candidates-invalid');
+            }
+            $reflectionIntimacyRecords = $event['intimacy_expected_records'];
+            foreach ($judgments as $token => $judgment) {
+                if (array_key_exists('arrangement_change', $judgment)
+                    && (!array_key_exists($token, $reflectionIntimacyRecords)
+                        || !validIntimacyChange($judgment['arrangement_change'], $event['text']))) {
+                    return $done('invalid', 'intimacy-reflection-change-invalid');
+                }
+            }
+        } else {
+            foreach ($judgments as $judgment) {
+                if (is_array($judgment) && array_key_exists('arrangement_change', $judgment)) {
+                    return $done('invalid', 'intimacy-reflection-candidates-missing');
+                }
+            }
         }
 
         $coveredEvents = $hasReplySources
@@ -910,6 +1083,29 @@ function persistJudgments(
         ) {
             return $done('stale', 'event-stale');
         }
+        $identities = null;
+        if ($intimacy) {
+            $identities = $store->npcIdentities();
+            if (!intimacyDirectSourceCurrent($event, $currentEvent, $active, $identities)) {
+                return $done('stale', 'intimacy-source-stale');
+            }
+            if ($revalidateIntimacy !== null) {
+                try {
+                    if (!$revalidateIntimacy($event, 'transaction')) {
+                        return $done('stale', 'intimacy-ack-stale');
+                    }
+                } catch (Throwable) {
+                    return $done('stale', 'intimacy-ack-stale');
+                }
+            }
+            if ($event['target_subject'] !== 'player') {
+                $targetId = (int)substr($event['target_subject'], 4);
+                $target = $store->npcById($targetId);
+                if (!is_array($target) || !sameActorName($target['npc_name'] ?? null, $event['addressed_listener_name'])) {
+                    return $done('stale', 'intimacy-target-stale');
+                }
+            }
+        }
         if ($restorePolicyEnabled) {
             $bounds = $store instanceof RestorePolicyStoreDb ? $store->restoreEventBounds() : null;
             if (!restorePolicyBoundsMatch($bounds, $restorePolicyInitId)) {
@@ -945,12 +1141,26 @@ function persistJudgments(
                     $pending[$token] = true;
                 }
             }
-            if ($pending === []) {
+            if ($pending === [] && $reflectionIntimacyRecords === []) {
                 return $done('duplicate', 'reflection-basis-duplicate');
+            }
+            foreach ($reflectionIntimacyRecords as $token => $_expectedRecord) {
+                if (!array_key_exists($token, $judgments)) {
+                    return $done('invalid', 'intimacy-reflection-judgment-missing');
+                }
             }
             foreach (array_keys($judgments) as $token) {
                 if (!isset($pending[$token])) {
-                    unset($judgments[$token], $subjects[$token]);
+                    if (array_key_exists($token, $reflectionIntimacyRecords)) {
+                        if (
+                            ($judgments[$token]['delta'] ?? null) !== 0
+                            || (array_key_exists('type_change', $judgments[$token]) && $judgments[$token]['type_change'] !== null)
+                        ) {
+                            return $done('invalid', 'intimacy-reflection-repeated-affinity');
+                        }
+                    } else {
+                        unset($judgments[$token], $subjects[$token]);
+                    }
                 }
             }
             if ($subjects === [] || !validSubjectsAndJudgments($subjects, $judgments, $event)) {
@@ -958,7 +1168,7 @@ function persistJudgments(
             }
         }
         if (
-            ($reflection || $playerSpeaker || array_key_exists('player', $subjects))
+            ($reflection || $intimacy || $playerSpeaker || array_key_exists('player', $subjects))
             && is_string($event['player_name'] ?? null)
             && trim($event['player_name']) !== ''
             && (!is_string($active['player_name'] ?? null) || !sameActorName($event['player_name'], $active['player_name']))
@@ -966,7 +1176,7 @@ function persistJudgments(
             return $done('stale', 'player-identity-stale');
         }
         if (
-            $reflection
+            ($reflection || $intimacy)
             ? !sameActorName($listener['npc_name'] ?? null, $event['speaker_name'])
             : !sameActorName($listener['npc_name'] ?? null, $event['listener_name'])
         ) {
@@ -986,16 +1196,16 @@ function persistJudgments(
         }
 
         $stage = 'revalidate-actors';
-        $identities = $store->npcIdentities();
+        $identities ??= $store->npcIdentities();
         $currentPlayerName = is_string($active['player_name'] ?? null) ? $active['player_name'] : '';
         $currentSubjects = findSubjects($event, $identities, $currentPlayerName);
-        $actors = $reflection
+        $actors = ($reflection || $intimacy)
             ? [$event['opinion_owner_id'] => $event['speaker_name']]
             : [$event['listener_id'] => $event['listener_name']];
         if ($hasListenerRole && $listenerRole === 'overheard') {
             $actors[$event['addressed_listener_id']] = $event['addressed_listener_name'];
         }
-        if (!$playerSpeaker && !$reflection) {
+        if (!$playerSpeaker && !$reflection && !$intimacy) {
             $actors[$event['speaker_id']] = $event['speaker_name'];
         }
         foreach ($actors as $id => $name) {
@@ -1042,21 +1252,24 @@ function persistJudgments(
         }
 
         $stage = 'resolve-relationships';
-        $storedRelationships = property_exists($extendedData, 'relationships')
-            ? $extendedData->relationships
-            : new \stdClass();
-        $relationships = storedRelationshipMap($storedRelationships);
-        if ($relationships === null) {
-            return $done('invalid', 'relationships-invalid');
-        }
+        $relationships = [];
         $canonicalPlayerRelationships = null;
-        if ($playerSpeaker || array_key_exists('player', $subjects)) {
-            $canonicalPlayerRelationships = canonicalStoredRelationshipMap(
-                $relationships,
-                is_string($event['player_name'] ?? null) ? $event['player_name'] : null
-            );
-            if ($canonicalPlayerRelationships === null) {
-                return $done('failed', 'player-relationship-normalization-failed');
+        if (!$intimacy) {
+            $storedRelationships = property_exists($extendedData, 'relationships')
+                ? $extendedData->relationships
+                : new \stdClass();
+            $relationships = storedRelationshipMap($storedRelationships);
+            if ($relationships === null) {
+                return $done('invalid', 'relationships-invalid');
+            }
+            if ($playerSpeaker || array_key_exists('player', $subjects)) {
+                $canonicalPlayerRelationships = canonicalStoredRelationshipMap(
+                    $relationships,
+                    is_string($event['player_name'] ?? null) ? $event['player_name'] : null
+                );
+                if ($canonicalPlayerRelationships === null) {
+                    return $done('failed', 'player-relationship-normalization-failed');
+                }
             }
         }
 
@@ -1197,6 +1410,78 @@ function persistJudgments(
                 : $pluginNamespace;
             $reflectionState = nextReflectionState($reflectionBaseLedger, $event['reflection_basis'], array_keys($subjects));
         }
+        $sameScopeLedger = $pluginNamespace !== []
+            && $pluginNamespace['playthrough_id'] === $event['playthrough_id'];
+        $arrangements = $sameScopeLedger ? ($pluginNamespace['arrangements'] ?? []) : [];
+        if ($intimacy || $reflectionIntimacyRecords !== []) {
+            $expectedRecords = $intimacy
+                ? [$event['target_subject'] => $event['intimacy_expected_record']]
+                : $reflectionIntimacyRecords;
+            foreach ($expectedRecords as $targetSubject => $expectedRecord) {
+                try {
+                    $currentRecord = mindPoisoningCaptureIntimacyRecord(
+                        $listener,
+                        (string)$targetSubject,
+                        $event['playthrough_id']
+                    );
+                } catch (Throwable) {
+                    return $done('invalid', 'intimacy-state-invalid');
+                }
+                if (!sameJsonValue($expectedRecord, $currentRecord)) {
+                    return $done('stale', 'intimacy-state-changed');
+                }
+            }
+
+            $sourceRefs = [];
+            if ($reflection && is_array($event['reflection_sources'] ?? null)) {
+                foreach ($event['reflection_sources'] as $source) {
+                    $sourceRefs[] = [
+                        'event_id' => $source['event_id'],
+                        'utterance_id' => $source['utterance_id'],
+                        'speech_hash' => $source['speech_hash'],
+                    ];
+                }
+            } else {
+                $sourceRefs[] = [
+                    'event_id' => $event['event_id'],
+                    'utterance_id' => $event['utterance_id'],
+                    'speech_hash' => $event['speech_hash'],
+                ];
+            }
+            $provenance = [
+                'owner_id' => $ownerId,
+                'basis' => $intimacy ? 'direct_npc_dialogue' : 'registered_reflection',
+                'playthrough_id' => $event['playthrough_id'],
+                'sources' => $sourceRefs,
+                'gamets' => (float)$event['gamets'],
+            ];
+            foreach ($expectedRecords as $targetSubject => $_expectedRecord) {
+                $change = $intimacy
+                    ? $event['intimacy_change']
+                    : ($judgments[$targetSubject]['arrangement_change'] ?? null);
+                $transition = mindPoisoningTransitionIntimacyArrangement(
+                    $arrangements,
+                    (string)$targetSubject,
+                    $change,
+                    $provenance
+                );
+                $arrangements = $transition['arrangements'];
+                $arrangementChanges[] = [
+                    'subject' => (string)$targetSubject,
+                    'basis' => $provenance['basis'],
+                    'before' => $transition['before'],
+                    'after' => $transition['after'],
+                    'proposal' => $change['status'] ?? null,
+                    'outcome' => $transition['outcome'],
+                ];
+                if (in_array($transition['outcome'], ['applied', 'ended', 'none', 'reaffirmed'], true)) {
+                    $arrangementChangedCount++;
+                }
+            }
+            if ($arrangements !== [] || ($sameScopeLedger && array_key_exists('arrangements', $pluginNamespace))) {
+                $arrangementMapToWrite = $arrangements;
+            }
+        }
         $nextLedger = $pluginNamespace;
         foreach ($coveredEvents as $index => $coveredEvent) {
             $isFinal = $index === array_key_last($coveredEvents);
@@ -1208,8 +1493,13 @@ function persistJudgments(
                 $isFinal ? $judgments : [],
                 $reflectionState,
                 $isFinal ? $typeDecisions : [],
-                $isFinal ? $typeChanges : []
+                $isFinal ? $typeChanges : [],
+                $isFinal ? ($intimacy ? 'intimacy' : ($reflection ? 'reflection' : null)) : null,
+                $isFinal ? $arrangementChanges : []
             );
+        }
+        if ($arrangementMapToWrite !== null) {
+            $nextLedger['arrangements'] = $arrangementMapToWrite;
         }
         $updatedPluginExtendedData = clone $pluginExtendedData;
         $updatedPluginExtendedData->mind_poisoning = (object)$nextLedger;
@@ -1243,23 +1533,63 @@ function persistJudgments(
         if (!$store->backupAndVerify($ownerId, $expected)) {
             return $done('failed', 'snapshot-verification-failed');
         }
-        if ($reflection) {
+        if ($reflection || $intimacy) {
             $gateReason = null;
             if (speechAckInteractionStatus($gateReason) !== 'ok') {
-                return $done('stale', 'reflection-' . ($gateReason ?? 'interaction-stale'));
+                return $done('stale', ($reflection ? 'reflection-' : 'intimacy-') . ($gateReason ?? 'interaction-stale'));
+            }
+            if ($intimacy && ($GLOBALS['chim_interaction_generation'] ?? null) !== $event['interaction_generation']) {
+                return $done('stale', 'intimacy-interaction-generation-stale');
             }
             if (mindPoisoningPauseStatus($gateReason) !== 'enabled') {
                 return $done('paused', $gateReason ?? 'plugin-paused');
             }
-            try {
-                if (!$revalidateReflection($registration, 'transaction')) {
+            if ($intimacy && !mindPoisoningIntimacyRecognitionEnabled()) {
+                return $done('paused', 'intimacy-recognition-disabled');
+            }
+            if ($intimacy) {
+                $precommitActive = $store->activePlaythrough();
+                $precommitEvent = $store->eventById($event['event_id'], $event['utterance_id']);
+                $precommitIdentities = $store->npcIdentities();
+                if (
+                    !is_array($precommitActive)
+                    || ($precommitActive['id'] ?? null) !== $event['playthrough_id']
+                    || !sameEvent($event, $precommitEvent)
+                    || !intimacyDirectSourceCurrent($event, $precommitEvent ?? [], $precommitActive, $precommitIdentities)
+                ) {
+                    return $done('stale', 'intimacy-source-stale');
+                }
+                if ($revalidateIntimacy !== null) {
+                    try {
+                        if (!$revalidateIntimacy($event, 'precommit')) {
+                            return $done('stale', 'intimacy-ack-stale');
+                        }
+                    } catch (Throwable) {
+                        return $done('stale', 'intimacy-ack-stale');
+                    }
+                }
+                if ($event['target_subject'] !== 'player') {
+                    $precommitTargetId = (int)substr($event['target_subject'], 4);
+                    $precommitTarget = $store->npcById($precommitTargetId);
+                    if (!is_array($precommitTarget) || !sameActorName($precommitTarget['npc_name'] ?? null, $event['addressed_listener_name'])) {
+                        return $done('stale', 'intimacy-target-stale');
+                    }
+                }
+            }
+            if ($reflection) {
+                try {
+                    if (!$revalidateReflection($registration, 'transaction')) {
+                        return $done('stale', 'reflection-registration-stale');
+                    }
+                } catch (Throwable) {
                     return $done('stale', 'reflection-registration-stale');
                 }
-            } catch (Throwable) {
-                return $done('stale', 'reflection-registration-stale');
-            }
-            if ($hasReplySources && !reflectionReplySourcesCurrent($store, $replySources, $event['speaker_name'])) {
-                return $done('stale', 'reflection-source-stale');
+                if ($hasReplySources && !reflectionReplySourcesCurrent($store, $replySources, $event['speaker_name'])) {
+                    return $done('stale', 'reflection-source-stale');
+                }
+                if ($reflectionIntimacyRecords !== [] && !mindPoisoningIntimacyRecognitionEnabled()) {
+                    return $done('paused', 'intimacy-recognition-disabled');
+                }
             }
         }
         if ($listenerRole === 'overheard') {
@@ -1330,7 +1660,7 @@ function persistJudgments(
             $typeChangedSubjects[$change['subject']] = true;
         }
         $changedCount = count($affinityChangedSubjects + $typeChangedSubjects);
-        if ($committed && $changedCount === 0 && $reason === 'committed') {
+        if ($committed && $changedCount === 0 && $arrangementChangedCount === 0 && $reason === 'committed') {
             $reason = 'zero-change';
         }
         $logFields = [
@@ -1344,6 +1674,8 @@ function persistJudgments(
             'type_changes' => $confirmedTypeChanges,
             'affinity_changed_count' => count($affinityChangedSubjects),
             'type_changed_count' => count($typeChangedSubjects),
+            'arrangement_changes' => $committed ? $arrangementChanges : [],
+            'arrangement_changed_count' => $committed ? $arrangementChangedCount : 0,
             'changed_count' => $changedCount,
         ];
         if ($cleanupFailed) {

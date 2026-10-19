@@ -380,7 +380,7 @@ function prepareRestorePolicyRecipient(
     $expectedOwnerId = $event['opinion_owner_id'] ?? $event['listener_id'] ?? null;
     $storedOwnerId = filter_var($listener['id'] ?? null, FILTER_VALIDATE_INT);
     $ownerName = $listener['npc_name'] ?? null;
-    $expectedOwnerName = ($event['source_kind'] ?? null) === 'reflection'
+    $expectedOwnerName = in_array(($event['source_kind'] ?? null), ['reflection', 'intimacy'], true)
         ? ($event['speaker_name'] ?? null)
         : ($event['listener_name'] ?? null);
     $activeScope = $event['playthrough_id'] ?? null;
