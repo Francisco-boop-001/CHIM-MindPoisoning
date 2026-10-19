@@ -1005,8 +1005,10 @@ Final integration update: coordinator final native and official-manager three-ca
 
 ## Written evidence publication — 2026-10-19
 
-- [ ] Confirm release scope and retained source/native/package evidence.
-- [ ] Prepare and review release metadata/docs; publish verified immutable assets before advancing the update branch.
-- [ ] Update MP-only hub information and save final receipts.
+- [x] Confirm release scope and retained source/native/package evidence.
+- [x] Prepare and review release metadata/docs; publish verified immutable assets before advancing the update branch.
+- [x] Update MP-only hub information and save final receipts.
 
 Plan: release-v0.1.27-plan.md. SHARMAT review is read-only; further SHARMAT implementation waits for author discussion. Live/game data remain untouched.
+
+Final release review: 0.1.27 BETA CANDIDATE product `9e2ee6b` and its tag were verified by clean-tag rebuilds and draft/public downloads; hub MP-only commit `46a191d` is pushed. The main receipt follows verified publication. Exact checksums and evidence: `docs/verification-v0.1.27.md` and `tasks/release-v0.1.27-plan.md`. No SHARMAT changes or live/game/provider/distro access.

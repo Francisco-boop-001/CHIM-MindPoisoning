@@ -1,20 +1,22 @@
 # Mind Poisoning 0.1.27 — verification and limits
 
-## Release status
+## Release status — published and verified
 
-This document is prepared for the 0.1.27 BETA CANDIDATE release. The clean release commit/tag, versioned package build, draft upload and public-download checksum verification are pending. Do not treat the planned release links as proof of available assets. The standard GitHub release classification is intended to support CHIM topic discovery; the maturity label remains BETA CANDIDATE.
+Mind Poisoning **0.1.27 BETA CANDIDATE** is published at [the versioned release](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.27), with `draft=false` and `prerelease=false`. Standard classification supports CHIM discovery; it does not promote maturity.
 
-Read-only public refs checked on 2026-10-19: `main` is `f21a00abbb393c03a8faf226c0707281776d175d`; the immutable `mind_poisoning-v0.1.26` tag peels to `43c87804875bad104fd955c344d5b300b9b9bcac`. The latest published release is 0.1.26, with `prerelease=false`. No public 0.1.27 tag or release was present. The anonymous Releases API does not show drafts, so this check cannot rule out an unpublished draft.
+The immutable tag `mind_poisoning-v0.1.27` identifies product commit `9e2ee6be1c83db937422f34e7ebe6061d63bf1f9`. All four installable assets rebuilt byte-for-byte from a clean `git archive` of that exact tag. The 24-file package list matches the reviewed candidate: 22 files are unchanged from the frozen native-test payload, with the approved manifest version/description and packaged README changes recorded separately. Runtime PHP and the package script are unchanged from the verified source.
 
-The 0.1.26 release remains unchanged. Its public asset digests are:
+All five draft downloads and all five unauthenticated public downloads matched the local release files exactly. The update branch advances only after those public checks. The tagged copy of this document records pre-publication knowledge; this `main` copy adds the final receipt without moving the tag.
 
 | Asset | SHA-256 |
 | --- | --- |
-| `chim-plugin.tar.gz` | `c7301ebbff61649bdbe672a83489b96601afb4496f7d094d9c71aa635bf371bf` |
-| `mind_poisoning-0.1.26-mo2.zip` | `278d982e46c84555cba82148dce9be4d2170a28da8e22d5269bea618daf76402` |
-| `mind_poisoning-0.1.26.dwpkg` | `e7464767cc55b02ffafa02b5df6fcbd6f1c2472611a01af97036b77a8a0a9409` |
-| `mind_poisoning.tar.gz` | `68c4f99b8281a6f254cd8a512a469289b22a87b66c33edac227174e0d5e0812e` |
-| `SHA256SUMS.txt` | `b3f70885bd385fa07db148b10db7b0a935a0ffb2ed826ac63a7bddf772bdf5e6` |
+| `chim-plugin.tar.gz` | `71d99cea168a1763ebac54ddefb373b1092b58d63de0c4ef47a2eb36fd92c954` |
+| `mind_poisoning-0.1.27-mo2.zip` | `bc3b044f533f35f29beaeff4341d22896411999798b99cc9b10a0ab8469141a2` |
+| `mind_poisoning-0.1.27.dwpkg` | `80d049078d7a1c32c415266ac7736875f68b1ac75078f5366966afd970027c11` |
+| `mind_poisoning.tar.gz` | `55d42af7c7ca08348bd5ecc349baaf81053693aa0c8c86ffb750937f01bd4009` |
+| `SHA256SUMS.txt` | `bdaf784747634244d910056f6567a99471ee1925071c4fd1306b89ccfdbd87e2` |
+
+Release checks used only local files, GitHub and the independent Windows toolchain. No installed server, game data, distro, database, provider or SHARMAT source was changed or run for publication. Historical tags/assets were not replaced.
 
 ## What changed
 
@@ -32,12 +34,12 @@ The unchanged official manager installed three exact development candidates for 
 
 Retained local evidence is in `artifacts/chim-correspondence-implementation-20261019/`: `mp-cross-final-native.txt`, `candidate-consumers-final.json`, `final-payload-verification.json`, `mp-owner-handoff.md` and `mp-owner-source-inventory.json`. The runtime API and store owner hashes at freeze were `2c8ca4fd20a545741faa6107b17c48aef427d8cc1165c6d6d1e23dac00ed3ae1` and `c65ff0f4ea51dd861e900e0a76320bd71140461fd8f62f6d9617204dc037b009`, respectively. Release metadata and documentation do not change those runtime files.
 
-## Limits and remaining release gates
+## Limits
 
 - No real provider call or model-quality evaluation was performed. Tests cannot establish whether a model understands quoted claims, sarcasm, authorship or context correctly.
 - The integration fixture does not establish that a public compatible producer exists, that a recipient reads a message in game, or that Skyrim delivers/plays any scene.
 - Native tests cover the retained transaction path but do not establish new-source commit-acknowledgment-loss durability, broad concurrency, or behavior across multiple hosts.
 - The 0.1.26 arrangement feature remains separate and default-off. A written event is not grounds for an intimacy arrangement, mutual agreement or current willingness.
-- Clean commit/tag export, all four installable assets, `SHA256SUMS.txt`, draft/public byte comparison and post-publication main update remain pending.
+- Clean-tag, draft/public download and checksum gates passed. They do not establish live installation or gameplay.
 
-Before publication, record the final release commit and tag, rebuild from that clean tag, compare each uploaded and public asset with the local byte/hash inventory, and verify 0.1.26 still resolves to the same tag and asset digests. Advance mutable `main` only after public asset verification. No installation, provider, live-server or gameplay claim follows from these checks.
+Final local receipts are retained under `artifacts/mp-release-0.1.27-20261019/`: the clean-tag package verification, draft-download verification, public-download verification and release preflight. No installation, provider, live-server or gameplay claim follows from publication checks.
