@@ -1097,3 +1097,11 @@ Final review: tasks/critique-fixes-review-2026-10-19.md. All focused GREEN outpu
 User authorized commit, push and publication with live/game untouched. Checklist and evidence: tasks/release-v0.1.28-plan.md; artifacts/mp-release-0.1.28-20261019/. No maturity promotion.
 
 Release 0.1.28 completed: product/tag 18f717ed365a; public main includes publication receipt 771fe11; hub README d5fbdc7555556a30b5389adc0df83a4bc51c1d8a. Four installer formats independently reproduced; all five anonymous public downloads matched. Publication evidence: artifacts/mp-release-0.1.28-20261019/public-download-verification.json and hub-update.json. BETA CANDIDATE remains; no installed/live/game changes or gameplay verification.
+
+## Critique follow-up — 2026-10-20 (unpublished)
+Plan and review: tasks/critique-followup-2026-10-20.md. Metadata contract first; preserve ordinary child relationships and adult usability. No release/version or live changes.
+
+Completed review/fix: readable apostrophes with retained escaping; focused RED/GREEN+lint passed. Verified legacy child metadata contract; eligibility unchanged to avoid rejecting unmarked adults. Production scan with synthetic50kcarriers/200krows completed in1.45s percall afterANALYZE; no scan rewrite justified. Full review: tasks/critique-followup-2026-10-20.md. Disposable window released; live/game untouched;0.1.28 pin unchanged, unpublished.
+
+## Release0.1.29 — 2026-10-20
+User authorizes commit/push/publish with live/game untouched. Plan: tasks/release-v0.1.29-plan.md. Runtime evidence retained by hash; Windows-only release operations.

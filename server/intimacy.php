@@ -661,7 +661,7 @@ function mindPoisoningIntimacyContext(string $actorName, ?StoreDb $store = null)
                     ? $targetRow['npc_name']
                     : ('NPC #' . $id);
             }
-            $quotedName = json_encode($targetName, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+            $quotedName = json_encode($targetName, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT);
             $basis = ($projection['basis'] ?? null) === 'registered_reflection' ? 'private reflection' : 'self-report';
             $description = match ($projection['state']) {
                 'active' => 'reports a ' . $projection['kind'] . ' intimacy arrangement with ' . $quotedName,

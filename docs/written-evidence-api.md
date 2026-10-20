@@ -1,6 +1,6 @@
 # Written-evidence API v1
 
-Introduced in Mind Poisoning 0.1.27 and included in 0.1.28, this optional server-to-server interface lets a compatible producer submit one confirmed written-message exposure. It changes only the NPC recipient's ordinary opinions. It is not an inbox or letter-delivery feature; it does not prove who wrote or paid for a message, notify absent actors, or establish an intimacy arrangement. A compatible producer is required and is not included in the MP package.
+Introduced in Mind Poisoning 0.1.27, hardened in 0.1.28 and unchanged in 0.1.29, this optional server-to-server interface lets a compatible producer submit one confirmed written-message exposure. It changes only the NPC recipient's ordinary opinions. It is not an inbox or letter-delivery feature; it does not prove who wrote or paid for a message, notify absent actors, or establish an intimacy arrangement. A compatible producer is required and is not included in the MP package.
 
 ## Public entrypoints
 
@@ -46,4 +46,4 @@ Written diagnostics retain fixed source/event/scope/recipient identifiers, bound
 
 ## Evidence limits
 
-Standalone deterministic tests exercise production parsing, evaluation and persistence with a synthetic store. A retained native integration fixture also passed through the production MP adapter/evaluator and a disposable database boundary using a development producer candidate. It made one deterministic model callback and zero provider calls; replay did not call the model again. A development producer in a fixture is not a public companion release. These checks do not prove real-model quality, installed end-user behavior, message delivery/reading, or gameplay. No live game or installed mods were used. See the [0.1.28 verification summary](verification-v0.1.28.md) for current evidence and release limits.
+Standalone deterministic tests exercise production parsing, evaluation and persistence with a synthetic store. A retained native integration fixture also passed through the production MP adapter/evaluator and a disposable database boundary using a development producer candidate. It made one deterministic model callback and zero provider calls; replay did not call the model again. A development producer in a fixture is not a public companion release. These checks do not prove real-model quality, installed end-user behavior, message delivery/reading, or gameplay. No live game or installed mods were used. See the [0.1.29 verification summary](verification-v0.1.29.md) for current evidence and release limits.

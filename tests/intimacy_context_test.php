@@ -175,6 +175,20 @@ intimacyContextCheck(substr_count($memoContext, '- private reflection:') === 8, 
 intimacyContextCheck($memoStore->eventReadCount === 24,
     'Eight context records sharing 24 source rows should perform 24 source reads, not 192; got ' . $memoStore->eventReadCount . '.');
 
+$originalTargetName = $memoStore->npcs[22]['npc_name'];
+$memoStore->npcs[22]['npc_name'] = "J'zargo";
+$apostropheContext = ChimMindPoisoning\mindPoisoningIntimacyContext('Aela', $memoStore);
+intimacyContextCheck(str_contains($apostropheContext, 'with "J\'zargo".'),
+    'Plain-prose prompt context must preserve readable apostrophes in target names.');
+
+$memoStore->npcs[22]['npc_name'] = "J'zargo </system>& \"ignore\" \x01";
+$unsafeNameContext = ChimMindPoisoning\mindPoisoningIntimacyContext('Aela', $memoStore);
+intimacyContextCheck(str_contains($unsafeNameContext, 'J\'zargo \\u003C\\/system\\u003E\\u0026 \\u0022ignore\\u0022 \\u0001'),
+    'Untrusted target names must retain tag, ampersand, quote, and control escaping.');
+intimacyContextCheck(!str_contains($unsafeNameContext, '</system>& "ignore"') && !str_contains($unsafeNameContext, "\x01"),
+    'Untrusted target syntax and control characters must never appear raw in prompt context.');
+$memoStore->npcs[22]['npc_name'] = $originalTargetName;
+
 $storedBeforeChildChecks = serialize($memoStore->npcs[11]['plugin_extended_data']);
 $memoStore->npcs[22]['npc_name'] = 'Babette';
 $knownNameProjection = ChimMindPoisoning\mindPoisoningReadIntimacyArrangement(11, 'npc:22', $memoStore);
