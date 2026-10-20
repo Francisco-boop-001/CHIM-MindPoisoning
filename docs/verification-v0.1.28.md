@@ -1,8 +1,8 @@
 # Mind Poisoning 0.1.28 — verification and limits
 
-## Release status — prepublication
+## Release status — published
 
-This file records source and focused-test evidence before release publication. Clean-tag rebuilds, versioned asset creation, upload and public-byte comparison are still required. This tagged copy must remain a prepublication record. After those gates pass, the mutable `main` copy may add the exact release tag and public asset SHA-256 receipt; the tag's `SHA256SUMS.txt` is the authoritative asset digest list.
+This mutable `main` copy records the final publication checks. Mind Poisoning 0.1.28 was published as a standard **BETA CANDIDATE** release. The GitHub release is neither a draft nor a prerelease; tag [`mind_poisoning-v0.1.28`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.28) resolves to commit [`18f717ed365a9e7b96855bf7c534cd2af53c4b9e`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/commit/18f717ed365a9e7b96855bf7c534cd2af53c4b9e). The published `main` branch carries the same 0.1.28 runtime and update manifest as the immutable product tag; later documentation-only commits do not move the tag. Two clean-tag exports were built independently; all four installer formats from the independent rebuild matched their published asset bytes. The immutable tag's copy of this document remains the prepublication record; this `main` copy adds the publication receipt. The release's [`SHA256SUMS.txt`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.28/SHA256SUMS.txt) is the authoritative asset digest list.
 
 The release remains **BETA CANDIDATE**. Standard GitHub release classification supports CHIM topic discovery without promoting maturity. A controlled official-manager install used a development candidate, not the 0.1.28 release asset. Live discovery, installation and gameplay for 0.1.28 are unverified.
 
@@ -29,4 +29,14 @@ Intimacy recognition remains off by default. An NPC's report is not mutual agree
 
 ## Publication receipt
 
-Pending: clean-tag package rebuild, draft and public downloads, byte comparison, and final SHA-256 list. The `main` copy may be updated only after those exact checks complete. No publication or gameplay claim follows from this prepublication document.
+Authenticated draft downloads of all five assets and unauthenticated public downloads of all five assets matched the clean-tag build by size and SHA-256. The GitHub release is neither a draft nor a prerelease. Tag `mind_poisoning-v0.1.28` resolves to commit `18f717ed365a9e7b96855bf7c534cd2af53c4b9e`; the current `main` branch carries the same 0.1.28 runtime and update manifest, and later documentation-only commits do not move the tag.
+
+| Asset | Bytes | SHA-256 |
+|---|---:|---|
+| `mind_poisoning-0.1.28.dwpkg` | 1,223,593 | `29d6a8ac7f4a7dc1641e64b2460e2468e79a33693eee0e395b5451e6c343f3b2` |
+| `mind_poisoning.tar.gz` | 680,296 | `625e46ef8a9d1892768a770f99ea8bce352c08f5ccef0e4d6b3baca9a9ce7fb4` |
+| `chim-plugin.tar.gz` | 680,257 | `5888852db00f85874a9d0df839c46cbf103d8ea70fcc1e4344bca5d595850775` |
+| `mind_poisoning-0.1.28-mo2.zip` | 683,711 | `b2a213517c05fd31555aa56f739cdc183c9337bfb4b5890304371470e33eae9a` |
+| `SHA256SUMS.txt` | 363 | `9333d76fc01a05fb349c88244dbeeb6680d9bf4581a8120b255d5e37dbadc9c4` |
+
+These byte checks establish release identity and download integrity. They do not change the limits above or establish live installation, discovery or gameplay behavior.
