@@ -1261,6 +1261,7 @@ function persistJudgments(
     $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
     $playerSpeaker = $speakerKind === 'player';
     $writtenIdentity = null;
+    $intimacyTargetRow = null;
     $ownerId = ($reflection || $intimacy || $writtenEvidence)
         ? ($event['opinion_owner_id'] ?? null)
         : ($event['listener_id'] ?? null);
@@ -1538,6 +1539,7 @@ function persistJudgments(
                 if (!is_array($target) || !sameActorName($target['npc_name'] ?? null, $event['addressed_listener_name'])) {
                     return $done('stale', 'intimacy-target-stale');
                 }
+                $intimacyTargetRow = $target;
             }
         }
         if ($restorePolicyEnabled) {
@@ -1660,6 +1662,7 @@ function persistJudgments(
                 return $done('stale', 'actor-catalog-stale');
             }
         }
+        $currentSubjectRows = [];
         foreach ($subjects as $token => $subject) {
             $currentSubject = $currentSubjects[$token] ?? null;
             if (
@@ -1681,6 +1684,7 @@ function persistJudgments(
             if (!is_array($target) || !sameActorName($target['npc_name'] ?? null, $subject['name'])) {
                 return $done('stale', 'subject-stale');
             }
+            $currentSubjectRows[$token] = $target;
         }
         if (!$playerSpeaker && !$reflection && !$writtenEvidence) {
             $stage = 'revalidate-speaker';
@@ -1873,6 +1877,45 @@ function persistJudgments(
             && $pluginNamespace['playthrough_id'] === $event['playthrough_id'];
         $arrangements = $sameScopeLedger ? ($pluginNamespace['arrangements'] ?? []) : [];
         if ($intimacy || $reflectionIntimacyRecords !== []) {
+            if ($intimacy && is_array($event['intimacy_change'] ?? null)) {
+                $ownerChildStatus = mindPoisoningIntimacyChildStatus($store, $event['speaker_name'], $listener);
+                $targetChildStatus = $event['target_subject'] === 'player'
+                    ? mindPoisoningIntimacyChildStatus($store, $currentPlayerName, null, false)
+                    : mindPoisoningIntimacyChildStatus($store, $event['addressed_listener_name'], $intimacyTargetRow);
+                if ($ownerChildStatus === true || $targetChildStatus === true) {
+                    return $done('stale', 'intimacy-child-ineligible');
+                }
+                if ($ownerChildStatus === null || $targetChildStatus === null) {
+                    return $done('stale', 'intimacy-child-status-unavailable');
+                }
+            }
+            if ($reflection) {
+                $ownerChildStatus = null;
+                $ownerChildStatusChecked = false;
+                foreach ($reflectionIntimacyRecords as $targetSubject => $_expectedRecord) {
+                    if (!is_array($judgments[$targetSubject]['arrangement_change'] ?? null)) {
+                        continue;
+                    }
+                    if (!$ownerChildStatusChecked) {
+                        $ownerChildStatus = mindPoisoningIntimacyChildStatus($store, $event['speaker_name'], $listener);
+                        $ownerChildStatusChecked = true;
+                    }
+                    $subject = $subjects[$targetSubject] ?? null;
+                    if (!is_array($subject)) {
+                        return $done('stale', 'subject-stale');
+                    }
+                    $targetChildStatus = $targetSubject === 'player'
+                        ? mindPoisoningIntimacyChildStatus($store, $currentPlayerName, null, false)
+                        : mindPoisoningIntimacyChildStatus(
+                            $store,
+                            $subject['name'],
+                            $currentSubjectRows[$targetSubject] ?? null
+                        );
+                    if ($ownerChildStatus !== false || $targetChildStatus !== false) {
+                        unset($reflectionIntimacyRecords[$targetSubject], $judgments[$targetSubject]['arrangement_change']);
+                    }
+                }
+            }
             $expectedRecords = $intimacy
                 ? [$event['target_subject'] => $event['intimacy_expected_record']]
                 : $reflectionIntimacyRecords;
@@ -1933,7 +1976,7 @@ function persistJudgments(
                     'proposal' => $change['status'] ?? null,
                     'outcome' => $transition['outcome'],
                 ];
-                if (in_array($transition['outcome'], ['applied', 'ended', 'none', 'reaffirmed'], true)) {
+                if (in_array($transition['outcome'], ['applied', 'ended', 'none'], true)) {
                     $arrangementChangedCount++;
                 }
             }
@@ -2308,6 +2351,9 @@ function deliveryStateNotRegressed(mixed $expected, mixed $current): bool
 
 final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestorePolicyStoreDb, WrittenEvidenceStoreDb
 {
+    private const WRITTEN_EVIDENCE_IDENTITY_BATCH_SIZE = 16;
+    private const WRITTEN_EVIDENCE_IDENTITY_SCAN_BUDGET_NS = 3_000_000_000;
+
     private ?object $db = null;
     private ?RequestLog $requestLog;
     private mixed $connection = null;
@@ -2415,7 +2461,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
             return false;
         }
         try {
-            if (!\SemaphoreManager::wait('MAIN', 0, 1003)) {
+            if (!\SemaphoreManager::wait('MAIN', 3, 1003)) {
                 return false;
             }
         } catch (Throwable) {
@@ -2496,69 +2542,97 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         ) {
             return null;
         }
+        if (!function_exists(__NAMESPACE__ . '\\parseWrittenEvidenceEnvelope')) {
+            return null;
+        }
         try {
-            $rows = $this->readRows(
-                "WITH marked AS MATERIALIZED (
-                    SELECT e.rowid::text AS event_id, e.type AS source_type, e.sess AS source_sess,
-                           e.ts::text AS source_ts, e.gamets::text AS source_gamets,
-                           e.gamets::text AS gamets, e.localts::text AS source_localts,
-                           CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
-                           CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data,
-                           e.data::jsonb AS payload
-                    FROM eventlog e
-                    WHERE e.rowid > $6 AND e.rowid <= $7
-                      AND e.type = 'info' AND e.sess = 'written_evidence_v1'
-                 ), matches AS MATERIALIZED (
-                    SELECT marked.*
-                    FROM marked
-                    WHERE payload->>'playthrough_id' = $2
-                      AND (payload->>'document_id' = $1
-                           OR payload #>> '{receipt,receipt_id}' = $4
-                           OR payload #>> '{receipt,operation_id}' = $5)
-                    ORDER BY event_id::bigint
-                    LIMIT 2
-                 )
-                 SELECT event_id, source_type, source_sess, source_ts, source_gamets,
-                        gamets, source_localts, source_people, source_data,
-                        payload->>'document_id' AS document_id,
-                        payload #>> '{receipt,receipt_id}' AS receipt_id,
-                        payload #>> '{receipt,operation_id}' AS operation_id,
-                        payload->>'playthrough_id' AS playthrough_id,
-                        CASE WHEN jsonb_typeof(payload->'recipient') = 'object'
-                             THEN payload #>> '{recipient,id}' ELSE NULL END AS recipient_id,
-                        (payload #>> '{recipient,id}' = $3::text) AS recipient_matches
-                 FROM matches ORDER BY event_id::bigint",
-                [$documentId, $playthroughId, $recipientNpcId, $receiptId, $operationId, $afterEventIdExclusive, $throughEventIdInclusive]
-            );
             $result = [];
-            foreach ($rows as $row) {
-                $source = normalizeWrittenEvidenceSourceRow($row);
-                $id = filter_var($row['recipient_id'] ?? null, FILTER_VALIDATE_INT);
-                if (
-                    $source === null
-                    || !is_string($row['document_id'] ?? null)
-                    || !is_string($row['receipt_id'] ?? null)
-                    || !is_string($row['operation_id'] ?? null)
-                    || !is_string($row['playthrough_id'] ?? null)
-                    || $id === false || $id < 1
-                ) {
+            $cursor = $afterEventIdExclusive;
+            $scanDeadline = hrtime(true) + self::WRITTEN_EVIDENCE_IDENTITY_SCAN_BUDGET_NS;
+            while ($cursor < $throughEventIdInclusive) {
+                if (hrtime(true) >= $scanDeadline) {
                     return null;
                 }
-                $source['document_id'] = $row['document_id'];
-                $source['receipt_id'] = $row['receipt_id'];
-                $source['operation_id'] = $row['operation_id'];
-                $source['playthrough_id'] = $row['playthrough_id'];
-                $source['recipient_id'] = (int)$id;
-                $source['recipient_matches'] = ($row['recipient_matches'] ?? null) === 't';
-                if ($this->ownsTransaction) {
-                    $locked = $this->writtenEvidenceById($source['event_id']);
-                    if ($locked === null || !sameJsonValue(normalizeWrittenEvidenceSourceRow($locked), array_intersect_key($source, $locked))) {
+                $rows = $this->readRows(
+                    "SELECT e.rowid::text AS event_id, e.type AS source_type, e.sess AS source_sess,
+                            e.ts::text AS source_ts, e.gamets::text AS source_gamets,
+                            e.gamets::text AS gamets, e.localts::text AS source_localts,
+                            CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
+                            CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data
+                     FROM eventlog e
+                     WHERE e.rowid > $1 AND e.rowid <= $2
+                       AND e.type = 'info' AND e.sess = 'written_evidence_v1'
+                     ORDER BY e.rowid
+                     LIMIT " . self::WRITTEN_EVIDENCE_IDENTITY_BATCH_SIZE,
+                    [$cursor, $throughEventIdInclusive]
+                );
+                if (hrtime(true) >= $scanDeadline) {
+                    return null;
+                }
+                if ($rows === []) {
+                    break;
+                }
+                foreach ($rows as $row) {
+                    if (hrtime(true) >= $scanDeadline) {
                         return null;
                     }
+                    $eventId = filter_var($row['event_id'] ?? null, FILTER_VALIDATE_INT);
+                    if ($eventId === false || $eventId <= $cursor || $eventId > $throughEventIdInclusive) {
+                        return null;
+                    }
+                    $cursor = $eventId;
+
+                    $sourceData = $row['source_data'] ?? null;
+                    if (!is_string($sourceData) || $sourceData === '') {
+                        continue;
+                    }
+                    try {
+                        $payload = parseWrittenEvidenceEnvelope($sourceData);
+                    } catch (Throwable) {
+                        $payload = null;
+                    }
+                    $recipient = is_array($payload) ? ($payload['recipient'] ?? null) : null;
+                    $receipt = is_array($payload) ? ($payload['receipt'] ?? null) : null;
+                    $sourcePlaythrough = is_array($payload) ? ($payload['playthrough_id'] ?? null) : null;
+                    $sourceDocument = is_array($payload) ? ($payload['document_id'] ?? null) : null;
+                    $sourceReceipt = is_array($receipt) ? ($receipt['receipt_id'] ?? null) : null;
+                    $sourceOperation = is_array($receipt) ? ($receipt['operation_id'] ?? null) : null;
+                    $sourceRecipientId = is_array($recipient) ? ($recipient['id'] ?? null) : null;
+                    if (
+                        !is_string($sourcePlaythrough) || !is_string($sourceDocument)
+                        || !is_string($sourceReceipt) || !is_string($sourceOperation)
+                        || !is_int($sourceRecipientId) || $sourceRecipientId < 1
+                        || $sourcePlaythrough !== $playthroughId
+                        || ($sourceDocument !== $documentId
+                            && $sourceReceipt !== $receiptId
+                            && $sourceOperation !== $operationId)
+                    ) {
+                        continue;
+                    }
+
+                    $source = normalizeWrittenEvidenceSourceRow($row);
+                    if ($source === null) {
+                        continue;
+                    }
+                    $source['document_id'] = $sourceDocument;
+                    $source['receipt_id'] = $sourceReceipt;
+                    $source['operation_id'] = $sourceOperation;
+                    $source['playthrough_id'] = $sourcePlaythrough;
+                    $source['recipient_id'] = $sourceRecipientId;
+                    $source['recipient_matches'] = $sourceRecipientId === $recipientNpcId;
+                    if ($this->ownsTransaction) {
+                        $locked = $this->writtenEvidenceById($source['event_id']);
+                        if ($locked === null || !sameJsonValue(normalizeWrittenEvidenceSourceRow($locked), array_intersect_key($source, $locked))) {
+                            return null;
+                        }
+                    }
+                    $result[] = $source;
+                    if (count($result) === 2) {
+                        return hrtime(true) < $scanDeadline ? $result : null;
+                    }
                 }
-                $result[] = $source;
             }
-            return $result;
+            return hrtime(true) < $scanDeadline ? $result : null;
         } catch (Throwable) {
             return null;
         }
@@ -2749,6 +2823,70 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
             $row['gamets_last_updated'] = (float)$row['gamets_last_updated'];
         }
         return $row;
+    }
+
+    /** Read the optional SHARMAT child metadata without creating or migrating its table. */
+    public function intimacyChildDataByName(string $name): ?array
+    {
+        $name = trim($name);
+        if ($name === '' || preg_match('//u', $name) !== 1) {
+            return null;
+        }
+        try {
+            $catalog = $this->readRows("SELECT to_regclass('nsfw_npc_data') AS metadata_table", []);
+            if (count($catalog) !== 1 || !array_key_exists('metadata_table', $catalog[0])) {
+                return null;
+            }
+            if ($catalog[0]['metadata_table'] === null) {
+                return [];
+            }
+            if (!is_string($catalog[0]['metadata_table']) || $catalog[0]['metadata_table'] === '') {
+                return null;
+            }
+
+            $lock = $this->ownsTransaction ? ' FOR SHARE' : '';
+            $rows = $this->readRows(
+                "SELECT CASE
+                           WHEN jsonb_typeof(COALESCE(extended_data, '{}'::jsonb)) <> 'object'
+                             OR octet_length(jsonb_build_object(
+                                    'is_child', COALESCE(extended_data, '{}'::jsonb)->'is_child',
+                                    'race', COALESCE(extended_data, '{}'::jsonb)->'race'
+                                )::text) > 2048
+                           THEN NULL
+                           ELSE jsonb_build_object(
+                                'is_child', COALESCE(extended_data, '{}'::jsonb)->'is_child',
+                                'race', COALESCE(extended_data, '{}'::jsonb)->'race'
+                           )::text
+                       END AS child_data
+                 FROM nsfw_npc_data
+                 WHERE lower(replace(btrim(npc_name, E' \\t\\n\\r\\013'), '_', ' ')) =
+                       lower(replace(btrim($1::text, E' \\t\\n\\r\\013'), '_', ' '))
+                 ORDER BY npc_name
+                 LIMIT 2{$lock}",
+                [$name]
+            );
+            if (count($rows) > 1) {
+                return null;
+            }
+            if ($rows === []) {
+                return [];
+            }
+
+            $raw = $rows[0]['child_data'] ?? null;
+            if (!is_string($raw) || strlen($raw) > 2048) {
+                return null;
+            }
+            $data = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
+            if (!$data instanceof \stdClass) {
+                return null;
+            }
+            return [
+                'is_child' => $data->is_child ?? null,
+                'race' => $data->race ?? null,
+            ];
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     public function beginForListener(int $listenerId): bool

@@ -210,7 +210,9 @@ same('event-mismatch', mindPoisoningEvaluateReflectionReply($registration, $ack,
 diagnosticTerminal($records, 'rejected', 'reflection-source-mismatch', 'warning');
 
 resetAckLoggingInteraction();
-[$registration, $ack, $db] = diagnosticReplyFixture(array_fill(0, 9, 'Lydia betrayed me.'));
+$overCapCount = \ChimMindPoisoning\MIND_POISONING_REFLECTION_REPLY_MAX_LINES + 1;
+[$registration, $ack, $db] = diagnosticReplyFixture(array_fill(0, $overCapCount, 'Lydia betrayed me.'));
+same($overCapCount, count($registration['lines']), 'The cap fixture must contain exactly one line above the production limit.');
 $records = [];
 $capLog = captureRequestLog($records);
 same('invalid-payload', mindPoisoningEvaluateReflectionReply($registration, $ack, $db, static fn(array $_registration, string $_phase): bool => true, null, $capLog), 'The reply line cap must retain its established status.');

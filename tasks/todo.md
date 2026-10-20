@@ -1012,3 +1012,86 @@ Final integration update: coordinator final native and official-manager three-ca
 Plan: release-v0.1.27-plan.md. SHARMAT review is read-only; further SHARMAT implementation waits for author discussion. Live/game data remain untouched.
 
 Final release review: 0.1.27 BETA CANDIDATE product `9e2ee6b` and its tag were verified by clean-tag rebuilds and draft/public downloads; hub MP-only commit `46a191d` is pushed. The main receipt follows verified publication. Exact checksums and evidence: `docs/verification-v0.1.27.md` and `tasks/release-v0.1.27-plan.md`. No SHARMAT changes or live/game/provider/distro access.
+
+## Written-subject prompt correction — 2026-10-19, unpublished
+
+- [x] Confirm F1 ordinal3 malformed subject against retained isolated model evidence and strict candidate-key parser.
+- [x] Owner adds failing prompt-contract and malformed-subject checks, then removes ambiguous written-source sample.
+- [x] Lead reviews exact diff and caller/failure behavior, runs focused standalone checks and freezes distinct candidate hashes.
+- [x] Return candidate and limitations to Correspondence coordinator; leave release/tag/version and live environments untouched.
+
+Scope: server/written_evidence.php plus tests/written_evidence_test.php. Owner sharmat_tests; others share workspace and preserve edits. Model returned `player or npc:930101` under the exact published prompt containing `player or npc:<id>`. This supports an ambiguous-example defect, not proof that every future real-model reply succeeds. Strict subject validation remains unchanged. No providers, database, WSL, sibling product edits or publication.
+
+## Unpublished written-subject DWPkg handoff — 2026-10-19
+
+- [x] Package owner copies frozen24-file snapshot and unchanged builder to a separate artifact staging root; only its manifest version/description change.
+- [x] Build 0.1.27-written-subject.dev.1 DWPkg and freeze exact installed paths, bytes and hashes.
+- [x] Lead verifies embedded manifest, package content and public-tree preservation; send root package and standalone Linux test command.
+
+Scope: artifacts/mp-written-subject-dwpkg-20261019 only for package owner sharmat_build. Existing frozen candidate, public release/tag/assets and source manifest stay unchanged. No owner WSL/provider/database/install/publication. This is an isolated combined-kit test candidate, not a public update.
+
+Review: owner and independent lead checks confirm26members/24runtimefiles, allchecksums+CRC, matchingdevelopmentversions, onlyapprovedmetadata changes versusfrozenpromptcandidate. DWPkgSHA6d595b3795c9b8cc5c7b75855db7cc2f11d0250b616a38870741ab8664d87851 and exactfilemanifest+receipts sentroot. Devsuffix logs unknown withunchangedlogger; candidateidentity usespackage/manifests/hashinventory. Publicpin0.1.27unchanged; noinstallation/publication. Evidence: artifacts/mp-written-subject-dwpkg-20261019 and artifacts/mp-written-subject-prompt-20261019/dev-dwpkg-lead-verification.json.
+
+## Written zero-change evidence wording — 2026-10-19, unpublished follow-up
+
+- [x] Inspect F3 ordinal10 structural evidence and current written prompt/parser: one zero-delta mentioned sender has an empty evidence string; strict refusal is correct.
+- [x] Owner establishes failing prompt-contract check, clarifies nonblank exact body evidence for every judgment including neutral/unmentioned cases, and proves strict parser behavior.
+- [x] Lead reviews minimal diff and focused results, freezes a separate v2 candidate and returns exact hashes to coordinator.
+
+Same exclusive product/test owner sharmat_tests; no sibling or validator changes. Original F3 is retained; do not retry unchanged. Existing wording requests a short exact excerpt but does not explicitly address empty evidence in neutral decisions. The proposed clarification improves schema guidance; model compliance remains separately verified. No owner provider/WSL/DB/live actions, packaging or publication.
+
+## Sealed Fates real-stakes recommendations — 2026-10-19, source-only
+
+- [x] Reinspect frozen dev.2 written evaluator, personality/context projection, strict envelope, effective connector switch and persisted recipient/receipt paths.
+- [x] Prepare two independent grounded synthetic actor/letter setups, nonzero persisted-delta acceptance and contrary evidence criteria.
+- [x] Return exact API/config/readback guidance and attachment/forwarding evidence limits to coordinator.
+
+Review: writer SHA0f86ca951b9646c90fae02aa1045a01a50ca55b5f24d2f3b28e5896e34a879dd unchanged. Actual recipient personality comes from core_npc_master.personality (800-byte projection), not just the BGL goal/bio; prior edge context includes relation/note/best/worst (160-byte fields). Real REL50 with RELATIONSHIP_SYSTEM_ENABLED is the gate, not the BGL connector. Two fresh independent pairs avoid ordering/repetition contamination. Success requires recipient-owned core affinity before/after difference and receipt/history confirmation; committed alone can mean type-only. Zero remains legitimate counterevidence, with no unchanged retries or parser relaxation. Root exclusively owns runtime/providers; no MP code/manifest/package/release/live actions performed.
+
+## Written type-change shape clarification — 2026-10-19, unpublished dev3
+
+- [x] Inspect actual hostile response (ordinal17) and match the MP request by evaluator shape/candidate identity (requestordinal18, not a presumed equal ordinal); strict string rejection is correct.
+- [x] Owner adds failing type-shape prompt contract and focused parser/policy checks, then spells out nullable from/to object and missing-context behavior.
+- [x] Lead reviews exact diff/results, freezes separate candidate and delegates separately versioned dev.3 DWPkg; root alone runs any configured-model/native checks.
+
+Original source48/failure retained. No parser coercion/relaxation, custom/protected-type policy changes, implicit retries or desired-delta forcing. Same product/test owner sharmat_tests preserves others. No owner provider/WSL/DB/live actions or publication; existingdev2 remains immutable.
+
+## Plain-gratitude diagnosis and diagnostic coverage — 2026-10-19, source-only preflight
+
+- [x] Verify current source remains frozen dev3 writer9017b348... and locate retained E6 source64/case evidence.
+- [x] Evidence owner diagnoses exact model input/output/state, with counterexamples; logging owner independently maps semantic/mechanical reasons, correlation, retention and privacy.
+- [x] Lead reviews primary evidence and determines valid neutral versus a proven directly relevant defect; coordinate any schema proposal before edits.
+- [ ] If a defect is proven, delegate minimal red-first correction and freeze a distinct candidate; otherwise preserve dev3 and report no justified change/runtime rerun.
+
+Owners: sharmat_tests gratitude evidence only, sharmat_build logging audit only; distinct artifact files. Both preserve others, original E6, frozen packages and public/live state. Lead writes task records and reviews, no product code. No owner WSL, PG, provider or runtime activity; root exclusively coordinates any authorized disposable work. A positive delta is not predetermined, and source64 is never retried unchanged for luck.
+
+## Approved dev4 preflight diagnostics — 2026-10-19
+
+- [x] Root approves fixed written_evidence_preflight_finished event with existing schema1 fields; normal written records retain strict identity validation.
+- [x] Prepare separate artifact candidate from frozen dev3 and assign exclusive evaluator/dashboard owners; original source, E6 and packages preserved.
+- [x] Owners stage only focused failing tests; root alone runs PHP RED before product edits.
+- [x] Owners implement narrow preflight event/diagnostic-only admission; lead reviews affected calls/privacy/failure paths and runs explicitly authorized hermetic GREEN fixtures.
+- [x] Freeze exact candidate and separately versioned unpublished package; send root prerequisites, hashes and evidence limits.
+
+Candidate: artifacts/mp-written-preflight-dev4-20261019/candidate. sharmat_tests owns written_evidence.php + written_evidence_test.php; sharmat_build owns dashboard_data.php + written_dashboard_test.php. Only tests may change before root RED. All owner work is filesystem-only; no PHP (including lint), WSL, PG, provider or live actions. Early explicit evaluation attempts become observable without a fresh commit claim or interaction card; status/enqueue polls remain quiet. Source64 remains a valid zero and is never retried unchanged for luck. Two distinct appreciation/distrust controls were provided for root to freeze separately.
+Root retained RED: E7/mp-dashboard-final-red.txt and E7/mp-evidence-red.txt, both exit255 at intended new diagnostic assertions without setup/import errors. Lead read both. Root approved absent event_id only for the fixed preflight invalid/event_id_invalid combination; malformed present IDs remain refused. Both owners now implement within isolated candidate, no owner PHP/lint/runtime. Original gratitude prompt and publicdev3 baseline remain unchanged.
+
+Dev4 GREEN review: evaluator passes 215 checks (exit0) after a test-only correction accepting finite numeric zero after JSON encoding; original RED and first GREEN failure are retained. Dashboard final fixture passes (exit0), unchanged. Lead's narrow execution exception covered only named hermetic tests in DwemerAI4Skyrim3-test with PHPRC unset and php -n/mbstring; no DB/provider/bootstrap/service actions. Exactly two runtime files differ from dev3; buildWrittenEvidenceMessages is byte-identical, SHA256 87b1b152b7358c405e7a09e3fc98bb97a8d63dc8d559ab9864f7143eb0f85e00. Candidate proof: artifacts/mp-written-preflight-dev4-20261019/final-candidate-proof.json. Packaging/final coordinator integration pending.
+
+Final dev4 packaging review: unchanged builder produced mind_poisoning-0.1.27-written-subject.dev.4.dwpkg SHA256 ff4fe782f2a7f4589174ff1f0bb6922b5fde9eba7384f73505e64e09d2bd3386, 1208128 bytes. Owner and lead independently verified 26 members, 25 checksums, CRC, 24 exact installed payload files, matching package versions and staged-manifest version/description only. All24hashes and package in artifacts/mp-written-preflight-dwpkg-dev4-20261019; coordinator received exact sealed path/hash/proofs/outputs. Development suffix reports version=unknown through unchanged logger; manifests and hashes identify candidate. Root syntax checks and actual integration remain separate. No new public pin or installation by MP owner.
+
+## Unpublished critique fixes — integration, 2026-10-19
+
+- [x] Review current source, critique, retained checks and pre-existing edits; work in isolated candidate with exclusive owners and Ponytail FULL.
+- [x] Verify arrangement-only child protection, preserved ordinary child affinity/type, off/pause context, truthful reaffirmation counts, written identity corruption isolation, bounded MAIN wait and corrected diagnostics-cap fixture.
+- [x] Review source/callers/failure paths and actual targeted RED/GREEN outputs; syntax-check changed PHP. No provider or live data used.
+- [x] Back up exact original canonical files and task state before integration; freeze 25-path manifest (23 changed, 2 unchanged).
+- [x] Owners copy only their reviewed source/tests/docs after rechecking original/candidate hashes; preserve task notes and release metadata.
+- [x] Lead verifies final bytes, scope, protected files and retained task notes; record final limits and unchanged public pin.
+
+Evidence and exact commands/results: `K:/ActorwrightExchange/artifacts/mp-audit-fixes-20261019/verification.md`. Manifest `integration-final-manifest.json` SHA-256 ae576e644289be2d98b0741556b989b33a54c3fc6d1f5dd0617c06c6a44a76d0. Exact original bytes retained in `canonical-before-integration/`; no installed files, versions, packages, tags or releases may change.
+
+Final review: tasks/critique-fixes-review-2026-10-19.md. All focused GREEN outputs reviewed; 25 canonical/candidate hashes, 22 originals and 7 protected states independently verified. Original task prefixes and three review notes preserved. No further optional testing; live/game/SHARMAT untouched, no publication or pin advance.
+
+## Release0.1.28 — 2026-10-19
+User authorized commit, push and publication with live/game untouched. Checklist and evidence: tasks/release-v0.1.28-plan.md; artifacts/mp-release-0.1.28-20261019/. No maturity promotion.

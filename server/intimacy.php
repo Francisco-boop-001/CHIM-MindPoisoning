@@ -152,6 +152,72 @@ function mindPoisoningIntimacyRecognitionEnabled(): bool
     }
 }
 
+/** Mirror SHARMAT's server-side hard child signals for the arrangement lane. */
+function mindPoisoningIntimacyIsKnownChild(
+    string $actorName,
+    ?array $boundNpcRow = null,
+    ?array $trustedChildData = null
+): bool {
+    static $names = [
+        'babette', 'erith', 'blaise', 'clinton lylvieve', 'lucia', 'mila valentia',
+        'francois beaufort', 'samuel', 'aeta', 'agni', 'britte', 'dagny', 'dorthe',
+        'eirid', 'fjotra', 'helgi', "helgi's ghost", 'hrefna', 'minette vinius',
+        'rin', 'runa fair-shield', 'sissel', 'sofie', 'svari', 'assur',
+        'aventus aretino', 'bottar', 'frodnar', 'frothar', 'gralnach',
+        'grimvar cruel-sea', 'haming', 'hroar', 'joric', 'knud', 'lars battle-born',
+        'little pelagius', 'nelkir', 'skuli', 'smaref ice-blade', 'sond', 'virkmund',
+        'adara', 'braith', 'alesan', 'kayd', 'lavinia', 'clinton',
+    ];
+    if (in_array(strtolower(trim($actorName)), $names, true)) {
+        return true;
+    }
+
+    $extendedData = $boundNpcRow['extended_data'] ?? null;
+    $pluginData = $boundNpcRow['plugin_extended_data'] ?? null;
+    $pluginData = is_array($pluginData) ? $pluginData : (is_object($pluginData) ? get_object_vars($pluginData) : []);
+    $sharmatData = $pluginData['sharmat'] ?? null;
+    $facts = [
+        $boundNpcRow ?? [],
+        is_array($extendedData) ? $extendedData : (is_object($extendedData) ? get_object_vars($extendedData) : []),
+        is_array($sharmatData) ? $sharmatData : (is_object($sharmatData) ? get_object_vars($sharmatData) : []),
+        $trustedChildData ?? [],
+    ];
+    foreach ($facts as $fact) {
+        if (!empty($fact['is_child'])) {
+            return true;
+        }
+        $race = $fact['race'] ?? null;
+        if (is_string($race) && str_contains(strtolower(trim($race)), 'child')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Returns null when the optional read-only child metadata lookup is unavailable. */
+function mindPoisoningIntimacyChildStatus(
+    StoreDb $store,
+    string $actorName,
+    ?array $boundNpcRow = null,
+    bool $readStoredChildData = true
+): ?bool {
+    if (mindPoisoningIntimacyIsKnownChild($actorName, $boundNpcRow)) {
+        return true;
+    }
+    if (!$readStoredChildData || !method_exists($store, 'intimacyChildDataByName')) {
+        return false;
+    }
+    try {
+        $childData = $store->intimacyChildDataByName($actorName);
+    } catch (Throwable) {
+        return null;
+    }
+    if ($childData === null) {
+        return null;
+    }
+    return mindPoisoningIntimacyIsKnownChild($actorName, $boundNpcRow, $childData);
+}
+
 function intimacyDirectSourceCurrent(array $event, array $source, array $active, array $identities): bool
 {
     if (
@@ -393,6 +459,17 @@ function mindPoisoningReadIntimacyFromRow(
     if ($record === null) {
         return ['state' => 'none', 'kind' => null] + $base + ['basis' => null, 'reason' => 'arrangement_absent', 'sources' => []];
     }
+    $ownerChildStatus = mindPoisoningIntimacyChildStatus($store, $owner['npc_name'], $owner);
+    $targetChildStatus = mindPoisoningIntimacyChildStatus(
+        $store,
+        (string)$targetName,
+        $targetSubject === 'player' ? null : $target,
+        $targetSubject !== 'player'
+    );
+    if ($ownerChildStatus !== false || $targetChildStatus !== false) {
+        return intimacyUnavailable($ownerNpcId, $targetSubject, $scope,
+            $ownerChildStatus === true || $targetChildStatus === true ? 'known_child' : 'child_data_unavailable');
+    }
     if (
         $record['owner_id'] !== $ownerNpcId || $record['target'] !== $targetSubject
         || $record['playthrough_id'] !== $scope
@@ -532,6 +609,16 @@ function intimacyUnavailable(int $ownerId, string $target, ?string $scope, strin
 
 function mindPoisoningIntimacyContext(string $actorName, ?StoreDb $store = null): string
 {
+    if (
+        !mindPoisoningIntimacyRecognitionEnabled()
+        || !function_exists(__NAMESPACE__ . '\\mindPoisoningPauseStatus')
+    ) {
+        return '';
+    }
+    $pauseReason = null;
+    if (mindPoisoningPauseStatus($pauseReason) !== 'enabled') {
+        return '';
+    }
     try {
         $store ??= new PostgresStoreDb();
         $active = $store->activePlaythrough();

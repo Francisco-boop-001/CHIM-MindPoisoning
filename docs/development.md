@@ -136,6 +136,8 @@ The wrapper is `dist/0.1.5/mind_poisoning-0.1.5-mo2.zip` and contains exactly `C
 
 Run the local checks:
 
+Run `php tests/reflection_diagnostics_test.php` as a manual pre-release source check; the package tests do not execute PHP behavior suites.
+
 ```sh
 python -m unittest discover -s tests -p 'test_package.py' -v
 php -l server/influence.php
@@ -145,6 +147,7 @@ php -l server/store.php
 php tests/influence_test.php
 php tests/model_test.php
 php tests/runtime_test.php
+php tests/reflection_diagnostics_test.php
 php tests/logging_test.php
 php tests/store_logging_test.php
 php tests/dashboard_preview.php --self-test

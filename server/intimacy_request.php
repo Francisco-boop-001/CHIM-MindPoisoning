@@ -21,7 +21,7 @@ function logDirectIntimacyOutcome(
         return;
     }
     $outcome ??= 'disabled';
-    $level = in_array($outcome, ['committed', 'duplicate', 'below-floor'], true) ? 'info' : 'warning';
+    $level = in_array($outcome, ['committed', 'duplicate', 'below-floor', 'ineligible'], true) ? 'info' : 'warning';
     $requestLog->event('intimacy_finished', $level, [
         'source_kind' => 'intimacy',
         'opinion_owner_id' => $ownerId,
@@ -268,10 +268,49 @@ function intimacyDirectAckRevalidate(
     ) {
         return false;
     }
+    if (intimacyDirectPairChildStatus($event, $speaker, $store) !== false) {
+        return false;
+    }
     $speakerExtended = $speaker['extended_data'] ?? null;
     return $speakerExtended instanceof \stdClass
         && empty($speakerExtended->relationships_locked)
         && (int)($speaker['lock_profile'] ?? 0) === 0;
+}
+
+/** Return false only when both directed participants pass available child veto signals. */
+function intimacyDirectPairChildStatus(array $event, array $owner, StoreDb $store): ?bool
+{
+    $ownerName = $owner['npc_name'] ?? null;
+    if (!is_string($ownerName) || trim($ownerName) === '') {
+        return null;
+    }
+    $ownerStatus = mindPoisoningIntimacyChildStatus($store, $ownerName, $owner);
+    if ($ownerStatus !== false) {
+        return $ownerStatus;
+    }
+
+    $targetSubject = $event['target_subject'] ?? null;
+    if ($targetSubject === 'player') {
+        $playerName = $event['player_name'] ?? null;
+        if (!is_string($playerName) || trim($playerName) === '') {
+            return null;
+        }
+        return mindPoisoningIntimacyChildStatus($store, $playerName, null, false);
+    }
+    if (!is_string($targetSubject) || preg_match('/\Anpc:([1-9][0-9]*)\z/D', $targetSubject, $match) !== 1) {
+        return null;
+    }
+    $targetId = (int)$match[1];
+    $target = $store->npcById($targetId);
+    $targetName = $event['listener_name'] ?? null;
+    if (
+        !is_array($target) || (int)($target['id'] ?? 0) !== $targetId
+        || !is_string($targetName) || trim($targetName) === ''
+        || !sameActorName($target['npc_name'] ?? null, $targetName)
+    ) {
+        return null;
+    }
+    return mindPoisoningIntimacyChildStatus($store, $targetName, $target);
 }
 
 function classifyPlayerDirectedIntimacyAck(
@@ -458,6 +497,11 @@ function classifyDirectIntimacyEvent(
             'source_kind' => 'intimacy',
             'opinion_owner_id' => $ownerId,
         ]);
+        $childStatus = intimacyDirectPairChildStatus($event, $owner, $store);
+        if ($childStatus !== false) {
+            return $finish($childStatus === true ? 'ineligible' : 'unavailable',
+                $childStatus === true ? 'known_child' : 'child_data_unavailable');
+        }
         if (mindPoisoningRestorePolicyEnabled()) {
             $restoreFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
             $baselineStatus = prepareRestorePolicyRecipient($event, $owner, $store, $requestLog, $restoreFields);

@@ -524,6 +524,7 @@ function evaluateReflection(
             return $fail('actor-invalid', 'relationships-invalid');
         }
     }
+    $subjectRows = [];
     foreach ($subjects as $token => $subject) {
         if ($token === 'player') {
             continue;
@@ -533,6 +534,7 @@ function evaluateReflection(
         if (!is_array($target) || !sameActorName($target['npc_name'] ?? null, $subject['name']) || count($targetMatches) !== 1 || (int)$targetMatches[0]['id'] !== $subject['id']) {
             return $fail('subject-stale', 'reflection-subject-stale');
         }
+        $subjectRows[$token] = $target;
     }
 
     $history = null;
@@ -548,7 +550,24 @@ function evaluateReflection(
         }
     }
     $intimacyEnabled = mindPoisoningIntimacyRecognitionEnabled();
+    $arrangementAllowedSubjects = [];
+    if ($intimacyEnabled) {
+        $ownerChildStatus = mindPoisoningIntimacyChildStatus($store, $actor['npc_name'], $actor);
+        if ($ownerChildStatus === false) {
+            foreach ($subjects as $token => $subject) {
+                $targetChildStatus = $token === 'player'
+                    ? mindPoisoningIntimacyChildStatus($store, $playerName, null, false)
+                    : mindPoisoningIntimacyChildStatus($store, $subject['name'], $subjectRows[$token] ?? null);
+                if ($targetChildStatus === false) {
+                    $arrangementAllowedSubjects[] = $token;
+                }
+            }
+        }
+    }
     if ($pending === [] && !$intimacyEnabled) {
+        return $fail('duplicate', 'reflection-basis-duplicate');
+    }
+    if ($pending === [] && $intimacyEnabled && $arrangementAllowedSubjects === []) {
         return $fail('duplicate', 'reflection-basis-duplicate');
     }
     $storedState = $ledger !== [] && $ledger['playthrough_id'] === $event['playthrough_id'] ? ($ledger['reflection_state'] ?? null) : null;
@@ -601,13 +620,16 @@ function evaluateReflection(
         $history,
         $currentTypes,
         $intimacyEnabled,
-        $unchangedSubjects
+        $unchangedSubjects,
+        $arrangementAllowedSubjects
     );
     $requestLog?->context(['connector_id' => $connectorId, 'subject_count' => count($subjects)]);
     $requestLog?->event('reflection_model_started', 'debug', ['stage' => 'model', 'connector_id' => $connectorId, 'subject_count' => count($subjects)]);
     $started = hrtime(true);
     try {
-        $response = $intimacyEnabled ? $requestModel($messages, 4096) : $requestModel($messages);
+        $response = $intimacyEnabled && $arrangementAllowedSubjects !== []
+            ? $requestModel($messages, 4096)
+            : $requestModel($messages);
     } catch (Throwable $error) {
         $reason = $error instanceof ModelRequestFailure ? $error->reasonCode : 'model_request_failed';
         $logFields['model_outcome'] = 'failed';
@@ -623,7 +645,7 @@ function evaluateReflection(
         return $fail('model-invalid', 'model_response_invalid_type');
     }
     try {
-        $judgments = parseJudgments($response, $subjects, $event['text'], $currentTypes, $intimacyEnabled, $unchangedSubjects);
+        $judgments = parseJudgments($response, $subjects, $event['text'], $currentTypes, $intimacyEnabled, $unchangedSubjects, $arrangementAllowedSubjects);
     } catch (JudgmentValidationFailure $error) {
         $logFields['model_outcome'] = 'invalid';
         $logFields['reason'] = $error->reasonCode;

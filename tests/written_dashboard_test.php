@@ -6,6 +6,7 @@ use function ChimMindPoisoning\dashboardBuildInteractions;
 use function ChimMindPoisoning\dashboardLogInteractions;
 use function ChimMindPoisoning\dashboardFilters;
 use function ChimMindPoisoning\dashboardParseLogLine;
+use function ChimMindPoisoning\dashboardRecordMatches;
 use function ChimMindPoisoning\renderDashboard;
 
 require_once __DIR__ . '/../server/logging.php';
@@ -131,6 +132,136 @@ writtenDashboardAssert(
     'The dashboard should retain only sanitized written model and cleanup event fields.'
 );
 
+$preflightRawRecords = [];
+$preflightLog = new RequestLog(static function (string $json, string $level) use (&$preflightRawRecords): void {
+    $preflightRawRecords[] = ['level' => $level, 'json' => $json];
+}, true);
+$preflightLog->context([
+    'source_kind' => 'written_evidence',
+    'event_id' => 446,
+    'speaker_kind' => 'npc',
+    'speaker_id' => 99,
+    'listener_id' => 22,
+    'utterance_id' => 'utt_forged_preflight_source',
+    'source_data' => 'private preflight document body',
+    'source_digest' => str_repeat('e', 64),
+]);
+$preflightLog->event('written_evidence_preflight_finished', 'info', [
+    'stage' => 'preflight',
+    'outcome' => 'processed',
+    'reason' => 'receipt_confirmed',
+    'model_outcome' => 'not_called',
+    'model_ms' => 0.0,
+    'persistence_outcome' => 'not_attempted',
+    'commit_state' => 'not_attempted',
+    'committed' => false,
+    'elapsed_ms' => 1.2,
+    'source_data' => 'private preflight document body',
+    'source_digest' => str_repeat('f', 64),
+    'model_reason' => 'private preflight rationale',
+]);
+$preflightRaw = $preflightRawRecords[0] ?? null;
+writtenDashboardAssert(is_array($preflightRaw), 'The fixed preflight diagnostic should be emitted.');
+$preflightRecord = dashboardParseLogLine('[' . $preflightRaw['level'] . '] ' . $preflightRaw['json']);
+writtenDashboardAssert(
+    is_array($preflightRecord)
+        && ($preflightRecord['event'] ?? null) === 'written_evidence_preflight_finished'
+        && ($preflightRecord['source_kind'] ?? null) === 'written_evidence'
+        && ($preflightRecord['event_id'] ?? null) === '446'
+        && !isset($preflightRecord['playthrough_id'])
+        && !isset($preflightRecord['opinion_owner_id'])
+        && !isset($preflightRecord['recipient_id'])
+        && ($preflightRecord['stage'] ?? null) === 'preflight'
+        && ($preflightRecord['outcome'] ?? null) === 'processed'
+        && ($preflightRecord['reason'] ?? null) === 'receipt_confirmed'
+        && ($preflightRecord['model_outcome'] ?? null) === 'not_called'
+        && (is_int($preflightRecord['model_ms'] ?? null) || is_float($preflightRecord['model_ms'] ?? null))
+        && (float)$preflightRecord['model_ms'] === 0.0
+        && ($preflightRecord['persistence_outcome'] ?? null) === 'not_attempted'
+        && ($preflightRecord['commit_state'] ?? null) === 'not_attempted'
+        && ($preflightRecord['committed'] ?? null) === false
+        && ($preflightRecord['elapsed_ms'] ?? 0) > 0,
+    'Only the fixed preflight event may retain a valid event ID while scope and recipient identity are unknown.'
+);
+$preflightJson = json_encode($preflightRecord, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+writtenDashboardAssert(
+    !str_contains($preflightJson, 'private preflight document body')
+        && !str_contains($preflightJson, 'private preflight rationale')
+        && !str_contains($preflightJson, 'source_digest')
+        && !str_contains($preflightJson, 'speaker_id')
+        && !str_contains($preflightJson, 'utterance_id')
+        && dashboardRecordMatches($preflightRecord, dashboardFilters(['outcome' => 'processed'])),
+    'The sanitized preflight record should remain available to diagnostics/filter JSONL without private or speech fields.'
+);
+$forgedPreflight = json_decode($preflightRaw['json'], true, 512, JSON_THROW_ON_ERROR);
+$forgedPreflight['committed'] = true;
+$forgedPreflight['commit_state'] = 'confirmed';
+$forgedPreflight['changes'] = [['subject' => 'npc:33', 'before' => 5.0, 'after' => 7.0]];
+$forgedPreflight['type_changes'] = [['subject' => 'npc:33', 'before' => 'neutral', 'after' => 'ally']];
+$forgedPreflightRecord = dashboardParseLogLine('[info] ' . json_encode($forgedPreflight, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+writtenDashboardAssert(
+    $forgedPreflightRecord === null
+        || (($forgedPreflightRecord['committed'] ?? false) === false
+            && ($forgedPreflightRecord['commit_state'] ?? 'not_attempted') === 'not_attempted'
+            && ($forgedPreflightRecord['changes'] ?? []) === []
+            && ($forgedPreflightRecord['type_changes'] ?? []) === []),
+    'Preflight diagnostics must reject or strip any claim of a commit or applied relationship changes.'
+);
+$unsafePreflight = json_decode($preflightRaw['json'], true, 512, JSON_THROW_ON_ERROR);
+$unsafePreflight['speaker_id'] = 99;
+$unsafePreflight['utterance_id'] = 'utt_forged_preflight_actor';
+writtenDashboardAssert(
+    dashboardParseLogLine('[info] ' . json_encode($unsafePreflight, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+    'Preflight diagnostics must reject speech or actor attribution.'
+);
+$prosePreflight = json_decode($preflightRaw['json'], true, 512, JSON_THROW_ON_ERROR);
+$prosePreflight['reason'] = 'private letter text';
+writtenDashboardAssert(
+    dashboardParseLogLine('[info] ' . json_encode($prosePreflight, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+    'Preflight diagnostics must reject raw prose in fixed reason fields.'
+);
+$invalidPreflightId = json_decode($preflightRaw['json'], true, 512, JSON_THROW_ON_ERROR);
+$invalidPreflightId['playthrough_id'] = 'unknown-scope';
+writtenDashboardAssert(
+    dashboardParseLogLine('[info] ' . json_encode($invalidPreflightId, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+    'A partial preflight identity may omit an unknown scope but may not invent an invalid one.'
+);
+$missingEventIdPreflight = json_decode($preflightRaw['json'], true, 512, JSON_THROW_ON_ERROR);
+unset($missingEventIdPreflight['event_id']);
+$missingEventIdPreflight['outcome'] = 'invalid';
+$missingEventIdPreflight['reason'] = 'event_id_invalid';
+$missingEventIdRecord = dashboardParseLogLine('[info] ' . json_encode($missingEventIdPreflight, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+writtenDashboardAssert(
+    is_array($missingEventIdRecord)
+        && !array_key_exists('event_id', $missingEventIdRecord)
+        && ($missingEventIdRecord['outcome'] ?? null) === 'invalid'
+        && ($missingEventIdRecord['reason'] ?? null) === 'event_id_invalid'
+        && dashboardRecordMatches($missingEventIdRecord, dashboardFilters(['outcome' => 'invalid'])),
+    'Only an invalid event-ID preflight may be retained without an event ID.'
+);
+$unverifiedMissingId = $missingEventIdPreflight;
+$unverifiedMissingId['playthrough_id'] = '7';
+$unverifiedMissingId['opinion_owner_id'] = 22;
+$unverifiedMissingId['recipient_id'] = 22;
+writtenDashboardAssert(
+    dashboardParseLogLine('[info] ' . json_encode($unverifiedMissingId, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+    'An invalid event ID cannot be correlated to an unverified scope or recipient.'
+);
+foreach ([0, null] as $presentInvalidEventId) {
+    $presentInvalidPreflight = $missingEventIdPreflight;
+    $presentInvalidPreflight['event_id'] = $presentInvalidEventId;
+    writtenDashboardAssert(
+        dashboardParseLogLine('[info] ' . json_encode($presentInvalidPreflight, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+        'A present but invalid event ID must not be treated as an absent event ID.'
+    );
+}
+$partialOrdinary = json_decode($rawRecords[1]['json'], true, 512, JSON_THROW_ON_ERROR);
+unset($partialOrdinary['playthrough_id'], $partialOrdinary['opinion_owner_id'], $partialOrdinary['recipient_id']);
+writtenDashboardAssert(
+    dashboardParseLogLine('[info] ' . json_encode($partialOrdinary, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) === null,
+    'Ordinary written terminal records must still require verified scope and recipient identity.'
+);
+
 $forgedSpeaker = json_decode($rawRecords[1]['json'], true, 512, JSON_THROW_ON_ERROR);
 $forgedSpeaker['speaker_kind'] = 'npc';
 $forgedSpeaker['speaker_id'] = 99;
@@ -183,6 +314,18 @@ $database = [
     'limited' => false,
     'invalid_ledgers' => false,
 ];
+$preflightLogLimited = false;
+writtenDashboardAssert(
+    dashboardLogInteractions([$preflightRecord], null, false, $preflightLogLimited) === []
+        && !$preflightLogLimited,
+    'A preflight diagnostic must not be interpreted as a log-only interaction card.'
+);
+$preflightActiveLimited = false;
+writtenDashboardAssert(
+    dashboardBuildInteractions($database, [$preflightRecord], $preflightActiveLimited) === []
+        && !$preflightActiveLimited,
+    'A preflight diagnostic must not be interpreted as a database-backed effect card.'
+);
 $activeLimited = false;
 $activeInteractions = dashboardBuildInteractions($database, $records, $activeLimited);
 writtenDashboardAssert(

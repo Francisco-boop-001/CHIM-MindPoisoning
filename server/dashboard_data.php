@@ -268,6 +268,84 @@ function dashboardParseLogLine(string $line): ?array
     if ($sourceKind === 'written_evidence') {
         $ownerId = dashboardId($record->opinion_owner_id ?? null);
         $recipientId = dashboardId($record->recipient_id ?? null);
+        if ($event === 'written_evidence_preflight_finished') {
+            $eventIdPresent = property_exists($record, 'event_id');
+            $eventId = $eventIdPresent ? dashboardId($record->event_id) : null;
+            $rawPlaythroughId = $record->playthrough_id ?? null;
+            $playthroughId = $rawPlaythroughId === null ? null : dashboardPlaythroughId($rawPlaythroughId);
+            $rawOwnerId = $record->opinion_owner_id ?? null;
+            $rawRecipientId = $record->recipient_id ?? null;
+            $outcome = $record->outcome ?? null;
+            $reason = $record->reason ?? null;
+            $missingIdInvalid = !$eventIdPresent && $outcome === 'invalid' && $reason === 'event_id_invalid';
+            $modelMs = dashboardFiniteNumber($record->model_ms ?? null, 0, 0);
+            $elapsedMs = dashboardFiniteNumber($record->elapsed_ms ?? null, 0, 86400000);
+            foreach ([
+                'speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id',
+                'listener_role', 'batch_id', 'utterance_id', 'delta', 'subject',
+            ] as $field) {
+                if (property_exists($record, $field) && $record->{$field} !== null) {
+                    return null;
+                }
+            }
+            foreach (['changes', 'type_changes', 'type_decisions', 'arrangement_changes'] as $field) {
+                if (property_exists($record, $field) && $record->{$field} !== null && $record->{$field} !== []) {
+                    return null;
+                }
+            }
+            foreach (['changed_count', 'affinity_changed_count', 'type_changed_count', 'arrangement_changed_count'] as $field) {
+                if (property_exists($record, $field) && $record->{$field} !== 0) {
+                    return null;
+                }
+            }
+            if (
+                ($eventIdPresent && $eventId === null)
+                || (!$eventIdPresent && !$missingIdInvalid)
+                || ($missingIdInvalid && ($playthroughId !== null || $ownerId !== null || $recipientId !== null))
+                || ($rawPlaythroughId !== null && $playthroughId === null)
+                || ($rawOwnerId !== null && $ownerId === null)
+                || ($rawRecipientId !== null && $recipientId === null)
+                || (($ownerId === null) !== ($recipientId === null))
+                || ($ownerId !== null && $ownerId !== $recipientId)
+                || ($record->stage ?? null) !== 'preflight'
+                || !dashboardWrittenTerminalOutcome($outcome)
+                || !is_string($reason)
+                || preg_match('/\A[a-z][a-z0-9_.-]{0,63}\z/D', $reason) !== 1
+                || ($record->model_outcome ?? null) !== 'not_called'
+                || $modelMs === null
+                || ($record->persistence_outcome ?? null) !== 'not_attempted'
+                || ($record->commit_state ?? null) !== 'not_attempted'
+                || ($record->committed ?? null) !== false
+                || $elapsedMs === null
+                || ($record->cleanup_failed ?? null) === true
+            ) {
+                return null;
+            }
+            $clean = array_intersect_key($clean, array_fill_keys([
+                'schema_version', 'plugin', 'version', 'timestamp', 'request_id', 'level', 'event',
+            ], true));
+            $clean['source_kind'] = 'written_evidence';
+            if ($eventId !== null) {
+                $clean['event_id'] = $eventId;
+            }
+            $clean['stage'] = 'preflight';
+            $clean['outcome'] = $outcome;
+            $clean['reason'] = $reason;
+            $clean['model_outcome'] = 'not_called';
+            $clean['model_ms'] = $modelMs;
+            $clean['persistence_outcome'] = 'not_attempted';
+            $clean['commit_state'] = 'not_attempted';
+            $clean['committed'] = false;
+            $clean['elapsed_ms'] = $elapsedMs;
+            if ($playthroughId !== null) {
+                $clean['playthrough_id'] = $playthroughId;
+            }
+            if ($ownerId !== null) {
+                $clean['opinion_owner_id'] = $ownerId;
+                $clean['recipient_id'] = $recipientId;
+            }
+            return $clean;
+        }
         foreach (['speaker_id', 'speaker_kind', 'listener_id', 'addressed_listener_id', 'listener_role', 'batch_id', 'utterance_id'] as $field) {
             if (property_exists($record, $field) && $record->{$field} !== null) {
                 return null;

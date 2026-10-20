@@ -73,3 +73,10 @@ Do not infer that a non-person marker cannot resolve through the NPC catalog. A 
 - Separate demonstrated repairs from new policy and plugin-specific integration. Make behavior changes explicit, keep patches easy to accept independently, and leave architectural direction to the maintainer. A passing test cannot validate an unagreed policy.
 - Do not dismiss the user's apology as unnecessary or advise them to stop apologizing. It acknowledges authorship, hospitality and the review burden we introduced. A maintainer's gracious welcome does not erase that concern or authorize broader changes.
 - Current SHARMAT work waits for Wondernutts's review. Leave its code, branch and PR untouched until the user gives further direction; preserve the live server and game data.
+
+## Scope safeguards to their operation — 2026-10-19
+
+- User correction: child NPCs retain ordinary friendships, family bonds, affinity/type judgments, gossip and reflection. Do not confuse those mechanics with sexual-intimacy arrangements or apply a blanket relationship veto.
+- Apply recognized-child protection only to arrangement classification, arrangement writes and arrangement exposure through API/prompt context. Remove the prohibited field from a mixed reflection judgment without discarding valid ordinary judgments or eligible adult siblings.
+- Mind Poisoning records relationship reports; SHARMAT owns action authorization and the native Actor.IsChild scene safeguard. Reuse the inspected server policy without adding declined adult-attestation setup or treating a homonymous NPC row as Player metadata. Missing server metadata is not universal proof of adulthood.
+- Verify fixture prerequisites and persistence semantics before interpreting a failing new test as a product defect. An arrangement-only fake that ignores relationship edges cannot prove an affinity/type write; keep production verification intact and correct the test seam.

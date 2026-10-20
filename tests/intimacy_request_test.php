@@ -129,6 +129,8 @@ function runIntimacyAck(array $options, string $response, int &$calls): array
 /** Adds the real optional restore-policy store capability to the shared in-memory DB. */
 final class IntimacyRestoreMemoryStore implements StoreDb, RestorePolicyStoreDb
 {
+    public array $childData = [];
+
     public function __construct(
         private MemoryStoreDb $memory,
         public int $latestInitEventId = 50,
@@ -143,6 +145,11 @@ final class IntimacyRestoreMemoryStore implements StoreDb, RestorePolicyStoreDb
     public function eventById(int $eventId, string $utteranceId): ?array { return $this->memory->eventById($eventId, $utteranceId); }
     public function npcIdentities(): array { return $this->memory->npcIdentities(); }
     public function npcById(int $npcId, bool $forUpdate = false): ?array { return $this->memory->npcById($npcId, $forUpdate); }
+    public function intimacyChildDataByName(string $name): ?array
+    {
+        $key = strtolower(str_replace('_', ' ', trim($name)));
+        return array_key_exists($key, $this->childData) ? $this->childData[$key] : [];
+    }
     public function reflectionHistory(string $actorName, int $beforeEventId): array { return $this->memory->reflectionHistory($actorName, $beforeEventId); }
     public function beginForListener(int $listenerId): bool { return $this->memory->beginForListener($listenerId); }
     public function writeNpc(int $npcId, array $relationshipEdges, object $mindPoisoningData, float $gamets, array $relationshipKeysToRemove = []): bool
@@ -238,6 +245,25 @@ $calls = 0;
 same('no-subjects', $disabledStatus, 'The disabled feature must not change the ordinary ACK status.');
 same(0, $calls, 'The global opt-in defaults off and gates direct classification.');
 same(null, intimacyStoredRecord($disabledDb, 11, 'npc:22'), 'Disabled classification must not write arrangement state.');
+
+[, , , $childMemory] = baseFixture();
+$childStore = new IntimacyRestoreMemoryStore($childMemory);
+$childStore->childData['aela'] = ['is_child' => true, 'race' => 'Nord'];
+$calls = 0;
+[$childOwnerStatus, $childOwnerDb, $childOwnerEventId, $childOwnerUtterance, $_childOwnerSpeech, $childOwnerRecords] = runIntimacyAck(
+    ['store' => $childStore],
+    json_encode(['intimacy' => ['status' => 'casual', 'evidence' => 'We have a casual arrangement.']], JSON_THROW_ON_ERROR),
+    $calls
+);
+same('no-subjects', $childOwnerStatus, 'A known-child arrangement veto must leave ordinary ACK handling unchanged.');
+same(0, $calls, 'A known-child direct owner must be vetoed before the classifier call.');
+same(null, intimacyStoredRecord($childOwnerDb, 11, 'npc:22'), 'A known-child direct owner must not write arrangement state.');
+check(!intimacyHasReceipt($childOwnerDb, 11, $childOwnerEventId, $childOwnerUtterance), 'A child-vetoed direct source must not be marked processed by the arrangement lane.');
+$childOwnerTerminal = array_values(array_filter($childOwnerRecords, static fn(array $entry): bool => ($entry['event'] ?? null) === 'intimacy_finished'));
+same(1, count($childOwnerTerminal), 'A known-child direct skip must still have one bounded terminal event.');
+same('known_child', $childOwnerTerminal[0]['reason'] ?? null, 'The child skip should retain its fixed reason code.');
+same('info', $childOwnerTerminal[0]['sink_level'] ?? null, 'An expected child veto must not be logged as a warning.');
+same('not_called', $childOwnerTerminal[0]['model_outcome'] ?? null, 'The child skip must report that no model call occurred.');
 
 $oldScopeStore = intimacyOldScopeStore();
 $calls = 0;

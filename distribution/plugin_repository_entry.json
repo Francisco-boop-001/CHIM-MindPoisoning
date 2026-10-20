@@ -3,7 +3,7 @@
     "mind-poisoning": {
       "name": "mind_poisoning",
       "display_name": "Mind Poisoning",
-      "description": "BETA CANDIDATE 0.1.27: identity-checked gossip and reflection can influence CHIM opinions. Optional default-off intimacy recognition stores an NPC's own report separately; it does not establish mutual agreement or willingness. Written-evidence API v1 can evaluate a confirmed message exposure submitted by a compatible server plugin; it does not verify authorship or provide an inbox. A compatible producer is required and not included. Deterministic fixtures, native integration and an official-manager development-candidate install pass; real-model interpretation, live installation and gameplay remain unverified. Standard release classification supports discovery without promoting maturity.",
+      "description": "BETA CANDIDATE 0.1.28: identity-checked gossip and reflection can influence CHIM opinions. Optional default-off intimacy recognition stores an NPC's own report separately; recognized child signals suppress only that arrangement lane, not ordinary opinions. This is not universal age verification or mutual agreement. Written-evidence API v1 evaluates a confirmed exposure from a compatible server plugin; it does not verify authorship or provide an inbox. A compatible producer is required and not included. Focused deterministic and native checks pass; real-model interpretation, live installation and gameplay remain unverified. Standard release classification supports discovery without promoting maturity.",
       "status": "development_candidate",
       "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
       "github_url": "https://github.com/Francisco-boop-001/CHIM-MindPoisoning",
