@@ -1095,3 +1095,5 @@ Final review: tasks/critique-fixes-review-2026-10-19.md. All focused GREEN outpu
 
 ## Release0.1.28 — 2026-10-19
 User authorized commit, push and publication with live/game untouched. Checklist and evidence: tasks/release-v0.1.28-plan.md; artifacts/mp-release-0.1.28-20261019/. No maturity promotion.
+
+Release 0.1.28 completed: product/tag 18f717ed365a; public main includes publication receipt 771fe11; hub README d5fbdc7555556a30b5389adc0df83a4bc51c1d8a. Four installer formats independently reproduced; all five anonymous public downloads matched. Publication evidence: artifacts/mp-release-0.1.28-20261019/public-download-verification.json and hub-update.json. BETA CANDIDATE remains; no installed/live/game changes or gameplay verification.
