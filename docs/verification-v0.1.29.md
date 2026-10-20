@@ -1,8 +1,18 @@
 # Mind Poisoning 0.1.29 — verification and limits
 
-## Release status — prepublication
+## Release status — published
 
-This is the tagged prepublication record. The 0.1.29 tag, clean-tag builds, release assets, and public-download hashes have not yet been verified. Standard GitHub release classification is intended to retain the **BETA CANDIDATE** status while supporting CHIM topic discovery; it is not a maturity promotion. A later documentation-only commit on `main` may add the publication receipt without moving the product tag.
+This mutable `main` copy records the publication receipt. Mind Poisoning 0.1.29 was published on 2026-10-20 as a standard **BETA CANDIDATE** release (GitHub release ID `418260296`), neither draft nor prerelease. Tag [`mind_poisoning-v0.1.29`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.29) resolves to commit [`69fa049577bfc6467b21b7b252f972ca82f5fcbb`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/commit/69fa049577bfc6467b21b7b252f972ca82f5fcbb). Two independent clean-tag builds matched all four installer formats. Authenticated draft downloads and unauthenticated public downloads of all five release assets matched their recorded sizes and SHA-256 values. The public `main` branch was advanced to the product commit only after public bytes were verified; later documentation-only commits do not move the tag. The immutable tag copy of this document remains the prepublication record.
+
+| Asset | Bytes | SHA-256 |
+|---|---:|---|
+| `mind_poisoning-0.1.29.dwpkg` | 1,224,071 | `36c63643f24840701985b499e9021fa169ebf71c8fa8461ba015a7aa188316e9` |
+| `mind_poisoning.tar.gz` | 680,550 | `056725627145db9f120d985a3be5340bbe46155d8d8ea8a45f65e20d3e5744b3` |
+| `chim-plugin.tar.gz` | 680,425 | `bd1a1c585b34bb0110c02544f49031b9dbadc235707517dbcc0ff141a282a6b6` |
+| `mind_poisoning-0.1.29-mo2.zip` | 683,922 | `b058733056d0b20f5f2c0b79b1cefc57f3ccc196b991587e088db5e786386717` |
+| `SHA256SUMS.txt` | 363 | `be01ff0d2aa5c537f91b9d2ed69f0a0dff67115f89330ae7a920853b4313369e` |
+
+These package rebuild and byte checks establish release identity and download integrity. They do not establish live installation, discovery or gameplay.
 
 ## Focused 0.1.29 change
 
