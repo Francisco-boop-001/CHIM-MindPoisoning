@@ -1105,3 +1105,5 @@ Completed review/fix: readable apostrophes with retained escaping; focused RED/G
 
 ## Release0.1.29 — 2026-10-20
 User authorizes commit/push/publish with live/game untouched. Plan: tasks/release-v0.1.29-plan.md. Runtime evidence retained by hash; Windows-only release operations.
+
+Release0.1.29 completed: tag/product69fa049577bf, publishedreceipt0801582865e0, hubc1cd9d0cb373. All4formats reproduce; all5 anonymousdownloads verified. Mainupdate followspublicassetgate, historicalassets preserved. Live/game untouched, no newruntime/provider checks; BETA CANDIDATE unchanged. Finalreview tasks/release-v0.1.29-plan.md.

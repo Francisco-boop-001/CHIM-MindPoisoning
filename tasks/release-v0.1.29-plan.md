@@ -4,11 +4,15 @@ Authority: commit/push/publish saved narrow prompt formatting fix, preserve live
 
 - [x] Inspect current tree, task review, focused GREEN/syntax receipts, public main/latest and no0.1.29 tag.
 - [x] Delegate/review minimal metadata/current-docs release edits; exact source/test/evidence hashes verified.
-- [ ] Commit explicit allowlist and immutable0.1.29 tag; build clean export and independently reproduce all4installer formats.
-- [ ] Push tag, upload draft assets/checksums, verify downloaded bytes before publication.
-- [ ] Publish standard BETA CANDIDATE, verify anonymous public downloads before advancing main/update manifest.
-- [ ] Update MP-only hub summary/links after public verification, preserve other plugins; record final refs/limits and clean source tree.
+- [x] Commit explicit14path allowlist and immutable0.1.29 tag69fa049; two clean exports independently reproduce all4installer formats.
+- [x] Push tag, upload draft assets/checksums, verify all5 authenticated asset downloads by release/asset ID before publication.
+- [x] Publish standard BETA CANDIDATE, verify all5 anonymous public downloads before advancing main/update manifest.
+- [x] Update MP-only hub README/links after public verification; companion sections/rows preserved and final refs/limits recorded.
 
 Owners: sharmat_build release metadata/docs only; sharmat_tests evidence binding + artifact-only build/independent package verification; sharmat_cleanup MP-only hub README after gate + independent source/docs review. Lead task records/Git/publication only. Shared workspace; preserve others. No product logic beyond reviewed existing one-line fix. No PHP/WSL/native/provider/live/mod/game actions needed. No broad suite rerun. No old tag/asset changes.
 
 Precommit review: lead reviewed product flag/test, every metadata/document diff and corrected one overly general companion-evidence sentence through its owner. Independent review no blockers. Eleven frozen source/test/doc hashes match; three source/test and eight retained outputs remain bound. Only version/description metadata changes; known-child and scan/storage policy unchanged. No PHP/WSL/provider/runtime activity in release pass. Use verified public noreply identity for new commits; no Git global config changes.
+
+Publication review: productcommit69fa049577bfc6467b21b7b252f972ca82f5fcbb, tagmind_poisoning-v0.1.29, releaseID418260296. IndependentpackageverifierPASS receiptSHAfb2fa7adbd83ed3483e01b4ccef6692a6a9ba17f1cf9b47c421d56f95fb11d61. All4formats/5checksums exact; rawf64fixturepreserved. One artifact-only expectedhash literal typo stopped firstbuild beforepackages; failedexport/output preserved and corrected without source/tagchanges. DraftRESTbytagreturned404; authenticated releaseID/assetID download route verified correcttag/draft and all5bytes, no duplicate release created. Publishedlateststandard0.1.29; all5anonymousdownloads match beforemainadvanced9f5041b->69fa049. Old0.1.28 assetIDs/digests/sizes preserved. Finalmainpublicationreceipt and MP-onlyhubupdate pending. No runtime/provider/live operations.
+
+Final release review: product/tag69fa049577bfc6467b21b7b252f972ca82f5fcbb; publication-receipt commit0801582865e0d520814b1fd1ff2498d80da9c01c; MP-onlyhub READMEcommitc1cd9d0cb3739c0908e6561e4c8ddd2436d3a70c. Two clean-tag exports/builds match all4installer formats; all5 authenticateddraft downloads and all5 unauthenticatedpublic downloads match size/SHA256. Main advanced only after publicverification; tag unchanged. Old0.1.28 assets preserved. Source/runtime unchanged by laterdoc/taskcommits. Publicnoreply identity used for newcommits, no globalGitconfigchange. No PHP/WSL/DB/provider/installedmod/live/game actions in release pass. BETA CANDIDATE preserved; no new installation/gameplay proof. Detailedreceipt/docs/verification-v0.1.29.md and artifacts/mp-release-0.1.29-20261020/ contain exactassets/ref evidence.
