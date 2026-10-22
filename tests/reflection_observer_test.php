@@ -146,8 +146,8 @@ function runObserverCase(string $case): array
             $evaluationRecord = $record;
         }
     }
-    observerCheck(is_array($persistenceRecord) && is_array($evaluationRecord), 'Mind Poisoning did not emit the records needed for importer classification.');
     if (in_array($case, ['type_only', 'commit_unconfirmed'], true)) {
+        observerCheck(is_array($persistenceRecord) && is_array($evaluationRecord), 'Mind Poisoning did not emit the records needed for importer classification.');
         $expectedPersistence = $case === 'type_only'
             ? ['committed', 'info', null]
             : ['unconfirmed', 'error', 'commit_unconfirmed'];

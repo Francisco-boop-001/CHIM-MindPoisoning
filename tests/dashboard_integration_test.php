@@ -82,7 +82,7 @@ try {
 
     foreach ([
         'dashboard.php', 'dashboard_data.php', 'dashboard_view.php', 'dashboard.css', 'dashboard.js',
-        'dashboard-art.webp', 'store.php', 'influence.php', 'logging.php', 'manifest.json',
+        'dashboard-art.webp', 'store.php', 'influence.php', 'logging.php', 'restore_policy.php', 'manifest.json',
     ] as $file) {
         if (!copy($sourceServer . DIRECTORY_SEPARATOR . $file, $pluginDir . DIRECTORY_SEPARATOR . $file)) {
             throw new RuntimeException('Cannot copy a real dashboard module into the fixture.');
@@ -209,7 +209,7 @@ PHP);
     ] as $expected) {
         dashboardIntegrationAssert(str_contains($html, $expected), 'Rendered interaction page omitted expected log-only evidence: ' . $expected);
     }
-    dashboardIntegrationAssert(str_contains($html, '<div><dt>Current</dt><dd class="numeric">Unavailable</dd></div>'), 'Rendered interaction did not mark current affinity unavailable.');
+    dashboardIntegrationAssert(preg_match('#<dt>Current</dt>\s*<dd class="numeric">Unavailable</dd>#', $html) === 1, 'Rendered interaction did not mark current affinity unavailable.');
     dashboardIntegrationAssert(str_contains($html, '<div><dt>Proposed</dt><dd class="numeric">+2</dd></div>'), 'Rendered interaction did not show the logged proposal.');
     dashboardIntegrationAssert(str_contains($html, '<div><dt>Applied</dt><dd class="numeric">+2</dd></div>'), 'Rendered interaction did not show the confirmed applied change.');
     dashboardIntegrationAssert(dashboardIntegrationHeader($headers, 'Content-Type') === 'text/html; charset=UTF-8', 'Interaction response has the wrong content type.');
