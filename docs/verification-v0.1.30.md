@@ -1,10 +1,20 @@
 # Mind Poisoning 0.1.30 — verification and limits
 
-## Release status — prepared, not published
+## Published release
 
-The source and focused test gates passed for the 0.1.30 candidate. At this record's preparation, there is no 0.1.30 tag or package build, and no public release asset or download checksum has been verified. The 0.1.29 release remains the current published release. After the clean tag and assets exist, build and independently reproduce all four package formats. Verify staged draft downloads and `SHA256SUMS.txt` with authenticated access before publication; after publication, verify anonymous public downloads against the same sizes and SHA-256 values before moving `main` or updating hub pins. A checksum proves downloaded bytes, not CHIM synchronization.
+Mind Poisoning 0.1.30 was published as standard, non-prerelease GitHub release [421044454](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.30), from immutable tag `mind_poisoning-v0.1.30` at source commit `3ce96b5640796db948dae33444dd403ea4ed74a6`. Eight package tests passed. Two clean-tag exports were independently rebuilt; all four installer formats matched byte-for-byte. Authenticated draft-download verification and anonymous public-download verification each passed for all five release assets. Public sizes and SHA-256 values:
 
-The native and integrated tests below ran against the reviewed source while `server/manifest.json` still reported 0.1.29. The subsequent 0.1.30 manifest edit changes only its version and description. These tests therefore verify the source changes; they do not prove an installed or packaged 0.1.30 build.
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| [Recommended MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.30/mind_poisoning-0.1.30-mo2.zip) | 685,272 | `0d7470b74e21febab040d07883d88398adae812f5dc1b3f386d790f90d99e87d` |
+| [CHIM DWPkg](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.30/mind_poisoning-0.1.30.dwpkg) | 1,229,301 | `8e028fbca8c698bb3b92aca88fc7aeb029326224e4ad78ebad24f50a550a556e` |
+| [Server TAR](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.30/mind_poisoning.tar.gz) | 681,791 | `469a156d371e42f16f1f9c6ed04f02f8c9c84b97ad6ea95b2b1af14084451e0f` |
+| [Flat CHIM discovery TAR](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.30/chim-plugin.tar.gz) | 681,719 | `68dd14787f52b32d80b54e972047c06dea86f555c0bea60d742eaaf53e745b34` |
+| [SHA256SUMS.txt](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.30/SHA256SUMS.txt) | 363 | `790d6e62bd5e29124b779dbfeadcca35690ac0e4bed649a42c02d56aad5de636` |
+
+The draft and public checks matched the same sizes and hashes. A checksum verifies downloaded bytes, not CHIM synchronization.
+
+All 34 tested source files match the tag. The test run used manifest version 0.1.29; the release-only manifest version/description and operator README copy were excluded from runtime-source binding. The tests verify the source changes, while the clean-tag build and independent rebuild verify package reproducibility; neither establishes an installed CHIM runtime or gameplay result.
 
 ## Verified source and test evidence
 
@@ -17,11 +27,10 @@ The native and integrated tests below ran against the reviewed source while `ser
 
 The focused suites used synthetic HTTP/store seams or in-memory fixtures; only the two native checks above used the authorized disposable PostgreSQL fixture. No live-server Semaphore/manager failure-injection check was performed. The checks did not use an installed CHIM server or real model provider, and they do not establish real-model judgment, live discovery, installation or gameplay. PCV and SHARMAT source were not changed.
 
-## Remaining release and compatibility gates
+## Compatibility and runtime limits
 
-1. Create and inspect the immutable 0.1.30 source tag; build DWPkg, repository/channel TAR, flat CHIM Plugin TAR and MO2 sync ZIP from clean exports. Run the eight package tests and independently rebuild all four formats from the same tag, comparing each byte-for-byte.
-2. Before publication, verify the staged draft downloads and `SHA256SUMS.txt` with authenticated access. Publish the release, then verify anonymous public download sizes and SHA-256 values against that checksum file before moving `main` or updating hub pins. No 0.1.30 asset hash is recorded here because the tag and package artifacts do not yet exist.
-3. The Department adapter still pins 0.1.29 and seven hashes. Its owner must review and re-pin 0.1.30 before a deployed Department compatibility claim. This does not block a standalone MP release.
-4. Live 0.1.30 discovery, installation, provider behavior, real-model interpretation and gameplay remain unverified.
+The Department adapter calls the MP reader functions directly, whose signatures remain unchanged. Its owner completed a read-only review, found no source break, and confirmed the seven supplied clean-source hashes match the 0.1.30 sources. The current 0.1.29 adapter correctly refuses 0.1.30. A future reviewed server-pin update appears sufficient; no DLL rebuild is indicated. This is source-level compatibility evidence, not proof that a reviewed pin is deployed to a live Department instance.
+
+No live CHIM install, provider call, real-model evaluation or gameplay session was performed. No live-server Semaphore/manager failure-injection check was performed. Live discovery and installed behavior therefore remain unverified. The checks do not establish real-model judgment or Skyrim gameplay. PCV and SHARMAT source were not changed.
 
 No API version or function signature changes, maturity promotion, new age policy, provider claim or gameplay feature is included. Mind Poisoning remains a **BETA CANDIDATE**. Standard release classification supports CHIM discovery without promoting maturity.

@@ -1119,3 +1119,5 @@ Plan: tasks/bugfix-release-2026-10-22.md. Delegated owners A/B/C, then D; provid
 Review: all six focused cases and full restore-policy, runtime, and overhearing suites passed. Symlink-only runtime checks were skipped by Windows; no database/provider/live/game checks were run. Pending lead review; no commit, push, or version change.
 
 MP source/integration complete: findings1–12 fixed and independently reviewed. NativePg41+14 and10focusedLinux suites pass,18changedPHP lint clean; own TEST resources released toPCV. Final0.1.30 docs/assets/publication/hub checks remain pending. Live/game/PCV/SHARMAT untouched.
+
+MP0.1.30 completed:12validMPfixes committed/tagged3ce96b5640796db948dae33444dd403ea4ed74a6,pushed,publishedstandardBETA CANDIDATE release421044454.4formatsindependentlyreproduced, all5draft/publicdownloadsverified; hubMP-onlyREADME6e52bcef4636206e410208abbae419eff5a74790pushed. No live/game/PCV/SHARMAT/Department deployment changes. PRISMAclean-source review passed; ownreviewedpinupdate andgameplayvalidation remainseparate. Fullreview tasks/bugfix-release-2026-10-22.md.

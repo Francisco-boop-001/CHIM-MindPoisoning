@@ -12,14 +12,14 @@ Fix verified MP defects 1–12 in tasks/bug-hunt-2026-10-22.md; PCV13–16 stay 
 - [x] D (A follow-up, sequential): prerequest.php + relevant model-ID helper only if required; overhearing/restore/runtime tests. Findings2/6/7; no overlap with B store.php or C dashboard files.
 - [x] Lead: review each diff/callers/failure paths and RED/GREEN outputs; whole-change independent review by completed owner.
 - [x] Integration: provider-free isolated Linux/Pg focused checks under exclusive TEST window; inherited tests reused only with verified input identity. Record genuine skipped gates.
-- [ ] Release owner (sequential): 0.1.30 candidate metadata/docs/packages after source/test review; all formats from clean tag, independent reproduction, public download SHA checks; only then public main/update/hub pins. Preserve old tags/assets. Standard release BETA CANDIDATE per existing human choice; no maturity promotion.
+- [x] Release owner (sequential): 0.1.30 candidate metadata/docs/packages after source/test review; all formats from clean tag, independent reproduction, public download SHA checks; only then public main/update/hub pins. Preserve old tags/assets. Standard release BETA CANDIDATE per existing human choice; no maturity promotion.
 
 ## Plan interface review
 | Pair/task | Interface or self-check | Decision |
 |---|---|---|
 | A/B | written subject -> store key | A canonicalizes resolved ID/name; B preserves storage API |
 | B/D | store per-operation status and restore caller | B handles store lifetime; D preserves per-recipient baseline/replay |
-| C/Department | dashboard HTTP Host/auth | wait for verified transport evidence, no broad subnet trust |
+| C/Department | dashboard HTTP Host/auth | direct PHP readers confirmed; clean-source review passed, downstream reviewed pin remains separate |
 | A/D | exclusive same owner, different files | D starts after A, reused owner |
 | all/release | runtime payload and version | source review first, pin after verified assets |
 | A | caps/fences with raw input validation | bound raw transport separately, do not strip arbitrary prose |
@@ -28,7 +28,7 @@ Fix verified MP defects 1–12 in tasks/bug-hunt-2026-10-22.md; PCV13–16 stay 
 | D | invalid extras | ordinary direct gates still required; don't weaken preservation |
 
 ## Review
-Pending. No product/runtime claims yet.
+Completed: source, integration, independent packaging, publication and hub gates passed; chronology and final review follow.
 Ownership ruling: B may also edit server/restore_policy.php if per-operation cleanup reporting requires its caller update. No other worker owns that file. Preserve unresolved cleanup state; reset-only masking is unacceptable.
 
 
@@ -58,3 +58,9 @@ Native stage7, using existing runtime fixture bootstrap and real reflection entr
 Final source gate2026-10-22: native child/history/mixedreflection/cleanup41 and writtenidentity14 pass; ten focusedLinux suites pass, including all6POSIXobserver/importer cases. Initial isolated-runner missingpgsql/defaultscan duplicateextension failures retained as infra failures, corrected with task-localini+empty scan dir. All18changedPHP files lint clean, diffcheck clean. Lead inspected every productdiff/caller and independentA/B/C/D reviews; no open blocking source defect. Restorepolicy formatting-only poststage8 diff proven identical after in-memory formatting normalization; exact current formatting exercised by finalLinuxrestore/runtime suites. No actualSemaphoreManager failure retry/provider/gameplay/install claim. Only ownPgcluster+holder stopped, TEST handedPCV, preexistingservicesleft running, gamingnotentered and hostVHD size/mtime unchanged. No furthernativechecks queued. Releasegatepending.
 
 Prepublication lead review complete: all12MPfindings have reviewed fixes and focusedproof; Cmetadata/player/operator/API/release docs reviewed including raw64KiB/decodedbodylimits, conservative4extra preflightcap, exactAPIversions andPRISMAdownstreamgate. Manifest/catalogdescription parity,57localMarkdown targets andsourcefingerprintfreeze verified. Producttests unchanged after finalintegration; release-only manifest/operatorREADME/docs are approved. Package8tests/clean-tag rebuild/draft+anonymousdownloads remain actualpublication gates. Oldtags/assets andPCV/SHARMAT/Departmentcode preserved.
+
+## Final release review
+
+Published standard BETA CANDIDATE0.1.30, release421044454, immutabletag/product3ce96b5640796db948dae33444dd403ea4ed74a6. Eightpackage tests pass; twoindependent clean-tag exports reproduce all4formats byteforbyte.34testedcode/fixtureblobs identical, onlyapprovedmanifestversion/description andoperatorREADME releasecopy differ. All5authenticateddraft and5anonymouspublicdownloads match sizes/SHA256; old0.1.29assetIDs/names/sizes/serverdigests/body preserved (metadata comparison, not renewed historicaldownloads). Main/update metadata advanced onlyafterpublicbytegate; publicmanifest matchesclean-tagSHA. HubMP-onlyREADME6e52bcef4636206e410208abbae419eff5a74790 pushed withoutotherplugin edits. Currentpublicationreceipt reviewed in docs/verification-v0.1.30.md; immutabletagrecord preserved.
+
+Departmentownerverified7suppliedclean-sourcehashes/directreader sourcecompatibility, foundnonewbreak; existing0.1.29adapter stillcorrectlyrefuses0.1.30pendingitsownreviewedpinupdate. No DLLrebuildindicated; no deployed/gameplayclaim. PCV/S&S/SHARMAT/Department source andlive/game/modlist untouched; onlyownmarkedcluster/holder stoppedand leasepassedtoPCV. No providerquota used. Native41+14 andfocusedLinux10/Windowsdashboard8 plus18PHPsyntaxgates reviewed; no actualSemaphore releasefailure injection, newinstalled-version/provider/gameplayproof ornewmaturitypromotion. Stop optionaltests; allauthorizedMPfix/releaseworkcomplete.
