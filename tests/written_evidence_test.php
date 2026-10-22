@@ -365,6 +365,66 @@ namespace ChimMindPoisoning {
 
     $parsed = parseWrittenEvidenceEnvelope($store->events[501]['source_data']);
     $check(is_array($parsed) && ($parsed['body'] ?? null) === $baseBody, 'The pure parser should return a valid frozen envelope.');
+    $senderVariant = $parsed;
+    $senderVariant['claimed_sender']['name'] = 'jArL bALGRuuf';
+    $senderSubjects = writtenEvidenceSubjects([
+        'source_kind' => 'written_evidence',
+        'text' => $baseBody,
+        'written_evidence' => $senderVariant,
+    ], $store->npcIdentities(), 'TestHero');
+    $same(['name' => 'Jarl Balgruuf', 'id' => 900002], $senderSubjects['npc:900002'] ?? null,
+        'Case-insensitive sender identity must resolve to the unique canonical catalog name.');
+
+    $unicodeBody = str_repeat("\u{1F600}", 2000);
+    $escapedEnvelope = $parsed;
+    $escapedEnvelope['recipient']['name'] = str_repeat("\u{1F600}", 50);
+    $escapedEnvelope['claimed_sender']['name'] = str_repeat("\u{1F601}", 50);
+    $escapedEnvelope['recipient']['id'] = PHP_INT_MAX;
+    $escapedEnvelope['claimed_sender']['id'] = PHP_INT_MAX - 1;
+    $escapedEnvelope['playthrough_id'] = (string)PHP_INT_MAX;
+    $escapedEnvelope['body'] = $unicodeBody;
+    $escapedEnvelope['attachments'] = [];
+    for ($index = 0; $index < 8; $index++) {
+        $escapedEnvelope['attachments'][] = [
+            'kind' => 'item',
+            'form_id' => str_repeat('A', 250) . '.esp|' . str_pad(strtoupper(dechex($index)), 8, '0', STR_PAD_LEFT),
+            'quantity' => 2147483647,
+        ];
+    }
+    $escapedJson = json_encode($escapedEnvelope, JSON_THROW_ON_ERROR);
+    $same(2000, mb_strlen($unicodeBody, 'UTF-8'), 'The escaped body fixture must reach the documented codepoint limit.');
+    $same(8000, strlen($unicodeBody), 'The escaped body fixture must reach the documented byte limit.');
+    $same(200, strlen($escapedEnvelope['recipient']['name']), 'The recipient metadata fixture must reach its documented byte limit.');
+    $same(200, strlen($escapedEnvelope['claimed_sender']['name']), 'The sender metadata fixture must reach its documented byte limit.');
+    $check(strlen($escapedJson) > 16384, 'Standard JSON Unicode escaping must exceed the old envelope cap.');
+    $check(strlen($escapedJson) < WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES,
+        'The supported worst-case body and bounded metadata must fit the encoded cap.');
+    $escapedParsed = parseWrittenEvidenceEnvelope($escapedJson);
+    $check(is_array($escapedParsed) && ($escapedParsed['body'] ?? null) === $unicodeBody
+        && count($escapedParsed['attachments'] ?? []) === 8,
+        'A valid max-size decoded envelope must survive standard JSON escaping.');
+    $escapedSourceRow = normalizeWrittenEvidenceSourceRow(array_merge($store->events[501], [
+        'source_data' => $escapedJson,
+        'source_people' => '|' . $escapedEnvelope['recipient']['name'] . '|',
+    ]));
+    $check(is_array($escapedSourceRow), 'Source-row normalization must accept a supported escaped envelope above the old raw cap.');
+    $escapedIdentity = null;
+    if (is_array($escapedSourceRow) && is_array($escapedParsed)) {
+        $escapedIdentity = writtenEvidenceEventIdentity($escapedSourceRow + [
+            'source_kind' => 'written_evidence',
+            'recipient_id' => $escapedEnvelope['recipient']['id'],
+            'opinion_owner_id' => $escapedEnvelope['recipient']['id'],
+            'playthrough_id' => $escapedEnvelope['playthrough_id'],
+            'source_digest' => hash('sha256', $escapedJson),
+            'text' => $unicodeBody,
+            'written_evidence' => $escapedParsed,
+        ]);
+    }
+    $check(is_array($escapedIdentity), 'Written-event identity validation must accept the supported escaped envelope and unchanged decoded body limits.');
+    $overCapJson = $escapedJson . str_repeat(' ', WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES + 1 - strlen($escapedJson));
+    $same(WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES + 1, strlen($overCapJson), 'The encoded-cap overflow fixture must be one byte over its bound.');
+    $check(parseWrittenEvidenceEnvelope($overCapJson) === null, 'The encoded envelope cap must remain bounded.');
+
     $unknownField = json_decode($store->events[501]['source_data'], true, 64, JSON_THROW_ON_ERROR);
     $unknownField['unexpected'] = true;
     $check(parseWrittenEvidenceEnvelope(json_encode($unknownField, JSON_THROW_ON_ERROR)) === null, 'Unknown envelope fields must be rejected.');
@@ -624,11 +684,66 @@ namespace ChimMindPoisoning {
     $normalLog = new RequestLog(static function (string $line) use (&$normalRows): void {
         $normalRows[] = json_decode($line, true, 64, JSON_THROW_ON_ERROR);
     }, false);
-    $beforeFreshCalls = $modelCalls;
-    $fresh = evaluateWrittenEvidence(516, $store, $model, $normalLog);
+    $caseVariantFreshEnvelope = json_decode($store->events[516]['source_data'], true, 64, JSON_THROW_ON_ERROR);
+    $caseVariantFreshEnvelope['claimed_sender']['name'] = 'jArL bALGRuuf';
+    $store->events[516]['source_data'] = json_encode(
+        $caseVariantFreshEnvelope,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+    );
+    $caseVariantFreshSource = $store->events[516]['source_data'];
+    if (!class_exists(\RelationshipManager::class, false)) {
+        require_once __DIR__ . '/fixtures/relationship_manager.cf5030f15781637498be86debe26fcf102f5690d.php';
+    }
+    $store->npcs[900001]['extended_data']->relationships->{'Jarl Balgruuf'} = (object)[
+        'aff' => 60,
+        'type' => 'romantic',
+    ];
+    $sawRomanticContext = false;
+    $proposedProtectedTypeChange = false;
+    $caseVariantCalls = 0;
+    $caseVariantModel = static function (array $messages) use (&$sawRomanticContext, &$proposedProtectedTypeChange, &$caseVariantCalls): string {
+        $caseVariantCalls++;
+        $payload = json_decode($messages[1]['content'] ?? '', true, 64, JSON_THROW_ON_ERROR);
+        $senderCandidate = $payload['untrusted_data']['candidates']['npc:900002'] ?? [];
+        $sawRomanticContext = ($senderCandidate['current_type'] ?? null) === 'romantic';
+        $response = json_decode(writtenResponse($messages), true, 64, JSON_THROW_ON_ERROR);
+        foreach ($response['judgments'] as &$judgment) {
+            if (($judgment['subject'] ?? null) === 'npc:900002') {
+                $judgment['type_change'] = [
+                    'from' => $senderCandidate['current_type'] ?? 'neutral',
+                    'to' => 'suspicious',
+                ];
+                $proposedProtectedTypeChange = true;
+            }
+        }
+        unset($judgment);
+        return json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    };
+    $fresh = evaluateWrittenEvidence(516, $store, $caseVariantModel, $normalLog);
     $same('processed', $fresh['status'] ?? null, 'The ordinary fresh-source evaluator path must remain available.');
     $same('receipt_confirmed', $fresh['reason'] ?? null, 'The ordinary fresh-source API reason must remain unchanged.');
-    $same($beforeFreshCalls + 1, $modelCalls, 'A fresh valid source must still call the model once.');
+    $same(1, $caseVariantCalls, 'A fresh valid case-variant source must call its model once.');
+    $same($caseVariantFreshSource, $store->events[516]['source_data'], 'Evaluation must preserve the original envelope bytes for identity and receipt correlation.');
+    $senderEdges = $store->npcs[900001]['extended_data']->relationships;
+    $same(61, $senderEdges->{'Jarl Balgruuf'}->aff ?? null, 'The sender opinion must update the pre-existing canonical relationship edge.');
+    $same('romantic', $senderEdges->{'Jarl Balgruuf'}->type ?? null, 'A proposed emotional type must preserve the existing protected romantic edge.');
+    $check(!property_exists($senderEdges, 'jArL bALGRuuf'), 'Evaluation must not create a case-variant duplicate relationship edge.');
+    $check($sawRomanticContext, 'The model must receive the pre-existing canonical romantic type for the case-variant sender.');
+    $check($proposedProtectedTypeChange, 'The model regression must propose romantic-to-suspicious so protected-type handling is exercised.');
+    $persistence = writtenLogEvent($normalRows, 'persistence_finished');
+    $senderTypeDecision = null;
+    foreach ($persistence['type_decisions'] ?? [] as $decision) {
+        if (($decision['subject'] ?? null) === 'npc:900002') {
+            $senderTypeDecision = $decision;
+            break;
+        }
+    }
+    $same([
+        'subject' => 'npc:900002',
+        'from' => 'romantic',
+        'to' => 'suspicious',
+        'reason' => 'protected_type_preserved',
+    ], $senderTypeDecision, 'The persistence decision must record that the proposed emotional type was refused for the canonical romantic edge.');
     $check(is_array(writtenLogEvent($normalRows, 'request_finished'))
         && writtenLogEvent($normalRows, 'written_evidence_preflight_finished') === null,
         'A normal evaluated source must retain its existing terminal event without a preflight event.');

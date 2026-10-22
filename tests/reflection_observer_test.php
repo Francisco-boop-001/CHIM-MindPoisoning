@@ -146,8 +146,8 @@ function runObserverCase(string $case): array
             $evaluationRecord = $record;
         }
     }
-    observerCheck(is_array($persistenceRecord) && is_array($evaluationRecord), 'Mind Poisoning did not emit the records needed for importer classification.');
     if (in_array($case, ['type_only', 'commit_unconfirmed'], true)) {
+        observerCheck(is_array($persistenceRecord) && is_array($evaluationRecord), 'Mind Poisoning did not emit the records needed for importer classification.');
         $expectedPersistence = $case === 'type_only'
             ? ['committed', 'info', null]
             : ['unconfirmed', 'error', 'commit_unconfirmed'];
@@ -158,6 +158,16 @@ function runObserverCase(string $case): array
             : ['unconfirmed', 'error', 'commit_unconfirmed'];
         observerCheck(\pcv_log_mp_evaluation_outcome($evaluationRecord, $evaluationRecord['sink_level'] ?? '') === $expectedEvaluation,
             'The unchanged importer did not classify the real sanitized evaluation record as expected.');
+    } elseif ($case === 'provider_failure') {
+        observerCheck($persistenceRecord === null && is_array($evaluationRecord),
+            'A failed model request must finish the evaluation without emitting a persistence record.');
+        observerCheck(($status === 'failed')
+            && count(array_filter($sinkRecords, static fn(array $record): bool =>
+                ($record['event'] ?? null) === 'reflection_model_finished'
+                && ($record['model_outcome'] ?? null) === 'failed'
+                && ($record['reason'] ?? null) === 'model_request_failed'
+            )) === 1,
+            'Provider failure must retain its sanitized model failure record.');
     }
 
     if (!$importerSinkAvailable) {
@@ -234,6 +244,21 @@ function imported(array $result, string $event, ?string $outcome = null): array
 }
 
 if (PHP_OS_FAMILY === 'Windows' || !function_exists('posix_geteuid')) {
+    $providerFailure = runIsolatedCase('provider_failure');
+    $providerModelRecord = null;
+    foreach ($providerFailure['source'] as $record) {
+        if (($record['event'] ?? null) === 'reflection_model_finished') {
+            $providerModelRecord = $record;
+            break;
+        }
+    }
+    observerCheck(($providerFailure['status'] ?? null) === 'failed'
+        && ($providerFailure['summary']['outcome'] ?? null) === 'failed'
+        && ($providerModelRecord['model_outcome'] ?? null) === 'failed'
+        && ($providerModelRecord['reason'] ?? null) === 'model_request_failed'
+        && !in_array('persistence_finished', array_column($providerFailure['source'], 'event'), true),
+        'The failed provider request must keep its final sanitized model error and skip persistence: ' . json_encode($providerFailure, JSON_UNESCAPED_SLASHES));
+
     $typeOnly = runIsolatedCase('type_only');
     $typePersistence = null;
     foreach ($typeOnly['source'] as $record) {

@@ -197,6 +197,25 @@ function intimacyOldScopeStore(): IntimacyRestoreMemoryStore
     return new IntimacyRestoreMemoryStore($memory);
 }
 
+$intimacyUtterance = 'We have a casual arrangement.';
+$intimacyJson = json_encode([
+    'intimacy' => ['status' => 'casual', 'evidence' => $intimacyUtterance],
+], JSON_THROW_ON_ERROR);
+foreach (["```json\n{$intimacyJson}\n```", "```json\r\n{$intimacyJson}\r\n```"] as $fencedJson) {
+    same(
+        ['status' => 'casual', 'evidence' => $intimacyUtterance],
+        \ChimMindPoisoning\parseIntimacyResponse($fencedJson, $intimacyUtterance),
+        'The intimacy parser should accept the same narrow JSON fence form as influence.'
+    );
+}
+$proseFenceRejected = false;
+try {
+    \ChimMindPoisoning\parseIntimacyResponse("Model result:\n```json\n{$intimacyJson}\n```", $intimacyUtterance);
+} catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+    $proseFenceRejected = $error->reasonCode === 'response_json_invalid';
+}
+check($proseFenceRejected, 'JSON fences embedded in arbitrary prose must remain invalid.');
+
 resetAckLoggingInteraction();
 $calls = 0;
 [$status, $db, $eventId, $utteranceId, $speech, $records] = runIntimacyAck(

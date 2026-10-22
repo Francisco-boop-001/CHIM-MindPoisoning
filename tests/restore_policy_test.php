@@ -19,9 +19,8 @@ require_once __DIR__ . '/runtime_test.php';
 require_once __DIR__ . '/../server/reflection.php';
 
 if (interface_exists(\ChimMindPoisoning\RestorePolicyStoreDb::class)) {
-    final class RestorePolicyTestDb implements
+    class RestorePolicyTestDb implements
         \ChimMindPoisoning\StoreDb,
-        \ChimMindPoisoning\WitnessSnapshotStoreDb,
         \ChimMindPoisoning\RestorePolicyStoreDb
     {
         public int $barrierAcquisitions = 0;
@@ -104,6 +103,10 @@ if (interface_exists(\ChimMindPoisoning\RestorePolicyStoreDb::class)) {
             }
         }
     }
+
+    final class RestorePolicyWitnessTestDb extends RestorePolicyTestDb implements \ChimMindPoisoning\WitnessSnapshotStoreDb
+    {
+    }
 }
 
 function restorePolicyFixture(int $eventId, string $scope, mixed $bounds, ?array $ledger = null): array
@@ -122,7 +125,7 @@ function restorePolicyFixture(int $eventId, string $scope, mixed $bounds, ?array
             JSON_THROW_ON_ERROR
         );
     }
-    $store = new RestorePolicyTestDb($memory, $bounds);
+    $store = new RestorePolicyWitnessTestDb($memory, $bounds);
     $ack = ['_speech', 0, 10, json_encode([
         'speaker' => 'Aela',
         'listener' => 'Lydia',
@@ -134,6 +137,20 @@ function restorePolicyFixture(int $eventId, string $scope, mixed $bounds, ?array
 
 function restorePolicyRunFocus(string $focus): void
 {
+    if (in_array($focus, [
+        '--focus-overhearing-extra-cap-red',
+        '--focus-overhearing-invalid-roster-red',
+        '--focus-overhearing-no-witness-store-red',
+        '--focus-overhearing-locked-address-red',
+        '--focus-overhearing-no-extra-locked-red',
+        '--focus-overhearing-scope-mismatch-red',
+    ], true)) {
+        $case = substr($focus, strlen('--focus-overhearing-'));
+        restorePolicyAssertOverhearingFallback($case);
+        echo "restore-policy overhearing fallback {$case} passed\n";
+        return;
+    }
+
     if ($focus === '--focus-player-red') {
         [, $memory, $store] = restorePolicyFixture(884, '1', ['latest_init_event_id' => 883, 'max_event_id' => 884]);
         [$request, $insert] = playerInputFixture($memory);
@@ -480,6 +497,131 @@ function restorePolicyRunFocus(string $focus): void
     throw new RuntimeException('Unknown focused restore-policy route: ' . $focus);
 }
 
+function restorePolicyAssertOverhearingFallback(string $case): void
+{
+    resetAckLoggingInteraction();
+    $GLOBALS['NEVER_CLEAR_RELATIONSHIP_DATA'] = true;
+    $GLOBALS['all_fast_commands'] = ['_speech', 'request'];
+    $GLOBALS['restore_policy_overhearing_enabled'] = true;
+
+    $oldScopeLedger = ['playthrough_id' => '1', 'floor_event_id' => 90, 'events' => []];
+    $people = match ($case) {
+        'extra-cap-red', 'locked-address-red' => '|Aela|Lydia|Inigo|Farkas|Serana|Brynjolf|Tolfdir|',
+        'invalid-roster-red' => "|Aela|Lydia|Bad\x01Name|",
+        'no-witness-store-red' => '|Aela|Lydia|Inigo|',
+        'no-extra-locked-red' => '|Aela|Lydia|',
+        'scope-mismatch-red' => "|Aela|Lydia|Bad\x01Name|",
+        default => throw new RuntimeException('Unknown restore-policy overhearing fallback case.'),
+    };
+    $scope = $case === 'scope-mismatch-red' ? '2' : '1';
+    [$event, $memory, $store, $ack] = restorePolicyFixture(
+        101,
+        $scope,
+        ['latest_init_event_id' => 99, 'max_event_id' => 101],
+        $oldScopeLedger
+    );
+    $memory->events[101]['people'] = $people;
+    $extraNames = $case === 'extra-cap-red' || $case === 'locked-address-red'
+        ? [44 => 'Inigo', 45 => 'Farkas', 46 => 'Serana', 47 => 'Brynjolf', 48 => 'Tolfdir']
+        : ($case === 'no-witness-store-red' ? [44 => 'Inigo'] : []);
+    $extraScope = $case === 'extra-cap-red' ? $scope : '2';
+    foreach ($extraNames as $id => $name) {
+        $memory->npcs[$id] = [
+            'id' => $id,
+            'npc_name' => $name,
+            'gamets_last_updated' => 0.0,
+            'extended_data' => (object)['relationships' => new \stdClass()],
+            'plugin_extended_data' => (object)['mind_poisoning' => (object)array_replace($oldScopeLedger, ['playthrough_id' => $extraScope])],
+        ];
+    }
+    if ($case === 'no-witness-store-red') {
+        $store = new RestorePolicyTestDb($memory, ['latest_init_event_id' => 99, 'max_event_id' => 101]);
+    }
+    if ($case === 'locked-address-red' || $case === 'no-extra-locked-red') {
+        $memory->npcs[22]['extended_data']->relationships_locked = true;
+    }
+    $extrasBefore = [];
+    foreach (array_keys($extraNames) as $id) {
+        $extrasBefore[$id] = serialize($memory->npcs[$id]);
+    }
+    $addressedBefore = serialize($memory->npcs[22]);
+    $historyBefore = serialize($memory->history);
+    $records = [];
+    $calls = 0;
+    $messages = null;
+    $status = handleSpeechAck($ack, $store, static function (array $given) use (&$calls, &$messages): string {
+        $calls++;
+        $messages = $given;
+        return validModelResponse([
+            ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'Trusting claim', 'evidence' => 'I trust Jarl Balgruuf.'],
+            ['subject' => 'player', 'delta' => 0, 'reason' => 'No Player change', 'evidence' => 'The Dragonborn is brave.'],
+        ]);
+    }, captureRequestLog($records));
+    $finished = array_values(array_filter($records, static fn(array $record): bool => ($record['event'] ?? null) === 'request_finished'));
+    $skipped = array_values(array_filter($records, static fn(array $record): bool =>
+        ($record['event'] ?? null) === 'overhearing_audience_skipped'
+    ));
+
+    if ($case === 'locked-address-red' || $case === 'no-extra-locked-red') {
+        if (
+            $status !== 'locked' || $calls !== 0 || serialize($memory->npcs[22]) !== $addressedBefore
+            || serialize($memory->history) !== $historyBefore || count($finished) !== 1
+        ) {
+            throw new RuntimeException("The addressed lock was not the sole terminal result for {$case}; got {$status}, {$calls} model calls, and " . count($finished) . ' summaries.');
+        }
+    } elseif ($case === 'scope-mismatch-red') {
+        $addressedLedger = $memory->npcs[22]['plugin_extended_data']->mind_poisoning ?? null;
+        $afterBaseline = serialize([$memory->npcs, $memory->history]);
+        $retryCalls = 0;
+        if (
+            $status !== 'restore-policy' || $calls !== 0
+            || (lastRequestSummary($records)['reason'] ?? null) !== 'restore-policy-scope-baselined'
+            || ($addressedLedger->playthrough_id ?? null) !== '2' || ($addressedLedger->floor_event_id ?? null) !== 101
+            || $memory->history === []
+            || handleSpeechAck($ack, $store, static function (array $given) use (&$retryCalls): string {
+                $retryCalls++;
+                return '{}';
+            }) !== 'duplicate' || $retryCalls !== 0 || serialize([$memory->npcs, $memory->history]) !== $afterBaseline
+        ) {
+            throw new RuntimeException('Skipping invalid extras bypassed the addressed recipient scope baseline or replay floor.');
+        }
+    } else {
+        $payload = is_array($messages) ? json_decode($messages[1]['content'] ?? '', true, 64, JSON_THROW_ON_ERROR)['untrusted_data'] ?? [] : [];
+        $expectedReason = match ($case) {
+            'extra-cap-red' => 'audience_cap_reached',
+            'invalid-roster-red' => 'audience_people_invalid',
+            'no-witness-store-red' => 'audience_snapshot_unavailable',
+            default => null,
+        };
+        $addressedLedger = $memory->npcs[22]['plugin_extended_data']->mind_poisoning ?? null;
+        if (
+            $status !== 'committed' || $calls !== 1
+            || array_key_exists('recipients', $payload) || !is_array($payload['candidates'] ?? null)
+            || ($addressedLedger->playthrough_id ?? null) !== '1'
+            || !in_array(101, array_column($addressedLedger->events ?? [], 'event_id'), true)
+            || count($finished) !== 1 || ($finished[0]['reason'] ?? null) !== 'committed'
+            || count($skipped) !== 1 || ($skipped[0]['reason'] ?? null) !== $expectedReason
+        ) {
+            throw new RuntimeException("Preserve-mode {$case} did not skip extras and continue the direct path; got {$status} after {$calls} model calls (" . (lastRequestSummary($records)['reason'] ?? 'no reason') . ').');
+        }
+        foreach ($extrasBefore as $id => $before) {
+            if (serialize($memory->npcs[$id]) !== $before) {
+                throw new RuntimeException("Skipped extra {$id} was baselined or persisted for {$case}.");
+            }
+        }
+        if ($case === 'extra-cap-red') {
+            $afterCommit = serialize([$memory->npcs, $memory->history]);
+            $retryCalls = 0;
+            if (handleSpeechAck($ack, $store, static function (array $given) use (&$retryCalls): string {
+                $retryCalls++;
+                return '{}';
+            }) !== 'duplicate' || $retryCalls !== 0 || serialize([$memory->npcs, $memory->history]) !== $afterCommit) {
+                throw new RuntimeException('A direct commit after skipping an over-cap audience was not protected from exact replay.');
+            }
+        }
+    }
+}
+
 $fixtureRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'mp_restore_policy_' . bin2hex(random_bytes(8));
 if (!mkdir($fixtureRoot, 0700, true) || file_put_contents($fixtureRoot . DIRECTORY_SEPARATOR . 'main.php', "<?php\n") === false) {
     throw new RuntimeException('Could not create the isolated CHIM root fixture.');
@@ -497,6 +639,16 @@ try {
     if ($focus !== '') {
         restorePolicyRunFocus($focus);
     } else {
+    foreach ([
+        'extra-cap-red',
+        'invalid-roster-red',
+        'no-witness-store-red',
+        'locked-address-red',
+        'no-extra-locked-red',
+        'scope-mismatch-red',
+    ] as $overhearingCase) {
+        restorePolicyAssertOverhearingFallback($overhearingCase);
+    }
     $priorLedger = [
         'playthrough_id' => '1',
         'floor_event_id' => 90,

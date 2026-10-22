@@ -121,6 +121,9 @@ function baselineRestorePolicyScopeIfNeeded(
     if ($ledger === [] || $ledger['playthrough_id'] === $activeScope) {
         return null;
     }
+    $cleanupFailureGeneration = $store instanceof PostgresStoreDb
+        ? $store->cleanupFailureGeneration()
+        : null;
     try {
         if (!$store->acquireRestorePolicyBarrier()) {
             return 'restore-policy-lock-unavailable';
@@ -184,7 +187,10 @@ function baselineRestorePolicyScopeIfNeeded(
         } catch (Throwable) {
             $result = 'restore-policy-main-release-failed';
         }
-        if ($cleanupFailed || ($store instanceof PostgresStoreDb && $store->cleanupFailed())) {
+        if (
+            $cleanupFailed
+            || ($store instanceof PostgresStoreDb && $store->cleanupFailureGeneration() !== $cleanupFailureGeneration)
+        ) {
             $result = 'restore-policy-baseline-cleanup-failed';
         }
     }

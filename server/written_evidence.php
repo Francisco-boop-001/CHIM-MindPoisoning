@@ -28,8 +28,9 @@ function writtenEvidenceCapability(): array
 
 function parseWrittenEvidenceEnvelope(string $sourceData): ?array
 {
+    // Unicode JSON escapes can expand the supported 8 KB body to 24 KB; 64 KiB leaves room for bounded metadata.
     if (
-        $sourceData === '' || strlen($sourceData) > 16384
+        $sourceData === '' || strlen($sourceData) > WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES
         || preg_match('//u', $sourceData) !== 1
     ) {
         return null;
@@ -469,10 +470,18 @@ function writtenEvidenceSubjects(array $event, array $catalog, string $playerNam
         && is_string($claimedSender['name'] ?? null)
         && writtenEvidenceUniqueNpcIdentity($normalizedCatalog, $claimedSender, $playerName)
     ) {
-        $subjects['npc:' . $claimedSender['id']] = [
-            'name' => $claimedSender['name'],
-            'id' => $claimedSender['id'],
-        ];
+        foreach ($normalizedCatalog as $identity) {
+            if (
+                $identity['id'] === $claimedSender['id']
+                && sameActorName($identity['npc_name'], $claimedSender['name'])
+            ) {
+                $subjects['npc:' . $claimedSender['id']] = [
+                    'name' => $identity['npc_name'],
+                    'id' => $claimedSender['id'],
+                ];
+                break;
+            }
+        }
     }
 
     // findSubjects supplies the existing exact-name/alias ambiguity rules. The minimal event

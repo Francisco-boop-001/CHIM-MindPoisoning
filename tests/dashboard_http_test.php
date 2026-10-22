@@ -318,6 +318,36 @@ try {
         dashboardAssert($body === $deniedBody, 'Forwarded loopback denial did not give the fixed localhost/server-auth guidance.');
         dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Forwarded loopback request loaded or called dashboard data code.');
 
+        $localPort = (int)parse_url($localUrl, PHP_URL_PORT);
+        $socket = @stream_socket_client('tcp://127.0.0.1:' . $localPort, $errorCode, $errorMessage, 3);
+        dashboardAssert(is_resource($socket), 'Could not open a Host-less loopback fixture request.');
+        fwrite($socket, "GET /dashboard.php?tab=diagnostics HTTP/1.0\r\nConnection: close\r\n\r\n");
+        $response = stream_get_contents($socket);
+        fclose($socket);
+        preg_match('/\\AHTTP\\/\\d\\.\\d\\s+(\\d{3})/', (string)$response, $statusMatch);
+        dashboardAssert((int)($statusMatch[1] ?? 0) === 403, 'Loopback request without Host was not denied.');
+        dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Host-less loopback request loaded or called dashboard data code.');
+
+        [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions&local=1', 'GET', [
+            'Host: attacker.example',
+            'X-Forwarded-For: 127.0.0.1',
+        ]);
+        dashboardAssert($status === 403 && $body === $deniedBody, 'Loopback request with a hostile Host and forged forwarding header bypassed the Host guard through local handoff.');
+        dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Host-guard denial redirected to localhost.');
+        dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Host-guard denial loaded or called dashboard data code.');
+
+        foreach (['attacker.example', 'localhost.attacker.example', 'localhost:0', 'localhost:65536', 'localhost:', 'localhost:abc', '[::1', '127.0.0.1:80:90'] as $host) {
+            [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=diagnostics', 'GET', ['Host: ' . $host]);
+            dashboardAssert($status === 403 && $body === $deniedBody, 'Unauthenticated loopback request with a non-local or invalid Host was not denied.');
+            dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Invalid local Host produced a redirect.');
+            dashboardAssert(!is_file($root . '/reader.included') && !is_file($root . '/reader.loaded'), 'Invalid local Host loaded or called dashboard data code.');
+        }
+
+        foreach (['localhost', 'LOCALHOST:80', '127.0.0.1', '127.0.0.2:8080', '[::1]', '[0:0:0:0:0:0:0:1]:65535'] as $host) {
+            [$status, , $body] = dashboardRequest($localUrl . '?tab=interactions', 'GET', ['Host: ' . $host]);
+            dashboardAssert($status === 200 && str_contains($body, 'Dashboard fixture'), 'A valid local Host was not allowed.');
+        }
+
         [$status, $headers, $body] = dashboardRequest($localUrl . '?tab=interactions&local=1');
         dashboardAssert($status === 200 && str_contains($body, 'Dashboard fixture'), 'Loopback request without REMOTE_USER was not allowed.');
         dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Loopback request with the handoff marker redirected.');
@@ -370,7 +400,7 @@ try {
 
     [$authProcess, $authPipes, $authUrl] = dashboardStartServer($root . '/router.php', $root, '203.0.113.10', 'authenticated-fixture-user');
     try {
-        [$status, $headers, $body] = dashboardRequest($authUrl . '?tab=diagnostics&download=1&local=1');
+        [$status, $headers, $body] = dashboardRequest($authUrl . '?tab=diagnostics&download=1&local=1', 'GET', ['Host: attacker.example']);
         dashboardAssert($status === 200, 'Server-authenticated remote request was not allowed.');
         dashboardAssert(dashboardHeader($headers, 'Location') === null, 'Authenticated remote request with the handoff marker redirected.');
         dashboardAssert(str_starts_with((string)dashboardHeader($headers, 'Content-Type'), 'application/x-ndjson'), 'Download has an unexpected content type.');

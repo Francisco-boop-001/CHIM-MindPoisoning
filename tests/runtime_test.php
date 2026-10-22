@@ -2008,6 +2008,25 @@ same('connector-invalid', handleSpeechAck($ack, $db, $model), 'A missing relatio
 same(0, $modelCalls, 'A missing connector must not call the model.');
 $GLOBALS['RELLLM_CONNECTOR'] = 7;
 
+foreach ([[' 7', 'whitespace'], ['+7', 'plus sign'], [7.0, 'float']] as [$malformedConnector, $label]) {
+    resetAckLoggingInteraction();
+    [$event, $subjects, $judgments, $db] = baseFixture();
+    $GLOBALS['RELLLM_CONNECTOR'] = $malformedConnector;
+    $connectorCalls = 0;
+    $connectorRecords = [];
+    same('connector-invalid', handleSpeechAck($ack, $db, static function (array $messages) use (&$connectorCalls): string {
+        $connectorCalls++;
+        return validModelResponse([]);
+    }, captureRequestLog($connectorRecords)), "A {$label} connector representation must fail closed before the provider.");
+    same(0, $connectorCalls, "A {$label} connector representation must not call the model.");
+    same([], $db->history, "A {$label} connector representation must not create a listener snapshot.");
+    same(1, count(array_filter($connectorRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'request_finished')),
+        "A {$label} connector skip must produce one terminal summary.");
+    same('skipped', lastRequestSummary($connectorRecords)['outcome'] ?? null,
+        "A {$label} connector must be logged as an expected skip, not a provider failure.");
+}
+$GLOBALS['RELLLM_CONNECTOR'] = 7;
+
 [$event, $subjects, $judgments, $db] = baseFixture();
 $db->events[100]['source_data'] = 'Aela: I trust Jarl Balgruuf. The Dragonborn is brave. (Talking to Everyone)';
 $modelCalls = 0;

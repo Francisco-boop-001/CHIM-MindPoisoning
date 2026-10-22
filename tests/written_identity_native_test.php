@@ -287,6 +287,41 @@ namespace ChimMindPoisoning {
         \mpW1Require(is_array($matchesAfterFormerRowCap) && array_column($matchesAfterFormerRowCap, 'event_id') === [4597], 'valid-match-after-4096-sources-unavailable');
         $checks++;
 
+        $largeDocument = \mpW1Uuid(9400);
+        $largeReceipt = \mpW1Uuid(9401);
+        $largeOperation = \mpW1Uuid(9402);
+        $largePayload = \mpW1Envelope($largeDocument, $largeReceipt, $largeOperation);
+        $largePayload['body'] = str_repeat('😀', 2000);
+        $largeRaw = \mpW1EncodedEnvelope($largePayload);
+        \mpW1Require(
+            strlen($largeRaw) > 16384 && strlen($largeRaw) <= WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES,
+            'escaped-max-body-envelope-not-over-former-cap'
+        );
+        \mpW1Insert($connection, 4598, $largeRaw);
+        $largeFetched = $store->writtenEvidenceById(4598);
+        \mpW1Require(
+            is_array($largeFetched)
+                && ($largeFetched['source_data'] ?? null) === $largeRaw
+                && hash('sha256', $largeFetched['source_data']) === hash('sha256', $largeRaw),
+            'large-escaped-envelope-fetch-or-digest-changed'
+        );
+        $largeIdentityMatches = $store->writtenEvidenceIdentityEvents(
+            $largeDocument,
+            '1',
+            2001,
+            $largeReceipt,
+            $largeOperation,
+            4597,
+            4598
+        );
+        \mpW1Require(
+            is_array($largeIdentityMatches)
+                && array_column($largeIdentityMatches, 'event_id') === [4598]
+                && ($largeIdentityMatches[0]['source_data'] ?? null) === $largeRaw,
+            'large-escaped-envelope-identity-scan-unavailable'
+        );
+        $checks += 3;
+
         $GLOBALS['mpW1IdentityClockValues'] = [1_000_000_000, 1_000_000_000, 4_000_000_001];
         $GLOBALS['mpW1IdentityClockLast'] = null;
         $expiredDeadline = $store->writtenEvidenceIdentityEvents(

@@ -171,6 +171,17 @@ function dashboardReadLogs(string $serverRoot): array
             return ['available' => false, 'limited' => false, 'records' => []];
         }
         $offset = max(0, $stat['size'] - DASHBOARD_LOG_BYTES);
+        $discardFirstLine = false;
+        if ($offset > 0) {
+            if (fseek($handle, $offset - 1, SEEK_SET) !== 0) {
+                return ['available' => false, 'limited' => false, 'records' => []];
+            }
+            $previousByte = fread($handle, 1);
+            if (!is_string($previousByte) || strlen($previousByte) !== 1) {
+                return ['available' => false, 'limited' => false, 'records' => []];
+            }
+            $discardFirstLine = $previousByte !== "\n";
+        }
         if (fseek($handle, $offset, SEEK_SET) !== 0) {
             return ['available' => false, 'limited' => false, 'records' => []];
         }
@@ -191,7 +202,7 @@ function dashboardReadLogs(string $serverRoot): array
 
     $limited = $offset > 0;
     $lines = explode("\n", $tail);
-    if ($offset > 0) {
+    if ($discardFirstLine) {
         array_shift($lines); // The first tail line may start in the middle of a shared log entry.
     }
     if ($tail !== '' && !str_ends_with($tail, "\n")) {
@@ -1791,14 +1802,27 @@ function dashboardInteractionMatches(array $interaction, array $filters): bool
     return dashboardContains($interaction, $filters['q']);
 }
 
-function dashboardContains(array $value, string $query): bool
+function dashboardContains(array|object $value, string $query): bool
 {
     if ($query === '') {
         return true;
     }
-    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($encoded)) {
-        return false;
+    foreach ($value as $fieldValue) {
+        if (is_array($fieldValue) || is_object($fieldValue)) {
+            if (dashboardContains($fieldValue, $query)) {
+                return true;
+            }
+            continue;
+        }
+        if (!is_scalar($fieldValue) && $fieldValue !== null) {
+            continue;
+        }
+        $searchable = is_string($fieldValue)
+            ? $fieldValue
+            : json_encode($fieldValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($searchable) && mb_stripos($searchable, $query, 0, 'UTF-8') !== false) {
+            return true;
+        }
     }
-    return mb_stripos($encoded, $query, 0, 'UTF-8') !== false;
+    return false;
 }

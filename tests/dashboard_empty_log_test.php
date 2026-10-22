@@ -23,6 +23,25 @@ try {
     if ($partial !== ['available' => true, 'limited' => true, 'records' => []]) {
         throw new RuntimeException('An unfinished log line was not reported as truncated.');
     }
+
+    $cap = \ChimMindPoisoning\DASHBOARD_LOG_BYTES;
+    $record = '[2026-10-22 12:00:00] [info] ' . json_encode([
+        'plugin' => 'mind_poisoning',
+        'schema_version' => 1,
+        'version' => '0.1.29',
+        'timestamp' => '2026-10-22T12:00:00Z',
+        'request_id' => str_repeat('a', 24),
+        'level' => 'info',
+        'event' => 'request_finished',
+        'outcome' => 'committed',
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $prefix = str_repeat('x', $cap - 1) . "\n";
+    $tail = $record . "\n" . str_repeat('x', $cap - strlen($record) - 1);
+    file_put_contents($log, $prefix . $tail);
+    $boundary = dashboardReadLogs($server);
+    if (!$boundary['limited'] || count($boundary['records']) !== 1 || $boundary['records'][0]['outcome'] !== 'committed') {
+        throw new RuntimeException('A complete record at the bounded tail boundary was discarded.');
+    }
 } finally {
     if (is_file($log)) {
         unlink($log);

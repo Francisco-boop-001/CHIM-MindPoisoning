@@ -79,6 +79,12 @@ function parseIntimacyResponse(string $response, string $utterance): ?array
     if (strlen($response) > 4096) {
         throw new JudgmentValidationFailure('response_too_large');
     }
+    $response = trim($response);
+    $fence = str_repeat(chr(96), 3);
+    $fencePattern = '/\A' . preg_quote($fence, '/') . 'json\r?\n([\s\S]*?)\r?\n' . preg_quote($fence, '/') . '\z/';
+    if (preg_match($fencePattern, $response, $fenced) === 1) {
+        $response = $fenced[1];
+    }
     try {
         $decoded = json_decode($response, true, 32, JSON_THROW_ON_ERROR);
     } catch (JsonException $error) {

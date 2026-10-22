@@ -24,15 +24,47 @@ use function ChimMindPoisoning\renderDashboard;
 
     $remoteAddress = $_SERVER['REMOTE_ADDR'] ?? '';
     $remoteUser = $_SERVER['REMOTE_USER'] ?? '';
+    $remoteIsLoopback = is_string($remoteAddress)
+        && in_array($remoteAddress, ['127.0.0.1', '::1'], true);
+    $isLocalHost = static function (mixed $host): bool {
+        if (!is_string($host) || $host === '' || strlen($host) > 255) {
+            return false;
+        }
+        if ($host[0] === '[') {
+            if (preg_match('/\A\[([0-9A-Fa-f:.]+)\](?::([0-9]{1,5}))?\z/', $host, $matches) !== 1) {
+                return false;
+            }
+            $packed = @inet_pton($matches[1]);
+            $isLocal = is_string($packed) && $packed === inet_pton('::1');
+            $port = $matches[2] ?? null;
+        } else {
+            if (preg_match('/\A([^:]+)(?::([0-9]{1,5}))?\z/', $host, $matches) !== 1) {
+                return false;
+            }
+            $address = $matches[1];
+            $port = $matches[2] ?? null;
+            if (strcasecmp($address, 'localhost') === 0) {
+                $isLocal = true;
+            } else {
+                $packed = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false
+                    ? inet_pton($address)
+                    : false;
+                $isLocal = is_string($packed) && ord($packed[0]) === 127;
+            }
+        }
+        return $isLocal && ($port === null || ((int)$port >= 1 && (int)$port <= 65535));
+    };
     $hasForwardedAddress = array_key_exists('HTTP_FORWARDED', $_SERVER)
         || array_key_exists('HTTP_X_FORWARDED_FOR', $_SERVER)
         || array_key_exists('HTTP_X_REAL_IP', $_SERVER);
-    $isLoopback = is_string($remoteAddress)
-        && in_array($remoteAddress, ['127.0.0.1', '::1'], true)
-        && !$hasForwardedAddress;
+    $isLoopback = $remoteIsLoopback
+        && !$hasForwardedAddress
+        && $isLocalHost($_SERVER['HTTP_HOST'] ?? null);
     $hasAuthenticatedUser = is_string($remoteUser) && trim($remoteUser) !== '';
     if (!$isLoopback && !$hasAuthenticatedUser) {
-        $localHandoffRequested = ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
+        // A bad loopback Host must not become an authorized request through this redirect.
+        $localHandoffRequested = !$remoteIsLoopback
+            && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
             && ($_GET['local'] ?? null) === '1';
         if ($localHandoffRequested) {
             $scriptName = $_SERVER['SCRIPT_NAME'] ?? null;

@@ -8,6 +8,7 @@ use RuntimeException;
 use Throwable;
 
 const MIND_POISONING_REFLECTION_REPLY_MAX_LINES = 24;
+const WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES = 65536;
 
 require_once __DIR__ . '/logging.php';
 require_once __DIR__ . '/influence.php';
@@ -565,7 +566,7 @@ function normalizeWrittenEvidenceSourceRow(array $row): ?array
         || !is_numeric($gamets) || !is_finite((float)$gamets) || (float)$sourceGamets !== (float)$gamets
         || $sourceLocalts === false || $sourceLocalts < 0
         || !is_string($sourcePeople) || trim($sourcePeople) === '' || strlen($sourcePeople) > 2048
-        || !is_string($sourceData) || $sourceData === '' || strlen($sourceData) > 16384
+        || !is_string($sourceData) || $sourceData === '' || strlen($sourceData) > WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES
         || preg_match('//u', $sourceData) !== 1
     ) {
         return null;
@@ -597,7 +598,7 @@ function writtenEvidenceEventIdentity(array $event): ?array
         || ($event['opinion_owner_id'] ?? null) !== $event['recipient_id']
         || !is_string($event['playthrough_id'] ?? null)
         || !preg_match('/\A(?:unprofiled|[1-9][0-9]{0,18})\z/D', $event['playthrough_id'])
-        || !is_string($event['source_data'] ?? null) || $event['source_data'] === '' || strlen($event['source_data']) > 16384
+        || !is_string($event['source_data'] ?? null) || $event['source_data'] === '' || strlen($event['source_data']) > WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES
         || !is_string($event['source_digest'] ?? null)
         || !hash_equals(hash('sha256', $event['source_data']), $event['source_digest'])
         || !is_string($event['text'] ?? null) || $event['text'] === '' || preg_match('//u', $event['text']) !== 1
@@ -1201,8 +1202,11 @@ function persistWrittenEvidenceJudgments(
     if (($event['source_kind'] ?? null) !== 'written_evidence') {
         return 'invalid';
     }
+    $cleanupFailureGeneration = $store instanceof PostgresStoreDb
+        ? $store->cleanupFailureGeneration()
+        : null;
     $status = persistJudgments($event, $subjects, $judgments, $store, $requestLog);
-    if ($store instanceof PostgresStoreDb && $store->cleanupFailed()) {
+    if ($store instanceof PostgresStoreDb && $store->cleanupFailureGeneration() !== $cleanupFailureGeneration) {
         return 'failed';
     }
     return $status;
@@ -1238,6 +1242,9 @@ function persistJudgments(
 {
     require_once __DIR__ . '/intimacy.php';
     $startedAt = hrtime(true);
+    $cleanupFailureGeneration = $store instanceof PostgresStoreDb
+        ? $store->cleanupFailureGeneration()
+        : null;
     $committed = false;
     $commitAttempted = false;
     $cleanupRequired = false;
@@ -2222,7 +2229,7 @@ function persistJudgments(
                 $reason = 'restore-policy-main-release-failed';
             }
         }
-        if ($store instanceof PostgresStoreDb && $store->cleanupFailed()) {
+        if ($store instanceof PostgresStoreDb && $store->cleanupFailureGeneration() !== $cleanupFailureGeneration) {
             $cleanupFailed = true;
         }
 
@@ -2362,6 +2369,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
     private bool $ownsTransaction = false;
     private bool $ownsAdvisoryLock = false;
     private bool $cleanupFailed = false;
+    private int $cleanupFailureGeneration = 0;
     private int $advisoryKey = 0;
     private bool $ownsRestorePolicyBarrier = false;
 
@@ -2391,6 +2399,11 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
     public function cleanupFailed(): bool
     {
         return $this->cleanupFailed;
+    }
+
+    public function cleanupFailureGeneration(): int
+    {
+        return $this->cleanupFailureGeneration;
     }
 
     public function setRequestLog(?RequestLog $requestLog): ?RequestLog
@@ -2476,11 +2489,12 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if (!$this->ownsRestorePolicyBarrier) {
             return;
         }
-        $this->ownsRestorePolicyBarrier = false;
         try {
-            if (!\SemaphoreManager::release('MAIN')) {
-                $this->reportCleanupFailure('main-barrier-release', 'restore-policy-main-release-unconfirmed');
+            if (\SemaphoreManager::release('MAIN')) {
+                $this->ownsRestorePolicyBarrier = false;
+                return;
             }
+            $this->reportCleanupFailure('main-barrier-release', 'restore-policy-main-release-unconfirmed');
         } catch (Throwable) {
             $this->reportCleanupFailure('main-barrier-release', 'restore-policy-main-release-failed');
         }
@@ -2515,7 +2529,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
                     e.ts::text AS source_ts, e.gamets::text AS source_gamets,
                     e.gamets::text AS gamets, e.localts::text AS source_localts,
                     CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
-                    CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data
+                    CASE WHEN octet_length(e.data) <= " . WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES . " THEN e.data ELSE NULL END AS source_data
              FROM eventlog e
              WHERE e.rowid = $1 AND e.type = 'info' AND e.sess = 'written_evidence_v1'{$lock}",
             [$eventId]
@@ -2558,7 +2572,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
                             e.ts::text AS source_ts, e.gamets::text AS source_gamets,
                             e.gamets::text AS gamets, e.localts::text AS source_localts,
                             CASE WHEN octet_length(e.people) <= 2048 THEN e.people ELSE NULL END AS source_people,
-                            CASE WHEN octet_length(e.data) <= 16384 THEN e.data ELSE NULL END AS source_data
+                            CASE WHEN octet_length(e.data) <= " . WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES . " THEN e.data ELSE NULL END AS source_data
                      FROM eventlog e
                      WHERE e.rowid > $1 AND e.rowid <= $2
                        AND e.type = 'info' AND e.sess = 'written_evidence_v1'
@@ -2679,7 +2693,8 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
                         WHERE lower(btrim(member.name)) = lower(btrim($2))
                     ) = 1
                     AND e.data !~* 'explicit_disable_rechat'
-                    AND char_length(e.data) <= 4096
+                    AND octet_length(e.data) <= 4096
+                    AND octet_length(e.people) <= 2048
                   ORDER BY e.rowid DESC LIMIT 16";
         $rows = $this->readRows($query, [$beforeEventId, trim($actorName)]);
         if (count($rows) > 16) {
@@ -2832,7 +2847,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if ($name === '' || preg_match('//u', $name) !== 1) {
             return null;
         }
-        try {
+        $read = function () use ($name): ?array {
             $catalog = $this->readRows("SELECT to_regclass('nsfw_npc_data') AS metadata_table", []);
             if (count($catalog) !== 1 || !array_key_exists('metadata_table', $catalog[0])) {
                 return null;
@@ -2884,13 +2899,46 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
                 'is_child' => $data->is_child ?? null,
                 'race' => $data->race ?? null,
             ];
+        };
+
+        $savepoint = 'mp_intimacy_child_data_read';
+        $savepointActive = false;
+        if ($this->ownsTransaction) {
+            $result = $this->nativeQuery('SAVEPOINT ' . $savepoint, []);
+            pg_free_result($result);
+            $savepointActive = true;
+        }
+        try {
+            $data = $read();
+            if ($savepointActive) {
+                $result = $this->nativeQuery('RELEASE SAVEPOINT ' . $savepoint, []);
+                pg_free_result($result);
+                $savepointActive = false;
+            }
+            return $data;
         } catch (Throwable) {
+            if (!$savepointActive) {
+                return null;
+            }
+            try {
+                $result = $this->nativeQuery('ROLLBACK TO SAVEPOINT ' . $savepoint, []);
+                pg_free_result($result);
+                $result = $this->nativeQuery('RELEASE SAVEPOINT ' . $savepoint, []);
+                pg_free_result($result);
+                $savepointActive = false;
+            } catch (Throwable $recoveryError) {
+                $this->reportCleanupFailure('intimacy-child-savepoint', 'child-data-savepoint-recovery-failed');
+                throw new RuntimeException('Could not recover the listener transaction after the optional child metadata read failed.', 0, $recoveryError);
+            }
             return null;
         }
     }
 
     public function beginForListener(int $listenerId): bool
     {
+        if ($this->ownsTransaction || $this->ownsAdvisoryLock) {
+            return false;
+        }
         $this->captureConnection();
         assertIdleTransactionStatus(pg_transaction_status($this->connection));
         $this->advisoryKey = 1001000000 + $listenerId;
@@ -3031,10 +3079,10 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if ($result === false) {
             throw new RuntimeException('PostgreSQL rejected the listener transaction commit.');
         }
-        $this->ownsTransaction = false;
         if (pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE) {
             throw new RuntimeException('PostgreSQL did not return to idle after commit.');
         }
+        $this->ownsTransaction = false;
         return true;
     }
 
@@ -3046,9 +3094,19 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if (!$this->connection instanceof \PgSql\Connection
             || pg_connection_status($this->connection) !== PGSQL_CONNECTION_OK) {
             $this->reportCleanupFailure('rollback', 'rollback-connection-unavailable');
-        } elseif (pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE
-            && @pg_query($this->connection, 'ROLLBACK') === false) {
-            $this->reportCleanupFailure('rollback', 'rollback-query-failed');
+            return;
+        }
+        if (pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE) {
+            $result = @pg_query($this->connection, 'ROLLBACK');
+            if ($result === false) {
+                $this->reportCleanupFailure('rollback', 'rollback-query-failed');
+                return;
+            }
+            pg_free_result($result);
+        }
+        if (pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE) {
+            $this->reportCleanupFailure('rollback', 'rollback-not-confirmed');
+            return;
         }
         $this->ownsTransaction = false;
     }
@@ -3061,16 +3119,18 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
         if (!$this->connection instanceof \PgSql\Connection
             || pg_connection_status($this->connection) !== PGSQL_CONNECTION_OK) {
             $this->reportCleanupFailure('release', 'advisory-unlock-connection-unavailable');
-        } else {
-            $result = @pg_query_params($this->connection, 'SELECT pg_advisory_unlock($1) AS released', [$this->advisoryKey]);
-            if ($result === false) {
-                $this->reportCleanupFailure('release', 'advisory-unlock-query-failed');
-            } else {
-                $row = pg_fetch_assoc($result);
-                if (($row['released'] ?? null) !== 't') {
-                    $this->reportCleanupFailure('release', 'advisory-unlock-not-confirmed');
-                }
-            }
+            return;
+        }
+        $result = @pg_query_params($this->connection, 'SELECT pg_advisory_unlock($1) AS released', [$this->advisoryKey]);
+        if ($result === false) {
+            $this->reportCleanupFailure('release', 'advisory-unlock-query-failed');
+            return;
+        }
+        $row = pg_fetch_assoc($result);
+        pg_free_result($result);
+        if (($row['released'] ?? null) !== 't') {
+            $this->reportCleanupFailure('release', 'advisory-unlock-not-confirmed');
+            return;
         }
         $this->ownsAdvisoryLock = false;
     }
@@ -3078,6 +3138,7 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
     private function reportCleanupFailure(string $stage, string $reason): void
     {
         $this->cleanupFailed = true;
+        ++$this->cleanupFailureGeneration;
         if ($this->requestLog !== null) {
             $this->requestLog->context(['cleanup_failed' => true]);
             $this->requestLog->event('persistence_cleanup_failed', 'error', [

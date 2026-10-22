@@ -1107,3 +1107,15 @@ Completed review/fix: readable apostrophes with retained escaping; focused RED/G
 User authorizes commit/push/publish with live/game untouched. Plan: tasks/release-v0.1.29-plan.md. Runtime evidence retained by hash; Windows-only release operations.
 
 Release0.1.29 completed: tag/product69fa049577bf, publishedreceipt0801582865e0, hubc1cd9d0cb373. All4formats reproduce; all5 anonymousdownloads verified. Mainupdate followspublicassetgate, historicalassets preserved. Live/game untouched, no newruntime/provider checks; BETA CANDIDATE unchanged. Finalreview tasks/release-v0.1.29-plan.md.
+
+## MP bugfix campaign — 2026-10-22
+Plan: tasks/bugfix-release-2026-10-22.md. Delegated owners A/B/C, then D; provider-free TEST checks and gated0.1.30 publication authorized. PCV/live/game untouched.
+
+### Task D — overhearing fallback and connector parsing
+- [x] Add focused REDs for invalid/unavailable/over-cap extras, addressed lock summaries, replay/scope protection, and malformed connector representations.
+- [x] Keep preserve-mode extra-audience cap all-or-none before extra baseline writes; continue addressed processing through its own lock, baseline, and replay checks.
+- [x] Verify focused and full standalone Windows PHP suites, lint, and scoped diff checks; record results in `tasks/bugfix-D-2026-10-22.md` and `artifacts/mp-bugfix-20261022/D/`.
+
+Review: all six focused cases and full restore-policy, runtime, and overhearing suites passed. Symlink-only runtime checks were skipped by Windows; no database/provider/live/game checks were run. Pending lead review; no commit, push, or version change.
+
+MP source/integration complete: findings1–12 fixed and independently reviewed. NativePg41+14 and10focusedLinux suites pass,18changedPHP lint clean; own TEST resources released toPCV. Final0.1.30 docs/assets/publication/hub checks remain pending. Live/game/PCV/SHARMAT untouched.

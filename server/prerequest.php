@@ -310,9 +310,6 @@ function evaluateOverhearingAck(
     }
     $restorePolicy = mindPoisoningRestorePolicyEnabled();
     if (!$store instanceof WitnessSnapshotStoreDb) {
-        if ($restorePolicy) {
-            return recordRestorePolicyPreflight($requestLog, $logFields, 'restore-policy-audience-unavailable', 'preflight', null, $event);
-        }
         $requestLog?->event('overhearing_audience_skipped', 'warning', [
             'stage' => 'preflight', 'reason' => 'audience_snapshot_unavailable',
         ]);
@@ -326,9 +323,6 @@ function evaluateOverhearingAck(
         $people = overhearingPeopleNames($source['source_people'] ?? null, $peopleReason);
     }
     if (!is_array($people)) {
-        if ($restorePolicy) {
-            return recordRestorePolicyPreflight($requestLog, $logFields, 'restore-policy-audience-invalid', 'preflight', null, $event);
-        }
         $requestLog?->event('overhearing_audience_skipped', 'warning', [
             'stage' => 'preflight', 'reason' => $peopleReason ?? 'audience_people_invalid',
         ]);
@@ -336,9 +330,6 @@ function evaluateOverhearingAck(
     }
     $speakerMembers = array_values(array_filter($people, static fn(string $name): bool => sameActorName($name, $event['speaker_name'])));
     if (count($speakerMembers) !== 1) {
-        if ($restorePolicy) {
-            return recordRestorePolicyPreflight($requestLog, $logFields, 'restore-policy-audience-invalid', 'preflight', null, $event);
-        }
         $requestLog?->event('overhearing_audience_skipped', 'warning', [
             'stage' => 'preflight', 'reason' => 'audience_speaker_invalid',
         ]);
@@ -348,6 +339,7 @@ function evaluateOverhearingAck(
     $addressedId = $event['listener_id'];
     $addressedName = $event['listener_name'];
     $seenIds = [$event['speaker_id'] => true, $addressedId => true];
+    $eligibleExtraCandidates = [];
     $eligibleExtras = [];
     $filteredAny = false;
     foreach ($people as $name) {
@@ -390,31 +382,6 @@ function evaluateOverhearingAck(
         $recipientEvent['addressed_listener_name'] = $addressedName;
         $recipientEvent['source_people'] = $source['source_people'];
         $recipientEvent['source_delivery_state'] = $source['delivery_state'] ?? null;
-        if ($restorePolicy) {
-            $restorePolicyFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
-            $recipientLog = $requestLog?->fork([
-                'event_id' => $event['event_id'],
-                'utterance_id' => $event['utterance_id'],
-                'playthrough_id' => $event['playthrough_id'],
-                'speaker_id' => $event['speaker_id'],
-                'speaker_kind' => 'npc',
-                'listener_id' => $npcId,
-                'addressed_listener_id' => $addressedId,
-                'listener_role' => 'overheard',
-            ]);
-            $restorePolicyStatus = prepareRestorePolicyRecipient(
-                $recipientEvent,
-                $row,
-                $store,
-                $recipientLog,
-                $restorePolicyFields
-            );
-            if ($restorePolicyStatus !== null) {
-                finishInfluenceRequest($restorePolicyStatus, $restorePolicyFields, $recipientLog);
-                $filteredAny = true;
-                continue;
-            }
-        }
         try {
             $preflight = inspectAckRecipient($recipientEvent, $row, $store, $identities, $playerName);
         } catch (Throwable) {
@@ -427,12 +394,12 @@ function evaluateOverhearingAck(
             $filteredAny = true;
             continue;
         }
-        $eligibleExtras[] = [
+        $eligibleExtraCandidates[] = [
             'event' => $recipientEvent,
             'listener' => $row,
             'subjects' => $preflight['subjects'],
         ];
-        if (count($eligibleExtras) > 4) {
+        if (count($eligibleExtraCandidates) > 4) {
             if ($filteredAny) {
                 $requestLog?->event('overhearing_audience_filtered', 'debug', [
                     'stage' => 'preflight', 'reason' => 'audience_members_filtered',
@@ -441,11 +408,54 @@ function evaluateOverhearingAck(
             $requestLog?->event('overhearing_audience_skipped', 'warning', [
                 'stage' => 'preflight', 'reason' => 'audience_cap_reached',
             ]);
-            if ($restorePolicy) {
-                return recordRestorePolicyPreflight($requestLog, $logFields, 'restore-policy-audience-cap', 'preflight', null, $event);
-            }
             return null;
         }
+    }
+    if ($restorePolicy) {
+        foreach ($eligibleExtraCandidates as $recipient) {
+            $recipientEvent = $recipient['event'];
+            $npcId = $recipientEvent['listener_id'];
+            $recipientLog = $requestLog?->fork([
+                'event_id' => $event['event_id'],
+                'utterance_id' => $event['utterance_id'],
+                'playthrough_id' => $event['playthrough_id'],
+                'speaker_id' => $event['speaker_id'],
+                'speaker_kind' => 'npc',
+                'listener_id' => $npcId,
+                'addressed_listener_id' => $addressedId,
+                'listener_role' => 'overheard',
+            ]);
+            $restorePolicyFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
+            $restorePolicyStatus = prepareRestorePolicyRecipient(
+                $recipientEvent,
+                $recipient['listener'],
+                $store,
+                $recipientLog,
+                $restorePolicyFields
+            );
+            if ($restorePolicyStatus !== null) {
+                finishInfluenceRequest($restorePolicyStatus, $restorePolicyFields, $recipientLog);
+                $filteredAny = true;
+                continue;
+            }
+            try {
+                $preflight = inspectAckRecipient($recipientEvent, $recipient['listener'], $store, $identities, $playerName);
+            } catch (Throwable) {
+                $requestLog?->event('overhearing_audience_skipped', 'error', [
+                    'stage' => 'preflight', 'reason' => 'audience_preflight_failed',
+                ]);
+                $filteredAny = true;
+                continue;
+            }
+            if (($preflight['status'] ?? null) !== 'eligible') {
+                $filteredAny = true;
+                continue;
+            }
+            $recipient['subjects'] = $preflight['subjects'];
+            $eligibleExtras[] = $recipient;
+        }
+    } else {
+        $eligibleExtras = $eligibleExtraCandidates;
     }
     if ($filteredAny) {
         $requestLog?->event('overhearing_audience_filtered', 'debug', [
@@ -453,36 +463,6 @@ function evaluateOverhearingAck(
         ]);
     }
     if ($eligibleExtras === []) {
-        if ($restorePolicy) {
-            $addressedEvent = $event + [
-                'listener_role' => 'addressed',
-                'addressed_listener_id' => $addressedId,
-                'addressed_listener_name' => $addressedName,
-            ];
-            $addressedFields = ['stage' => 'preflight', 'model_outcome' => 'not_called'];
-            $addressedLog = $requestLog?->fork([
-                'event_id' => $event['event_id'],
-                'utterance_id' => $event['utterance_id'],
-                'playthrough_id' => $event['playthrough_id'],
-                'speaker_id' => $event['speaker_id'],
-                'speaker_kind' => 'npc',
-                'listener_id' => $addressedId,
-                'addressed_listener_id' => $addressedId,
-                'listener_role' => 'addressed',
-            ]);
-            $addressedStatus = prepareRestorePolicyRecipient(
-                $addressedEvent,
-                $listener,
-                $store,
-                $addressedLog,
-                $addressedFields
-            );
-            if ($addressedStatus !== null) {
-                $logFields = array_merge($logFields, $addressedFields);
-                finishInfluenceRequest($addressedStatus, $addressedFields, $addressedLog);
-                return $addressedStatus;
-            }
-        }
         return null;
     }
     $addressedEvent = $event + [
@@ -953,8 +933,8 @@ function evaluateInfluenceRequest(
         if (!function_exists('chimIsGlobalLlmConnectorEnabled') || !\chimIsGlobalLlmConnectorEnabled('RELLLM_CONNECTOR')) {
             return 'disabled';
         }
-        $connectorId = filter_var($GLOBALS['RELLLM_CONNECTOR'] ?? null, FILTER_VALIDATE_INT);
-        if ($connectorId === false || $connectorId === null || $connectorId < 1) {
+        $connectorId = positiveConnectorId($GLOBALS['RELLLM_CONNECTOR'] ?? null);
+        if ($connectorId === null) {
             return 'connector-invalid';
         }
         $logFields['connector_id'] = $connectorId;

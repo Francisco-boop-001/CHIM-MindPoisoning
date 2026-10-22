@@ -5,6 +5,7 @@ use ChimMindPoisoning\RequestLog;
 use function ChimMindPoisoning\dashboardBuildInteractions;
 use function ChimMindPoisoning\dashboardCurrent;
 use function ChimMindPoisoning\dashboardFilters;
+use function ChimMindPoisoning\dashboardInteractionMatches;
 use function ChimMindPoisoning\dashboardIndexRecords;
 use function ChimMindPoisoning\dashboardLoad;
 use function ChimMindPoisoning\dashboardLogInteraction;
@@ -82,6 +83,25 @@ dashboardDataAssert(
     dashboardRecordMatches($parsed, ['tab' => 'diagnostics', 'q' => '', 'outcome' => 'zero-change', 'level' => ''])
         && !dashboardRecordMatches($parsed, ['tab' => 'diagnostics', 'q' => '', 'outcome' => 'unconfirmed', 'level' => '']),
     'Diagnostics outcome filtering did not match normalized zero-change state.'
+);
+$searchRecord = [
+    'outcome' => 'committed',
+    'details' => (object)[
+        'quote' => 'He said "hello" to me.',
+        'path' => 'folder\\file',
+    ],
+    'items' => ['an array value'],
+];
+dashboardDataAssert(
+    !dashboardRecordMatches($searchRecord, ['tab' => 'diagnostics', 'q' => 'outcome', 'outcome' => '', 'level' => '']),
+    'Diagnostics search matched an object key instead of a field value.'
+);
+dashboardDataAssert(
+    dashboardRecordMatches($searchRecord, ['tab' => 'diagnostics', 'q' => 'He said "hello"', 'outcome' => '', 'level' => ''])
+        && dashboardRecordMatches($searchRecord, ['tab' => 'diagnostics', 'q' => 'folder\\file', 'outcome' => '', 'level' => ''])
+        && dashboardRecordMatches($searchRecord, ['tab' => 'diagnostics', 'q' => 'array value', 'outcome' => '', 'level' => ''])
+        && dashboardInteractionMatches($searchRecord, ['q' => 'He said "hello"', 'outcome' => '']),
+    'Diagnostics search did not find nested array/object values containing quotes, backslashes, and ordinary text.'
 );
 $exposureWireRecord = clone $wireRecord;
 $exposureWireRecord->speaker_kind = 'npc';
