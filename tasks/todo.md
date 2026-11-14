@@ -1121,3 +1121,13 @@ Review: all six focused cases and full restore-policy, runtime, and overhearing 
 MP source/integration complete: findings1–12 fixed and independently reviewed. NativePg41+14 and10focusedLinux suites pass,18changedPHP lint clean; own TEST resources released toPCV. Final0.1.30 docs/assets/publication/hub checks remain pending. Live/game/PCV/SHARMAT untouched.
 
 MP0.1.30 completed:12validMPfixes committed/tagged3ce96b5640796db948dae33444dd403ea4ed74a6,pushed,publishedstandardBETA CANDIDATE release421044454.4formatsindependentlyreproduced, all5draft/publicdownloadsverified; hubMP-onlyREADME6e52bcef4636206e410208abbae419eff5a74790pushed. No live/game/PCV/SHARMAT/Department deployment changes. PRISMAclean-source review passed; ownreviewedpinupdate andgameplayvalidation remainseparate. Fullreview tasks/bugfix-release-2026-10-22.md.
+
+## 0.1.31 gift-only release
+
+- [x] Verify gift-only source, frozen writer, local fixtures and four packages.
+- [ ] Tag, rebuild, publish and verify public assets before advancing main.
+
+### Review
+
+- The only runtime logic diff is the reviewed writer at SHA256 41437b987356f7be2c286f17fdd8c0aa528859c142d0058b1bfd6f322895f4d5. Paired offline PostgreSQL fixture passed on that writer with zero provider calls.
+- Standalone Windows PHP: written evidence (239 checks), written store and store logging passed. Both changed PHP files linted. Eight package tests and four candidate builds passed. Evidence detail and parser work excluded. No WSL, installed or gameplay access.

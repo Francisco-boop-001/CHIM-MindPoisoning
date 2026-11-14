@@ -28,6 +28,14 @@ Identity-conflict scans use 16-row keyset pages and a three-second total time bu
 
 The recipient must resolve uniquely to a current NPC and must not collide with Player aliases. Claimed sender attribution remains uncertain. That sender can be an opinion subject even when only the envelope names them; third-party candidates must resolve from the original body using MP's conservative name rules. The recipient is excluded. Existing recipient personality and prior relationship context inform evaluation. A confirmed gift can support gratitude if the model accepts that interpretation; no affinity bonus is automatic.
 
+## Sealed Fates gift proof (Mind Poisoning 0.1.31)
+
+The optional 0.1.31 gift integration leaves the written-evidence v1 contract intact. Strict v1 source/envelope checks, recipient-only evaluation, model validation, receipt binding, exact replay, and restore rules remain unchanged.
+
+For attachment-bearing letters, an optional already-loaded Sealed Fates helper may prove an authenticated, unconditional gift from the original Player. Check proof on MP's open transaction before locking the recipient row, then recheck it before commit. For the exact claimed Player subject, verified proof turns an accepted nonnegative judgment into requested delta `+1`; a negative judgment stays unchanged, and no relationship type is inferred. Existing affinity limits and clamping still apply, so saturation can leave no effective change. Without qualifying proof, the exact claimed sender subject (Player or NPC) gets no positive delta or type change; other subjects are scored as before. Text-only letters keep v1 handling. This is a conservative tradeoff.
+
+The paired offline fixture covered receipt proof, replay, rollback and rewind. Background ingress and in-game behavior remain unverified.
+
 ## Persistence and restore
 
 Normal bounded affinity/type changes, a processing receipt and the NPC history snapshot commit together under MP's existing owner lock. Exact source bytes, identities, candidate resolution, scope, INIT boundary, interaction generation, pause and connector state are rechecked. No utterance ID, physical speaker, addressed listener or reflection registration is fabricated.

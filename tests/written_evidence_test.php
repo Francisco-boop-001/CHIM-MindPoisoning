@@ -37,7 +37,7 @@ namespace ChimMindPoisoning {
     require_once __DIR__ . '/../server/model.php';
     require_once $apiPath;
 
-    final class WrittenEvidenceMemoryStore implements StoreDb, WrittenEvidenceStoreDb, RestorePolicyStoreDb
+    class WrittenEvidenceMemoryStore implements StoreDb, WrittenEvidenceStoreDb, RestorePolicyStoreDb
     {
         public array $npcs = [];
         public array $events = [];
@@ -246,7 +246,7 @@ namespace ChimMindPoisoning {
                 'status' => 'confirmed',
                 'exposure' => 'context',
             ],
-            'attachments' => [['kind' => 'gold', 'form_id' => 'Skyrim.esm|0000000F', 'quantity' => 50]],
+            'attachments' => [],
         ];
         return [
             'event_id' => $eventId,
@@ -259,6 +259,24 @@ namespace ChimMindPoisoning {
             'source_people' => '|Camilla|',
             'source_data' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ];
+    }
+
+    function writtenAttachmentSource(int $eventId, string $documentId, string $receiptId, string $operationId, string $body, array $claimedSender): array
+    {
+        $source = writtenSource($eventId, $documentId, $receiptId, $operationId, $body);
+        $envelope = json_decode($source['source_data'], true, 64, JSON_THROW_ON_ERROR);
+        $envelope['claimed_sender'] = $claimedSender;
+        $envelope['attachments'] = [['kind' => 'gold', 'form_id' => 'Skyrim.esm|0000000F', 'quantity' => 50]];
+        $source['source_data'] = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        return $source;
+    }
+
+    final class WrittenEvidenceGiftMemoryStore extends WrittenEvidenceMemoryStore implements ConfirmedPlayerGiftStoreDb
+    {
+        public function confirmedPlayerGiftInTransaction(int $eventId, int $recipientId, ?string $expectedToken = null): ?string
+        {
+            return 'opaque-gift-proof-token';
+        }
     }
 
     function writtenResponse(array $messages, bool $zero = false): string
@@ -363,7 +381,15 @@ namespace ChimMindPoisoning {
     $store->events[414]['source_data'] = json_encode($selfAddressed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $store->events[415] = writtenSource(415, 'b07c37c0-9a98-4c5d-b0b2-b47cfa198879', 'c3963e29-1b5f-4791-811b-e6a00ac24df3', 'acc2be8e-601c-4d90-81b1-c2c42c7bd835', $baseBody);
 
-    $parsed = parseWrittenEvidenceEnvelope($store->events[501]['source_data']);
+    $attachmentFixture = writtenAttachmentSource(
+        519,
+        '016e131d-ab69-4dd1-8445-b6cfd0750b2e',
+        '3d87ebad-7281-41b7-b494-5cf8b9d9601a',
+        'f72b9ba2-63d5-4a32-87d4-2e98f81274f4',
+        $baseBody,
+        ['kind' => 'npc', 'id' => 900002, 'name' => 'Jarl Balgruuf']
+    );
+    $parsed = parseWrittenEvidenceEnvelope($attachmentFixture['source_data']);
     $check(is_array($parsed) && ($parsed['body'] ?? null) === $baseBody, 'The pure parser should return a valid frozen envelope.');
     $senderVariant = $parsed;
     $senderVariant['claimed_sender']['name'] = 'jArL bALGRuuf';
@@ -425,11 +451,10 @@ namespace ChimMindPoisoning {
     $same(WRITTEN_EVIDENCE_ENVELOPE_MAX_BYTES + 1, strlen($overCapJson), 'The encoded-cap overflow fixture must be one byte over its bound.');
     $check(parseWrittenEvidenceEnvelope($overCapJson) === null, 'The encoded envelope cap must remain bounded.');
 
-    $unknownField = json_decode($store->events[501]['source_data'], true, 64, JSON_THROW_ON_ERROR);
+    $unknownField = json_decode($attachmentFixture['source_data'], true, 64, JSON_THROW_ON_ERROR);
     $unknownField['unexpected'] = true;
     $check(parseWrittenEvidenceEnvelope(json_encode($unknownField, JSON_THROW_ON_ERROR)) === null, 'Unknown envelope fields must be rejected.');
-    $badAttachment = $unknownField;
-    unset($badAttachment['unexpected']);
+    $badAttachment = $parsed;
     $badAttachment['attachments'][0]['quantity'] = 0;
     $check(parseWrittenEvidenceEnvelope(json_encode($badAttachment, JSON_THROW_ON_ERROR)) === null, 'Invalid confirmed attachment quantities must be rejected.');
     $caseVariantGold = $parsed;
@@ -460,6 +485,8 @@ namespace ChimMindPoisoning {
         $check(!array_key_exists('allowed_relationship_types', $promptData)
             && !array_key_exists('current_type', $promptData['candidates'][array_key_first($candidates)] ?? []),
             "The {$case} no-type-context request must omit unavailable type fields.");
+        $same([['kind' => 'gold', 'form_id' => 'Skyrim.esm|0000000F', 'quantity' => 50]],
+            $promptData['written_evidence']['attachments'] ?? null, "The {$case} prompt must preserve only the parsed attachment facts.");
         $check(str_contains($systemPrompt, '"subject":' . $exampleSubject), "The {$case} prompt example must use an actual candidate key.");
         $check(!str_contains($systemPrompt, 'player or npc:<id>'), "The {$case} prompt must not teach a composite subject token.");
     }
@@ -571,7 +598,8 @@ namespace ChimMindPoisoning {
         $data = $payload['untrusted_data'] ?? [];
         writtenCheck(isset($data['written_evidence']['body']), 'Prompt must preserve the original letter body.');
         writtenCheck(($data['recipient']['personality'] ?? null) === 'Practical and generous.', 'Prompt must retain the recipient’s existing bounded personality context.');
-        writtenCheck(isset($data['written_evidence']['attachments'][0]), 'Prompt may use only confirmed attachment facts.');
+        writtenCheck(is_array($data['written_evidence']['attachments'] ?? null)
+            && array_is_list($data['written_evidence']['attachments']), 'Prompt must preserve the validated attachment list.');
         writtenCheck(!isset($data['speaker'], $data['listener'], $data['utterance']), 'Prompt must not manufacture spoken-event roles.');
         $serialized = json_encode($messages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         writtenCheck(str_contains($serialized, 'not proof of authorship'), 'Prompt must frame the claimed sender as uncertain.');
@@ -1077,6 +1105,35 @@ namespace ChimMindPoisoning {
         $customParsed['npc:900002']['type_change']['from'],
         $customParsed['npc:900002']['type_change']['to']
     ), 'A custom relationship type must retain the existing CHIM preservation policy.');
+
+    $giftStore = new WrittenEvidenceGiftMemoryStore();
+    $giftStore->npcs = [900001 => writtenNpc(900001, 'Camilla'), 900002 => writtenNpc(900002, 'Jarl Balgruuf'), 900003 => writtenNpc(900003, 'Faendal')];
+    $giftStore->events[520] = writtenAttachmentSource(
+        520,
+        '64b97364-ded8-4c3a-9667-43940d55f289',
+        '9117fa0d-476d-43b0-a427-f6d9ce084082',
+        '14ae4501-24da-476b-882c-9223d5ab55fb',
+        $baseBody,
+        ['kind' => 'player', 'name' => 'TestHero', 'id' => null]
+    );
+    $giftModel = static function (array $messages): string {
+        $payload = json_decode($messages[1]['content'] ?? '', true, 64, JSON_THROW_ON_ERROR)['untrusted_data'] ?? [];
+        $judgments = [];
+        foreach ($payload['candidates'] ?? [] as $token => $_candidate) {
+            $judgments[] = [
+                'subject' => $token,
+                'subject_mentioned' => $token === 'player',
+                'delta' => $token === 'player' ? 4 : 0,
+                'reason' => 'The recipient values the confirmed gift.',
+                'evidence' => 'I enclose 50 septims.',
+            ];
+        }
+        return json_encode(['judgments' => $judgments], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    };
+    $giftResult = evaluateWrittenEvidence(520, $giftStore, $giftModel);
+    $same('processed', $giftResult['status'] ?? null, 'A verified attachment letter must retain the existing written-evidence result API.');
+    $same(1, $giftStore->npcs[900001]['extended_data']->relationships->Player->aff ?? null,
+        'A verified Player gift with a nonnegative model judgment must apply exactly +1.');
 
     echo "written evidence evaluator tests passed ({$checks} checks)\n";
 }

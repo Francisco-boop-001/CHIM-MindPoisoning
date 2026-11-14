@@ -67,6 +67,12 @@ interface WrittenEvidenceStoreDb
     ): ?array;
 }
 
+/** Optional already-loaded Sealed Fates proof inside the owned listener transaction. */
+interface ConfirmedPlayerGiftStoreDb
+{
+    public function confirmedPlayerGiftInTransaction(int $eventId, int $recipientId, ?string $expectedToken = null): ?string;
+}
+
 require_once __DIR__ . '/restore_policy.php';
 
 function resolvePlaythroughContext(array $profileRows, mixed $playerName): ?array
@@ -1212,6 +1218,20 @@ function persistWrittenEvidenceJudgments(
     return $status;
 }
 
+function writtenGiftProofFailure(Throwable $error, bool $precommit = false): array
+{
+    $code = $error instanceof \DomainException ? $error->getMessage() : null;
+    return match ($code) {
+        'gift_restore_fence_busy' => ['busy', 'written-gift-proof-busy'],
+        'gift_request_ingress_missing', 'restore_epoch_pending', 'restore_epoch_state_uninitialized',
+        'restore_epoch_state_unavailable', 'restore_token_unavailable', 'request_before_restore_epoch'
+            => ['restore-policy', 'written-gift-proof-pending'],
+        'gift_request_clock_rewound', 'gift_source_changed', 'restore_epoch_changed'
+            => ['restore-policy', 'written-gift-proof-stale'],
+        default => ['failed', $precommit ? 'written-gift-proof-recheck-failed' : 'written-gift-proof-failed'],
+    };
+}
+
 function persistIntimacyArrangement(
     array $event,
     ?array $change,
@@ -1268,6 +1288,8 @@ function persistJudgments(
     $replySourcesValid = !$hasReplySources || ($reflection && reflectionSourceSnapshotsValid($event));
     $playerSpeaker = $speakerKind === 'player';
     $writtenIdentity = null;
+    $giftSenderToken = null;
+    $confirmedGiftToken = null;
     $intimacyTargetRow = null;
     $ownerId = ($reflection || $intimacy || $writtenEvidence)
         ? ($event['opinion_owner_id'] ?? null)
@@ -1477,6 +1499,31 @@ function persistJudgments(
             $gateStatus = writtenEvidenceRuntimeGateStatus($event);
             if ($gateStatus !== null) {
                 return $done($gateStatus['status'], $gateStatus['reason']);
+            }
+            if (($event['written_evidence']['attachments'] ?? []) !== []) {
+                $claimedSender = $event['written_evidence']['claimed_sender'];
+                $giftSenderToken = $claimedSender['kind'] === 'player'
+                    ? 'player'
+                    : 'npc:' . $claimedSender['id'];
+                if (array_key_exists($giftSenderToken, $judgments)) {
+                    if ($giftSenderToken === 'player') {
+                        $stage = 'written-gift-proof';
+                        try {
+                            $confirmedGiftToken = $store instanceof ConfirmedPlayerGiftStoreDb
+                                ? $store->confirmedPlayerGiftInTransaction($event['event_id'], $ownerId)
+                                : null;
+                            if ($confirmedGiftToken === '') {
+                                throw new RuntimeException('Invalid gift proof token.');
+                            }
+                        } catch (Throwable $error) {
+                            [$proofStatus, $proofReason] = writtenGiftProofFailure($error);
+                            return $done($proofStatus, $proofReason);
+                        }
+                    }
+                    $delta = $judgments[$giftSenderToken]['delta'];
+                    $judgments[$giftSenderToken]['delta'] = $confirmedGiftToken !== null && $delta >= 0 ? 1 : min(0, $delta);
+                    $judgments[$giftSenderToken]['type_change'] = null;
+                }
             }
         }
         $stage = 'revalidate-event';
@@ -2176,6 +2223,20 @@ function persistJudgments(
                 );
             }
         }
+        if ($confirmedGiftToken !== null) {
+            $stage = 'written-gift-proof-precommit';
+            try {
+                $precommitGiftToken = $store instanceof ConfirmedPlayerGiftStoreDb
+                    ? $store->confirmedPlayerGiftInTransaction($event['event_id'], $ownerId, $confirmedGiftToken)
+                    : null;
+            } catch (Throwable $error) {
+                [$proofStatus, $proofReason] = writtenGiftProofFailure($error, true);
+                return $done($proofStatus, $proofReason);
+            }
+            if (!is_string($precommitGiftToken) || !hash_equals($confirmedGiftToken, $precommitGiftToken)) {
+                return $done('restore-policy', 'written-gift-proof-stale');
+            }
+        }
         if ($listenerRole === 'overheard') {
             $stage = 'listener-scope-precommit';
             if (!$revalidateListenerScope($event, $currentEvent, $active)) {
@@ -2356,7 +2417,7 @@ function deliveryStateNotRegressed(mixed $expected, mixed $current): bool
         : ($expected === 'spoken' && $current === 'spoken');
 }
 
-final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestorePolicyStoreDb, WrittenEvidenceStoreDb
+final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestorePolicyStoreDb, WrittenEvidenceStoreDb, ConfirmedPlayerGiftStoreDb
 {
     private const WRITTEN_EVIDENCE_IDENTITY_BATCH_SIZE = 16;
     private const WRITTEN_EVIDENCE_IDENTITY_SCAN_BUDGET_NS = 3_000_000_000;
@@ -2404,6 +2465,14 @@ final class PostgresStoreDb implements StoreDb, WitnessSnapshotStoreDb, RestoreP
     public function cleanupFailureGeneration(): int
     {
         return $this->cleanupFailureGeneration;
+    }
+
+    public function confirmedPlayerGiftInTransaction(int $eventId, int $recipientId, ?string $expectedToken = null): ?string
+    {
+        $this->assertTransactionConnection();
+        return function_exists('correspondenceConfirmedPlayerGiftInTransaction')
+            ? \correspondenceConfirmedPlayerGiftInTransaction($this->connection, $eventId, $recipientId, $expectedToken)
+            : null;
     }
 
     public function setRequestLog(?RequestLog $requestLog): ?RequestLog
