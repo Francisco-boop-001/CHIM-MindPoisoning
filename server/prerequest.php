@@ -655,6 +655,7 @@ function evaluateOverhearingAck(
     $modelStatus = 'committed';
     $modelReason = null;
     $modelOutcome = 'validated';
+    $evidenceRejection = null;
     if ($modelFailure !== null) {
         $modelStatus = 'failed';
         $modelReason = $modelFailure;
@@ -670,6 +671,7 @@ function evaluateOverhearingAck(
             $modelStatus = 'model-invalid';
             $modelReason = $error->reasonCode;
             $modelOutcome = 'invalid';
+            $evidenceRejection = $error->evidenceRejection;
         } catch (Throwable) {
             $modelStatus = 'failed';
             $modelReason = 'judgment_parser_internal_failed';
@@ -686,6 +688,7 @@ function evaluateOverhearingAck(
         'model_outcome' => $modelOutcome,
         'reason' => $modelReason,
         'model_ms' => $modelMs,
+        'evidence_rejection' => $evidenceRejection,
     ]);
 
     $finishNonPrimary = static function (
@@ -704,17 +707,21 @@ function evaluateOverhearingAck(
             $log?->event('batch_model_result', $modelOutcome === 'failed' ? 'error' : 'warning', [
                 'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
                 'reason' => $modelReason, 'model_ms' => $modelMs,
+                'evidence_rejection' => $evidenceRejection,
             ]);
             $finishNonPrimary($modelStatus, [
                 'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
                 'reason' => $modelReason ?? $modelStatus, 'model_ms' => $modelMs,
+                'evidence_rejection' => $evidenceRejection,
             ], $log);
         }
         $logFields['reason'] = $modelReason ?? $modelStatus;
-        return $finishBatch($modelStatus, [
+        $primaryFailureFields = [
             'stage' => 'model_validation', 'model_outcome' => $modelOutcome,
             'reason' => $modelReason ?? $modelStatus, 'model_ms' => $modelMs,
-        ]);
+            'evidence_rejection' => $evidenceRejection,
+        ];
+        return $finishBatch($modelStatus, $primaryFailureFields);
     }
     $logFields['model_outcome'] = 'validated';
     $requestLog?->event('model_batch_validated', 'info', [
@@ -1448,11 +1455,13 @@ function evaluateInfluenceRequest(
             $validationReason = $error->reasonCode;
             $logFields['model_outcome'] = 'invalid';
             $logFields['reason'] = $validationReason;
+            $logFields['evidence_rejection'] = $error->evidenceRejection;
             $requestLog?->event('model_finished', 'warning', [
                 'stage' => 'model_validation',
                 'model_outcome' => 'invalid',
                 'reason' => $validationReason,
                 'model_ms' => $logFields['model_ms'],
+                'evidence_rejection' => $error->evidenceRejection,
             ]);
             return 'failed';
         } catch (Throwable) {

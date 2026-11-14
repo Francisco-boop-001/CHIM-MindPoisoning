@@ -12,6 +12,7 @@ final class RequestLog
         'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
         'commit_state',
     ];
+    private const EVIDENCE_REJECTION_TOKENS = ['wrong_type', 'blank', 'too_long', 'invalid_utf8', 'not_exact_excerpt'];
     private const MAX_CHANGES = 8;
 
     /** @var array<string, mixed> */
@@ -47,6 +48,7 @@ final class RequestLog
     {
         try {
             $cleanFields = self::sanitizeFields($fields, $this->diagnostic, $this->diagnostic ? 'debug' : 'info');
+            unset($cleanFields['evidence_rejection']);
             foreach ($cleanFields as $key => $value) {
                 $this->context[$key] = $value;
             }
@@ -150,6 +152,11 @@ final class RequestLog
         } catch (\Throwable) {
             return 0.0;
         }
+    }
+
+    public static function evidenceRejectionToken(mixed $value): ?string
+    {
+        return in_array($value, self::EVIDENCE_REJECTION_TOKENS, true) ? $value : null;
     }
 
     private static function diagnosticEnabled(): bool
@@ -495,6 +502,7 @@ final class RequestLog
             'changed_count' => self::boundedInteger($value, 0, 8),
             'affinity_changed_count', 'type_changed_count' => self::boundedInteger($value, 0, 8),
             'arrangement_changed_count' => self::boundedInteger($value, 0, 8),
+            'evidence_rejection' => self::evidenceRejectionToken($value),
             'delta' => self::boundedInteger($value, -5, 5),
             'elapsed_ms', 'model_ms', 'persistence_ms' => self::boundedNumber($value, 0, 86_400_000),
             'subject' => self::sanitizeSubject($value),
@@ -520,6 +528,9 @@ final class RequestLog
                 $clean[$key] = $filtered;
             }
         }
+        if (($clean['reason'] ?? null) !== 'judgment_evidence_invalid') {
+            unset($clean['evidence_rejection']);
+        }
         if (($clean['commit_state'] ?? null) !== 'confirmed' || ($clean['committed'] ?? null) !== true) {
             unset($clean['type_changes'], $clean['type_changed_count'], $clean['arrangement_changes']);
             if (array_key_exists('arrangement_changed_count', $clean)) {
@@ -536,7 +547,7 @@ final class RequestLog
     {
         $allowed = array_fill_keys([
             'event_id', 'playthrough_id', 'opinion_owner_id', 'recipient_id', 'source_kind',
-            'stage', 'outcome', 'reason', 'model_outcome', 'persistence_outcome', 'persistence_reason',
+            'stage', 'outcome', 'reason', 'evidence_rejection', 'model_outcome', 'persistence_outcome', 'persistence_reason',
             'commit_state', 'committed', 'cleanup_failed', 'elapsed_ms', 'model_ms', 'persistence_ms',
             'changed_count', 'affinity_changed_count', 'type_changed_count',
             'changes', 'type_changes', 'type_decisions',

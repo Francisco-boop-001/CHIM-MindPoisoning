@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace ChimMindPoisoning;
 
+require_once __DIR__ . '/logging.php';
+
 function renderDashboard(array $model, array $filters): void
 {
     $escape = static fn(mixed $value): string => htmlspecialchars(
@@ -49,6 +51,25 @@ function renderDashboard(array $model, array $filters): void
             'restore-policy-changed' => 'The effective preserve-on-reload setting changed before persistence, so the write was refused. Model work may already have run; this record does not show the current setting.',
             default => 'This request stopped at a preserve-on-reload safety check. Check the recorded stage, reason, model outcome, and commit state to see what was reached.',
         };
+    };
+    $evidenceRejection = static function (mixed $reason, mixed $value): ?array {
+        if ($reason !== 'judgment_evidence_invalid') {
+            return null;
+        }
+        $token = RequestLog::evidenceRejectionToken($value);
+        if ($token === null) {
+            return null;
+        }
+        return [
+            'token' => $token,
+            'explanation' => match ($token) {
+                'wrong_type' => 'The evidence value was not text.',
+                'blank' => 'The evidence value was empty or whitespace-only.',
+                'too_long' => 'The evidence exceeded the allowed byte limit.',
+                'invalid_utf8' => 'The evidence was not valid UTF-8.',
+                'not_exact_excerpt' => 'The evidence was not copied exactly from the text being scored.',
+            },
+        ];
     };
     $currentTypeDisplay = static function (mixed $value, mixed $state) use ($escape): string {
         return match (is_string($state) ? $state : '') {
@@ -349,6 +370,10 @@ function renderDashboard(array $model, array $filters): void
                                         <p class="reason-explanation"><?= $escape($restorePolicyExplanation($interaction['reason'])) ?></p>
                                     <?php endif; ?>
                                 <?php endif; ?>
+                                <?php $interactionEvidenceRejection = $evidenceRejection($interaction['reason'] ?? null, $interaction['evidence_rejection'] ?? null); ?>
+                                <?php if ($interactionEvidenceRejection !== null): ?>
+                                    <p class="reason-line">Evidence rejection: <?= $escape($interactionEvidenceRejection['explanation']) ?></p>
+                                <?php endif; ?>
 
                                 <?php if ($changes === []): ?>
                                     <p class="no-subjects">No affinity changes were recorded for this interaction.</p>
@@ -563,10 +588,15 @@ function renderDashboard(array $model, array $filters): void
                             $recordLevel = $text($record['level'] ?? null);
                             $recordEvent = $text($record['event'] ?? null);
                             $recordReason = $record['reason'] ?? $record['persistence_reason'] ?? null;
+                            $recordEvidenceRejection = $evidenceRejection($record['reason'] ?? null, $record['evidence_rejection'] ?? null);
                             $correlationLabel = is_string($record['utterance_id'] ?? null) && str_starts_with($record['utterance_id'], 'input_')
                                 ? 'Input event ID'
                                 : 'Utterance ID';
                             $safeRecord = array_intersect_key($record, $safeLogFields);
+
+                            if ($recordEvidenceRejection !== null) {
+                                $safeRecord['evidence_rejection'] = $recordEvidenceRejection['token'];
+                            }
                             $recordJson = json_encode(
                                 $safeRecord,
                                 JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
@@ -586,6 +616,9 @@ function renderDashboard(array $model, array $filters): void
                                     <div><dt>Stage</dt><dd><?= $escape($text($record['stage'] ?? null)) ?></dd></div>
                                     <div><dt>Outcome</dt><dd><?= $escape($text($record['outcome'] ?? $record['model_outcome'] ?? $record['persistence_outcome'] ?? null)) ?></dd></div>
                                     <div><dt>Reason</dt><dd><code><?= $escape($text($recordReason)) ?></code></dd></div>
+                                    <?php if ($recordEvidenceRejection !== null): ?>
+                                        <div><dt>Evidence rejection</dt><dd><?= $escape($recordEvidenceRejection['explanation']) ?></dd></div>
+                                    <?php endif; ?>
                                     <?php foreach (['Elapsed' => 'elapsed_ms', 'Model' => 'model_ms', 'Persistence' => 'persistence_ms'] as $timeLabel => $timeField): ?>
                                         <?php $recordTime = $formatNumber($record[$timeField] ?? null); ?>
                                         <div><dt><?= $escape($timeLabel) ?></dt><dd class="numeric"><?= $escape($recordTime ?? 'Unavailable') ?><?= $recordTime === null ? '' : ' ms' ?></dd></div>

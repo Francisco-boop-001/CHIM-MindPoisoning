@@ -961,12 +961,18 @@ namespace ChimMindPoisoning {
         $response['judgments'][0]['evidence'] = 'not in the original letter';
         return json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     };
+    $beforeValidationWrites = count($store->writes);
     $validationFailure = evaluateWrittenEvidence(503, $store, $validationResponse, $validationLog);
     $same('failed', $validationFailure['status'] ?? null, 'Invalid exact-body evidence must be a distinct failed evaluation.');
     $same('judgment_evidence_invalid', $validationFailure['reason'] ?? null, 'The fixed judgment validation reason must survive evaluation.');
+    $check(!array_key_exists('evidence_rejection', $validationFailure), 'The public written-evidence result must not gain the internal evidence detail.');
+    $same($beforeValidationWrites, count($store->writes), 'Invalid evidence must not write recipient state.');
+    $same('pending', writtenEvidenceStatus(503, $store)['status'] ?? null, 'An evidence rejection must leave the written source retryable.');
     $validationTerminal = writtenLogEvent($validationRows, 'request_finished');
     $same('invalid', $validationTerminal['model_outcome'] ?? null, 'The terminal log must distinguish schema rejection from model failure.');
     $same('judgment_evidence_invalid', $validationTerminal['reason'] ?? null, 'The terminal log must preserve the validation reason.');
+    $same('not_exact_excerpt', $validationTerminal['evidence_rejection'] ?? null, 'The terminal log must carry the fixed evidence detail.');
+    $check(!str_contains(json_encode($validationRows, JSON_THROW_ON_ERROR), 'not in the original letter'), 'The written-evidence log must not disclose rejected evidence text.');
 
     $beforeCommitOwner = writtenClone($store->npcs[900001]);
     $beforeCommitWrites = count($store->writes);

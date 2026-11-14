@@ -14,7 +14,8 @@ function logDirectIntimacyOutcome(
     ?int $ownerId,
     ?string $reason = null,
     ?float $modelMs = null,
-    string $modelOutcome = 'not_called'
+    string $modelOutcome = 'not_called',
+    ?string $evidenceRejection = null
 ): void
 {
     if ($requestLog === null || ($ownerId !== null && $ownerId < 1)) {
@@ -22,7 +23,7 @@ function logDirectIntimacyOutcome(
     }
     $outcome ??= 'disabled';
     $level = in_array($outcome, ['committed', 'duplicate', 'below-floor', 'ineligible'], true) ? 'info' : 'warning';
-    $requestLog->event('intimacy_finished', $level, [
+    $fields = [
         'source_kind' => 'intimacy',
         'opinion_owner_id' => $ownerId,
         'stage' => 'terminal',
@@ -30,7 +31,9 @@ function logDirectIntimacyOutcome(
         'model_outcome' => $modelOutcome,
         'reason' => $reason ?? $outcome,
         'model_ms' => $modelMs,
-    ]);
+        'evidence_rejection' => $evidenceRejection,
+    ];
+    $requestLog->event('intimacy_finished', $level, $fields);
 }
 
 function buildIntimacyMessages(array $event): array
@@ -106,11 +109,9 @@ function parseIntimacyResponse(string $response, string $utterance): ?array
     if ($keys !== ['evidence', 'status'] || !in_array($change['status'] ?? null, ['casual', 'romantic', 'none'], true)) {
         throw new JudgmentValidationFailure('judgment_arrangement_invalid');
     }
-    if (
-        !is_string($evidence) || trim($evidence) === '' || strlen($evidence) > 120
-        || preg_match('//u', $evidence) !== 1 || !str_contains($utterance, $evidence)
-    ) {
-        throw new JudgmentValidationFailure('judgment_evidence_invalid');
+    $evidenceRejection = judgmentEvidenceRejection($evidence, $utterance, 120);
+    if ($evidenceRejection !== null) {
+        throw new JudgmentValidationFailure('judgment_evidence_invalid', null, $evidenceRejection);
     }
     return ['status' => $change['status'], 'evidence' => $evidence];
 }
@@ -477,8 +478,8 @@ function classifyDirectIntimacyEvent(
     $ownerId = is_int($event['opinion_owner_id'] ?? null) ? $event['opinion_owner_id'] : null;
     $modelMs = null;
     $modelOutcome = 'not_called';
-    $finish = static function (?string $outcome, ?string $reason = null) use ($requestLog, $ownerId, &$modelMs, &$modelOutcome): ?string {
-        logDirectIntimacyOutcome($requestLog, $outcome, $ownerId, $reason, $modelMs, $modelOutcome);
+    $finish = static function (?string $outcome, ?string $reason = null, ?string $evidenceRejection = null) use ($requestLog, $ownerId, &$modelMs, &$modelOutcome): ?string {
+        logDirectIntimacyOutcome($requestLog, $outcome, $ownerId, $reason, $modelMs, $modelOutcome, $evidenceRejection);
         return $outcome;
     };
     try {
@@ -590,8 +591,9 @@ function classifyDirectIntimacyEvent(
                 'model_outcome' => $modelOutcome,
                 'reason' => $reason,
                 'model_ms' => $modelMs,
+                'evidence_rejection' => $error->evidenceRejection,
             ]);
-            return $finish('model-invalid', $reason);
+            return $finish('model-invalid', $reason, $error->evidenceRejection);
         } catch (Throwable) {
             $modelOutcome = 'failed';
             $reason = 'judgment_parser_internal_failed';

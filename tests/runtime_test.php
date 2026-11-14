@@ -1026,6 +1026,74 @@ same(100, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff,
 same(1, $db->npcs[22]['extended_data']->relationships->Dragonborn->aff, 'NPC-only Player gossip must leave the actual-name Player alias unchanged.');
 same(50, $db->npcs[22]['extended_data']->relationships->Player->aff, 'NPC-only Player gossip must leave the canonical Player edge unchanged.');
 same(1, count($db->history), 'The Player gossip update should keep normal history behavior.');
+resetAckLoggingInteraction();
+[, , , $blankEvidenceDb] = baseFixture();
+$blankEvidenceDb->npcs[33]['npc_name'] = 'Bruce Wayne';
+$blankEvidenceDb->npcs[22]['extended_data']->relationships->{'Bruce Wayne'} = (object)['aff' => 40, 'type' => 'friend'];
+$blankEvidenceDb->npcs[45] = ['id' => 45, 'npc_name' => 'Letter Carrier'];
+$blankEvidenceDb->npcs[22]['extended_data']->relationships->{'Letter Carrier'} = (object)['aff' => 14, 'type' => 'friend'];
+$carrierEdgeBefore = serialize($blankEvidenceDb->npcs[22]['extended_data']->relationships->{'Letter Carrier'});
+$blankEvidenceText = 'Dragonborn: Bruce Wayne warned me about the letter.';
+[$blankEvidenceRequest, $blankEvidenceInsert] = playerInputFixture($blankEvidenceDb, ['tts_text' => $blankEvidenceText]);
+$blankEvidenceResponse = json_encode(['judgments' => [
+    ['subject' => 'npc:33', 'subject_mentioned' => true, 'delta' => -1, 'reason' => 'The listener distrusts the claim.', 'evidence' => 'Bruce Wayne warned me', 'type_change' => null],
+    ['subject' => 'npc:45', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'The word letter is not a person reference.', 'evidence' => '', 'type_change' => null],
+]], JSON_THROW_ON_ERROR);
+$blankStoreSubjects = ['npc:45' => ['name' => 'Letter Carrier', 'id' => 45]];
+$blankStoreJudgments = ['npc:45' => ['delta' => 0, 'reason' => 'Not mentioned.', 'evidence' => '', 'subject_mentioned' => false]];
+$blankStoreEvent = ['source_kind' => 'player_input', 'speaker_id' => 11, 'listener_id' => 22, 'text' => 'a letter'];
+check(\ChimMindPoisoning\validSubjectsAndJudgments($blankStoreSubjects, $blankStoreJudgments, $blankStoreEvent), 'Storage validation should accept an explicitly marked non-written no-op row.');
+$writtenBlankStoreEvent = $blankStoreEvent;
+$writtenBlankStoreEvent['source_kind'] = 'written_evidence';
+check(!\ChimMindPoisoning\validSubjectsAndJudgments($blankStoreSubjects, $blankStoreJudgments, $writtenBlankStoreEvent), 'Storage validation must keep written evidence non-empty.');
+$effectBlankStoreJudgments = $blankStoreJudgments;
+$effectBlankStoreJudgments['npc:45']['type_change'] = ['from' => 'friend', 'to' => 'ally'];
+check(!\ChimMindPoisoning\validSubjectsAndJudgments($blankStoreSubjects, $effectBlankStoreJudgments, $blankStoreEvent), 'Storage validation must reject a forged blank row with a relationship effect.');
+$blankEvidenceRecords = [];
+same('committed', handlePlayerInput(
+    $blankEvidenceRequest,
+    $blankEvidenceInsert,
+    $blankEvidenceDb,
+    static fn(array $messages): string => $blankEvidenceResponse,
+    captureRequestLog($blankEvidenceRecords)
+), 'A blank-evidence non-mention must not reject an otherwise valid Player batch.');
+same(39, $blankEvidenceDb->npcs[22]['extended_data']->relationships->{'Bruce Wayne'}->aff, 'The exact Bruce Wayne quote must apply its negative affinity delta.');
+same($carrierEdgeBefore, serialize($blankEvidenceDb->npcs[22]['extended_data']->relationships->{'Letter Carrier'}), 'The incidental Letter Carrier candidate must keep its relationship edge unchanged.');
+same(1, count($blankEvidenceDb->history), 'The mixed Player batch should commit one listener snapshot.');
+check(!str_contains(json_encode($blankEvidenceDb->npcs[22]['plugin_extended_data']->mind_poisoning, JSON_THROW_ON_ERROR), 'subject_mentioned'), 'The transient non-mention marker must not enter the stored ledger.');
+$blankEvidenceLogJson = json_encode($blankEvidenceRecords, JSON_THROW_ON_ERROR);
+check(
+    !str_contains($blankEvidenceLogJson, $blankEvidenceText)
+        && !str_contains($blankEvidenceLogJson, 'Bruce Wayne warned me')
+        && !str_contains($blankEvidenceLogJson, 'The listener distrusts the claim.'),
+    'Player request logs must not contain raw utterance, quote, or model reason text.'
+);
+
+resetAckLoggingInteraction();
+[$event, $subjects, $judgments, $playerRejectDb] = baseFixture();
+[$playerRejectRequest, $playerRejectInsert] = playerInputFixture($playerRejectDb);
+$beforeRejectedPlayer = serialize($playerRejectDb->npcs[22]);
+$playerRejectedEvidence = 'not present in Player utterance';
+$playerRejectedResponse = validModelResponse([
+    ['subject' => 'npc:33', 'delta' => 1, 'reason' => 'The claim may matter.', 'evidence' => $playerRejectedEvidence],
+]);
+$playerRejectedRecords = [];
+same('failed', handlePlayerInput(
+    $playerRejectRequest,
+    $playerRejectInsert,
+    $playerRejectDb,
+    static fn(array $messages): string => $playerRejectedResponse,
+    captureRequestLog($playerRejectedRecords)
+), 'Player input must keep its existing failed result for rejected evidence.');
+$playerRejectedSummary = lastRequestSummary($playerRejectedRecords);
+same('judgment_evidence_invalid', $playerRejectedSummary['reason'] ?? null, 'The Player terminal must preserve the evidence parent reason.');
+same('not_exact_excerpt', $playerRejectedSummary['evidence_rejection'] ?? null, 'The Player terminal must carry the fixed evidence detail.');
+$playerRejectedModel = array_values(array_filter($playerRejectedRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
+same(1, count($playerRejectedModel), 'Rejected Player evidence must have one model-finished record.');
+same('not_exact_excerpt', $playerRejectedModel[0]['evidence_rejection'] ?? null, 'The Player model event must carry the fixed detail.');
+check(!str_contains(json_encode($playerRejectedRecords, JSON_THROW_ON_ERROR), $playerRejectedEvidence), 'Player logs must not disclose rejected evidence text.');
+same($beforeRejectedPlayer, serialize($playerRejectDb->npcs[22]), 'Rejected Player evidence must not persist recipient state.');
+same([], $playerRejectDb->history, 'Rejected Player evidence must not create a history snapshot.');
 unset($GLOBALS['PLAYER_TTS_SOURCE_TEXT']);
 
 resetAckLoggingInteraction();
@@ -2344,6 +2412,7 @@ $parserFailures = [
 foreach ($parserFailures as $expectedReason => $invalidResponse) {
     resetAckLoggingInteraction();
     [$event, $subjects, $judgments, $db] = baseFixture();
+    $beforeInvalidRecipient = serialize($db->npcs[22]);
     $invalidModelRecords = [];
     $modelCalls = 0;
     same('failed', handleSpeechAck($ack, $db, static function (array $messages) use (&$modelCalls, $invalidResponse): string {
@@ -2355,12 +2424,25 @@ foreach ($parserFailures as $expectedReason => $invalidResponse) {
     same($expectedReason, $invalidModelSummary['reason'] ?? null, "$expectedReason must survive in request_finished.");
     same('invalid', $invalidModelSummary['model_outcome'] ?? null, "$expectedReason must be classified as invalid model output.");
     same('warning', $invalidModelSummary['level'] ?? null, "$expectedReason must keep warning severity.");
+    if ($expectedReason === 'judgment_evidence_invalid') {
+        same('not_exact_excerpt', $invalidModelSummary['evidence_rejection'] ?? null, 'The terminal record must preserve the fixed evidence rejection detail.');
+    } else {
+        check(!array_key_exists('evidence_rejection', $invalidModelSummary), "$expectedReason must not carry an evidence rejection detail.");
+    }
     $invalidModelFinished = array_values(array_filter($invalidModelRecords, static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
     same(1, count($invalidModelFinished), "$expectedReason must emit one model_finished record.");
     same($expectedReason, $invalidModelFinished[0]['reason'] ?? null, "$expectedReason must survive in model_finished.");
     same('warning', $invalidModelFinished[0]['level'] ?? null, "$expectedReason model_finished must be warning level.");
+    if ($expectedReason === 'judgment_evidence_invalid') {
+        same('not_exact_excerpt', $invalidModelFinished[0]['evidence_rejection'] ?? null, 'The model record must preserve the fixed evidence rejection detail.');
+        $encodedInvalidLogs = json_encode($invalidModelRecords, JSON_THROW_ON_ERROR);
+        check(!str_contains($encodedInvalidLogs, 'not in the utterance') && !str_contains($encodedInvalidLogs, $invalidResponse), 'Rejected evidence text and the raw model response must not enter logs.');
+    } else {
+        check(!array_key_exists('evidence_rejection', $invalidModelFinished[0]), "$expectedReason model_finished must omit evidence detail.");
+    }
     same(99, $db->npcs[22]['extended_data']->relationships->{'Jarl Balgruuf'}->aff, "$expectedReason must not mutate affinity.");
     same([], $db->history, "$expectedReason must not create a history snapshot.");
+    same($beforeInvalidRecipient, serialize($db->npcs[22]), "$expectedReason must not persist a rejected judgment.");
 }
 
 [$event, $subjects, $judgments, $db] = baseFixture();

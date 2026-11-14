@@ -292,6 +292,24 @@ function dashboardPreviewSelfTest(): void
     dashboardPreviewAssert(!str_contains($diagnosticsHtml, 'SHOULD NEVER BE VISIBLE'), 'Raw speech escaped the safe diagnostic record fields.');
     dashboardPreviewAssert(!str_contains($diagnosticsHtml, 'SENSITIVE RATIONALE'), 'Untrusted model rationale escaped the safe diagnostic record fields.');
 
+    $unsafeRejectionModel = dashboardPreviewModel();
+    $unsafeRejectionModel['interactions'][0]['reason'] = 'judgment_evidence_invalid';
+    $unsafeRejectionModel['interactions'][0]['evidence_rejection'] = '<script>PRIVATE DETAIL</script>';
+    $unsafeRejectionModel['records'][0]['reason'] = 'judgment_evidence_invalid';
+    $unsafeRejectionModel['records'][0]['evidence_rejection'] = '<script>PRIVATE DETAIL</script>';
+    ob_start();
+    renderDashboard($unsafeRejectionModel, ['tab' => 'interactions']);
+    $unsafeInteractionHtml = ob_get_clean();
+    ob_start();
+    renderDashboard($unsafeRejectionModel, ['tab' => 'diagnostics']);
+    $unsafeLogsHtml = ob_get_clean();
+    dashboardPreviewAssert(
+        is_string($unsafeInteractionHtml) && is_string($unsafeLogsHtml)
+            && !str_contains($unsafeInteractionHtml . $unsafeLogsHtml, 'PRIVATE DETAIL')
+            && !str_contains($unsafeInteractionHtml . $unsafeLogsHtml, '&quot;evidence_rejection&quot;'),
+        'Directly supplied view models must not display or export an unknown evidence-rejection value.'
+    );
+
     $unavailable = dashboardPreviewModel('database-unavailable');
     ob_start();
     renderDashboard($unavailable, ['tab' => 'interactions']);

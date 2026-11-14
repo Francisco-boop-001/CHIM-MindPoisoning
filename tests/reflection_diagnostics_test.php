@@ -202,6 +202,27 @@ same('no-subjects', mindPoisoningEvaluateReflection($registration, $ack, $db, st
 diagnosticTerminal($records, 'skipped', 'reflection-no-subjects', 'info');
 
 resetAckLoggingInteraction();
+[$registration, $ack, $db] = diagnosticV1Fixture();
+$records = [];
+$beforeRejectedActor = serialize($db->npcs[11]);
+$rejectedEvidence = 'not present in the reflection';
+$evidenceLog = captureRequestLog($records);
+same(
+    'model-invalid',
+    mindPoisoningEvaluateReflection($registration, $ack, $db, static fn(): bool => true, static fn(): string => diagnosticResponse($rejectedEvidence), $evidenceLog),
+    'Invalid reflection evidence must preserve the existing model-invalid status.'
+);
+$evidenceTerminal = diagnosticTerminal($records, 'rejected', 'judgment_evidence_invalid', 'warning');
+same('not_exact_excerpt', $evidenceTerminal['evidence_rejection'] ?? null, 'The reflection terminal must carry the fixed evidence detail.');
+$reflectionModelFinished = array_values(array_filter($records, static fn(array $record): bool => ($record['event'] ?? null) === 'reflection_model_finished'));
+same(1, count($reflectionModelFinished), 'A rejected reflection response must have one model-finished event.');
+same('judgment_evidence_invalid', $reflectionModelFinished[0]['reason'] ?? null, 'The reflection model event must preserve the existing reason.');
+same('not_exact_excerpt', $reflectionModelFinished[0]['evidence_rejection'] ?? null, 'The reflection model event must carry the fixed evidence detail.');
+check(!str_contains(json_encode($records, JSON_THROW_ON_ERROR), $rejectedEvidence), 'Reflection logs must not disclose rejected evidence text.');
+same($beforeRejectedActor, serialize($db->npcs[11]), 'Rejected reflection evidence must not persist actor state.');
+same([], $db->history, 'Rejected reflection evidence must not create history.');
+
+resetAckLoggingInteraction();
 [$registration, $ack, $db, $lines] = diagnosticReplyFixture(['Lydia betrayed me.', 'I remember the evening.']);
 $db->events[$lines[0]['event_id']]['source_data'] = 'Aela: A different line. (Talking to explicit_disable_rechat)';
 $records = [];

@@ -8,9 +8,11 @@ Skyrim already has dragons, a civil war and Nazeem. Naturally, it also needed go
 
 ## Pick your particular disaster
 
-### Mind Poisoning 0.1.31 — BETA CANDIDATE
+### Mind Poisoning 0.1.32 — BETA CANDIDATE
 
-**New in 0.1.31.** A verified original Player gift from compatible Sealed Fates dev.34 can earn one affinity point. A recipient can still react negatively. A forged or unverified sender cannot earn positive affinity or a relationship-type change from an attached gift. The gift checkbox is currently in Sealed Fates' web composer. The llama is accepting receipts in lieu of character references.
+**New in 0.1.32.** A stray name match no longer vetoes a whole batch of valid gossip. The dashboard and diagnostic export now explain evidence rejections without printing the dialogue. Apparently the Letter Carrier has enough to do.
+
+**Since 0.1.31.** A verified original Player gift from compatible Sealed Fates dev.34 can earn one affinity point. A recipient can still react negatively. A forged or unverified sender cannot earn positive affinity or a relationship-type change from an attached gift. The gift checkbox is currently in Sealed Fates' web composer. The llama is accepting receipts in lieu of character references.
 
 Gossip can change an NPC's opinion of the person being discussed. A listener can believe praise, resent a reported betrayal, doubt the speaker or change nothing. Player-origin claims and compatible Private Conversation reflections are supported; optional overhearing can include eligible witnesses. Effects go into CHIM's relationship data, while Skyrim's native relationship ranks remain separate. Our reputation-management qualifications amount to an unusually large sample of Skyrim gossip.
 
@@ -26,9 +28,9 @@ Arrangements follow the restored plugin timeline under **both** CHIM restore pol
 
 Use **Plugin Manager → Plugin Page → Interactions** to compare proposed and confirmed results; the [read-only dashboard](docs/dashboard.md) separates arrangement transitions from affinity/type. **Logs → Download filtered plugin log** exports useful diagnostics. The [player guide](docs/mind-poisoning.md) covers ordinary gameplay and reflection; there is no special Mind Poisoning conversation command.
 
-The release remains **BETA CANDIDATE**. Confirm the release assets and matching `SHA256SUMS.txt` before installing; a checksum verifies downloaded bytes, not CHIM sync. See the [0.1.31 release checks](docs/release-v0.1.31.md) for source evidence and limits, plus the [0.1.29](docs/verification-v0.1.29.md), [0.1.28](docs/verification-v0.1.28.md), [0.1.27](docs/verification-v0.1.27.md) and [historical acceptance](docs/live-acceptance-summary.md) records. Publishing is not a maturity promotion.
+The release remains **BETA CANDIDATE**. Confirm the release assets and matching `SHA256SUMS.txt` before installing; a checksum verifies downloaded bytes, not CHIM sync. See the [0.1.32 release checks](docs/release-v0.1.32.md) for source evidence and limits, plus the [0.1.29](docs/verification-v0.1.29.md), [0.1.28](docs/verification-v0.1.28.md), [0.1.27](docs/verification-v0.1.27.md) and [historical acceptance](docs/live-acceptance-summary.md) records. Publishing is not a maturity promotion.
 
-[Recommended MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.31/mind_poisoning-0.1.31-mo2.zip) · [Release notes](docs/release-v0.1.31.md) · [Release and checksums](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.31) · [Source](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) · [Player guide](docs/mind-poisoning.md) · [Arrangement guide](docs/intimacy-arrangements.md) · [Developer API](docs/integration-api.md) · [Written-evidence API](docs/written-evidence-api.md)
+[Recommended MO2 ZIP](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.32/mind_poisoning-0.1.32-mo2.zip) · [Release notes](docs/release-v0.1.32.md) · [Release and checksums](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/tag/mind_poisoning-v0.1.32) · [Source](https://github.com/Francisco-boop-001/CHIM-MindPoisoning) · [Player guide](docs/mind-poisoning.md) · [Arrangement guide](docs/intimacy-arrangements.md) · [Developer API](docs/integration-api.md) · [Written-evidence API](docs/written-evidence-api.md)
 
 Companion versions below belong to this repository's retained snapshot; use the [main plugins page](https://github.com/Francisco-boop-001/CHIM-Plugins#pick-your-particular-disaster) for current companion releases.
 
@@ -56,17 +58,17 @@ None needs an extra ESP/ESL or Papyrus companion. Sworn & Scorned does require P
 
 ## Current releases and downloads
 
-Check the 0.1.31 release and its `SHA256SUMS.txt` before installing; a checksum verifies downloaded bytes, not CHIM sync. The 0.1.31 plain MO2 ZIP is the recommended route for MO2 users. It records its version and source in root `meta.ini` and contains `CHIM/server-plugins/mind_poisoning/0.1.31.dwpkg`, so no second download, manual unpacking, or package insertion is needed. MO2 may still show its Skyrim content warning, and metadata does not prove CHIM read or synchronized the package. The raw DWPkg is an advanced alternative for manual CHIM file sync; the server TAR is an advanced alternative for an existing manifest/channel install. The separate flat `chim-plugin.tar.gz` is the experimental topic-discovery route for a newer CHIM manager. GitHub's autogenerated Source code archives are not installers.
+Check the 0.1.32 release and its `SHA256SUMS.txt` before installing; a checksum verifies downloaded bytes, not CHIM sync. The 0.1.32 plain MO2 ZIP is the recommended route for MO2 users. It records its version and source in root `meta.ini` and contains `CHIM/server-plugins/mind_poisoning/0.1.32.dwpkg`, so no second download, manual unpacking, or package insertion is needed. MO2 may still show its Skyrim content warning, and metadata does not prove CHIM read or synchronized the package. The raw DWPkg is an advanced alternative for manual CHIM file sync; the server TAR is an advanced alternative for an existing manifest/channel install. The separate flat `chim-plugin.tar.gz` is the experimental topic-discovery route for a newer CHIM manager. GitHub's autogenerated Source code archives are not installers.
 
 Pick one install route per plugin. Each release page lists its `SHA256SUMS.txt` file.
 
 | Plugin | MO2 ZIP (recommended for MO2 users) | Advanced: CHIM DWPkg (manual file sync) | Advanced: server TAR (existing manifest/channel) |
 | --- | --- | --- | --- |
-| Mind Poisoning 0.1.31 | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.31/mind_poisoning-0.1.31-mo2.zip) | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.31/mind_poisoning-0.1.31.dwpkg) | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.31/mind_poisoning.tar.gz) |
+| Mind Poisoning 0.1.32 | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.32/mind_poisoning-0.1.32-mo2.zip) | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.32/mind_poisoning-0.1.32.dwpkg) | [Download](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.32/mind_poisoning.tar.gz) |
 | Private Conversation 0.1.16 | [Download](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.16/private_conversation-0.1.16-mo2.zip) | [Download](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.16/private_conversation-0.1.16.dwpkg) | [Download](https://github.com/Francisco-boop-001/CHIM-PrivateConversation/releases/download/private_conversation-v0.1.16/private_conversation.tar.gz) |
 | Sworn & Scorned 0.1.5 | [Download](https://github.com/Francisco-boop-001/CHIM-SwornAndScorned/releases/download/sworn_and_scorned-v0.1.5/sworn_and_scorned-0.1.5-mo2.zip) | [Download](https://github.com/Francisco-boop-001/CHIM-SwornAndScorned/releases/download/sworn_and_scorned-v0.1.5/sworn_and_scorned-0.1.5.dwpkg) | [Download](https://github.com/Francisco-boop-001/CHIM-SwornAndScorned/releases/download/sworn_and_scorned-v0.1.5/sworn_and_scorned.tar.gz) |
 
-Experimental CHIM topic-discovery route: flat [`chim-plugin.tar.gz`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.31/chim-plugin.tar.gz). Use one Mind Poisoning route per server; see the [0.1.31 release checks](docs/release-v0.1.31.md) before choosing it.
+Experimental CHIM topic-discovery route: flat [`chim-plugin.tar.gz`](https://github.com/Francisco-boop-001/CHIM-MindPoisoning/releases/download/mind_poisoning-v0.1.32/chim-plugin.tar.gz). Use one Mind Poisoning route per server; see the [0.1.32 release checks](docs/release-v0.1.32.md) before choosing it.
 
 ## Install carefully
 
@@ -74,7 +76,7 @@ Use one route for each plugin. A clean Mind Poisoning install through one route 
 
 For the Manager route, disable or remove the MO2 sync source before installing and do not load a save while it can resync. For MO2, update as **Replace**, never **Merge**, and do not click Mind Poisoning **Install/Update** in the web Plugin Manager. After any install or route change, verify exactly one of `ext/mind_poisoning` or `ext/CHIM-MindPoisoning` exists; if both remain, follow the linked recovery guide. Disabling or removing MO2 alone does not uninstall a server copy. Back up the database and config before folder cleanup; deleting extension code does not remove stored affinity or history from CHIM's database. Follow the [deployment and migration guide](docs/deployment-migration.md) for version-specific recovery.
 
-For Mind Poisoning through MO2, launch Skyrim through MO2 with CHIM connected and load a save. On CHIM's Server Plugins page, open **Automatic Game Plugin Sync** and choose **Refresh Status**. Confirm `mind_poisoning` version `0.1.31` before opening CHIM Plugin Manager → **Plugin Page**. The [player guide](docs/mind-poisoning.md) has the full steps and sync troubleshooting.
+For Mind Poisoning through MO2, launch Skyrim through MO2 with CHIM connected and load a save. On CHIM's Server Plugins page, open **Automatic Game Plugin Sync** and choose **Refresh Status**. Confirm `mind_poisoning` version `0.1.32` before opening CHIM Plugin Manager → **Plugin Page**. The [player guide](docs/mind-poisoning.md) has the full steps and sync troubleshooting.
 
 CHIM stores relationship data on the server. A separate Skyrim save or MO2 profile does not isolate that database, and removing a plugin does not undo its stored data. Use a separate CHIM server/database for testing.
 

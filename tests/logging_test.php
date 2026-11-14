@@ -97,6 +97,76 @@ loggingCheck(!isset($decoded[0]['speech'], $decoded[0]['speaker_name'], $decoded
 loggingCheck(strpos($records[0][0], 'private') === false, 'raw speech and credential values must not appear.');
 loggingCheck(count(array_filter($decoded, static fn(array $record): bool => ($record['event'] ?? '') === 'request_finished')) === 1, 'finish must emit exactly one summary.');
 
+$evidenceRejectionTokens = ['wrong_type', 'blank', 'too_long', 'invalid_utf8', 'not_exact_excerpt'];
+$writtenRejectionRecords = [];
+$writtenRejectionLog = new RequestLog(static function (string $json) use (&$writtenRejectionRecords): void {
+    $writtenRejectionRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$writtenRejectionLog->context(['source_kind' => 'written_evidence']);
+foreach ($evidenceRejectionTokens as $token) {
+    $writtenRejectionLog->event('request_finished', 'warning', [
+        'reason' => 'judgment_evidence_invalid',
+        'evidence_rejection' => $token,
+        'source_data' => 'PRIVATE DOCUMENT BODY',
+        'source_digest' => str_repeat('a', 64),
+        'model_reason' => 'PRIVATE MODEL PROSE',
+    ]);
+}
+loggingCheck(
+    array_column($writtenRejectionRecords, 'evidence_rejection') === $evidenceRejectionTokens
+        && array_reduce($writtenRejectionRecords, static fn(bool $safe, array $record): bool => $safe
+            && ($record['reason'] ?? null) === 'judgment_evidence_invalid'
+            && ($record['source_kind'] ?? null) === 'written_evidence'
+            && !array_key_exists('source_data', $record)
+            && !array_key_exists('source_digest', $record)
+            && !array_key_exists('model_reason', $record), true),
+    'The written-evidence allowlist should retain only fixed rejection tokens for evidence validation failures.'
+);
+
+$playerRejectionRecords = [];
+$playerRejectionLog = new RequestLog(static function (string $json) use (&$playerRejectionRecords): void {
+    $playerRejectionRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$playerRejectionLog->context(['speaker_kind' => 'player', 'speaker_id' => 99, 'utterance_id' => 'input_42']);
+$playerRejectionLog->event('request_finished', 'warning', [
+    'outcome' => 'invalid',
+    'reason' => 'judgment_evidence_invalid',
+    'evidence_rejection' => 'wrong_type',
+    'speech' => 'PRIVATE PLAYER SPEECH',
+]);
+loggingCheck(
+    ($playerRejectionRecords[0]['evidence_rejection'] ?? null) === 'wrong_type'
+        && ($playerRejectionRecords[0]['speaker_kind'] ?? null) === 'player'
+        && !array_key_exists('source_kind', $playerRejectionRecords[0])
+        && !array_key_exists('speaker_id', $playerRejectionRecords[0])
+        && !array_key_exists('speech', $playerRejectionRecords[0]),
+    'A fixed evidence rejection should survive on Player input without inventing a written-evidence source or exposing speech.'
+);
+
+$invalidRejectionRecords = [];
+$invalidRejectionLog = new RequestLog(static function (string $json) use (&$invalidRejectionRecords): void {
+    $invalidRejectionRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$invalidRejectionLog->context(['source_kind' => 'written_evidence']);
+$invalidRejectionLog->event('wrong_parent', 'warning', [
+    'reason' => 'judgment_delta_invalid',
+    'evidence_rejection' => 'blank',
+]);
+$invalidRejectionLog->event('unknown_rejection', 'warning', [
+    'reason' => 'judgment_evidence_invalid',
+    'evidence_rejection' => 'private evidence text',
+]);
+$contextRejectionLog = new RequestLog(static function (string $json) use (&$invalidRejectionRecords): void {
+    $invalidRejectionRecords[] = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+}, false);
+$contextRejectionLog->context(['source_kind' => 'written_evidence', 'reason' => 'judgment_evidence_invalid', 'evidence_rejection' => 'blank']);
+$contextRejectionLog->event('context_only', 'warning', ['reason' => 'judgment_evidence_invalid']);
+loggingCheck(
+    count($invalidRejectionRecords) === 3
+        && array_reduce($invalidRejectionRecords, static fn(bool $safe, array $record): bool => $safe && !isset($record['evidence_rejection']), true),
+    'Unknown tokens, other parent reasons, and context-carried details must not reach log records.'
+);
+
 $inputIdRecords = [];
 foreach (['input_1', 'input_9223372036854775807'] as $inputId) {
     $inputIdLog = new RequestLog(static function (string $json) use (&$inputIdRecords): void {

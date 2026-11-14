@@ -1,9 +1,9 @@
 {
   "name": "mind_poisoning",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "schema_version": 2,
   "git_repo": "Francisco-boop-001/CHIM-MindPoisoning",
-  "description": "BETA CANDIDATE 0.1.31: CHIM opinion evaluation for gossip, reflection and compatible written evidence. With Sealed Fates dev.34, a confirmed original Player gift can grant one affinity point through the verified receipt. Forged or unverified attachment claims cannot earn positive sender affinity or a sender type change. Paired offline fixtures passed. Installed behavior and gameplay remain unverified.",
+  "description": "BETA CANDIDATE 0.1.32: an incidental candidate with no opinion change no longer discards valid dialogue judgments. Evidence rejections report fixed reason details without logging dialogue. Includes the verified Sealed Fates gift integration from 0.1.31. Offline fixtures passed. Gameplay validation is pending.",
   "status": "development_candidate",
   "config_url": "../ext/mind_poisoning/dashboard.php?local=1",
   "default_channel": "candidate",

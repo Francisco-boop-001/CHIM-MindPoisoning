@@ -683,8 +683,9 @@ function evaluateWrittenEvidence(
             'reason' => $reason,
             'elapsed_ms' => RequestLog::elapsedMs($started),
             'model_ms' => $extra['model_ms'] ?? 0.0,
+            'evidence_rejection' => $reason === 'judgment_evidence_invalid' ? ($extra['evidence_rejection'] ?? null) : null,
         ]);
-        unset($extra['model_outcome'], $extra['model_ms']);
+        unset($extra['model_outcome'], $extra['model_ms'], $extra['evidence_rejection']);
         return writtenEvidenceApiResult($resultStatus, $reason, ['event_id' => $eventId] + $extra);
     };
 
@@ -767,11 +768,15 @@ function evaluateWrittenEvidence(
                 throw new ModelRequestFailure('model_response_invalid_type');
             }
             $modelOutcome = 'succeeded';
-            $judgments = parseJudgments($rawResponse, $subjects, $event['text'], $currentTypes);
+            $judgments = parseJudgments($rawResponse, $subjects, $event['text'], $currentTypes, allowBlankNoOpEvidence: false);
         } catch (ModelRequestFailure $error) {
             return $finish('failed', $error->reasonCode, ['model_outcome' => 'failed', 'model_ms' => $modelMs]);
         } catch (JudgmentValidationFailure $error) {
-            return $finish('failed', $error->reasonCode, ['model_outcome' => 'invalid', 'model_ms' => $modelMs]);
+            return $finish('failed', $error->reasonCode, [
+                'model_outcome' => 'invalid',
+                'model_ms' => $modelMs,
+                'evidence_rejection' => $error->evidenceRejection,
+            ]);
         } catch (Throwable) {
             return $finish('failed', 'evaluation_failed', ['model_outcome' => 'failed', 'model_ms' => $modelMs]);
         }

@@ -216,6 +216,22 @@ try {
 }
 check($proseFenceRejected, 'JSON fences embedded in arbitrary prose must remain invalid.');
 
+$invalidIntimacyEvidence = 'not in the source utterance';
+$invalidIntimacyResponse = json_encode([
+    'intimacy' => ['status' => 'casual', 'evidence' => $invalidIntimacyEvidence],
+], JSON_THROW_ON_ERROR);
+$invalidIntimacyFailure = null;
+try {
+    \ChimMindPoisoning\parseIntimacyResponse($invalidIntimacyResponse, $intimacyUtterance);
+} catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+    $invalidIntimacyFailure = [$error->reasonCode, $error->evidenceRejection];
+}
+same(
+    ['judgment_evidence_invalid', 'not_exact_excerpt'],
+    $invalidIntimacyFailure,
+    'The intimacy parser must preserve its parent reason and classify an unsupported excerpt.'
+);
+
 resetAckLoggingInteraction();
 $calls = 0;
 [$status, $db, $eventId, $utteranceId, $speech, $records] = runIntimacyAck(
@@ -239,6 +255,25 @@ same('committed', $directTerminal[0]['outcome'] ?? null, 'The terminal event mus
 same('valid', $directTerminal[0]['model_outcome'] ?? null, 'The terminal record should distinguish a valid model response from persistence outcome.');
 check(is_float($directTerminal[0]['model_ms'] ?? null) || is_int($directTerminal[0]['model_ms'] ?? null), 'The terminal record should include bounded model latency.');
 check(!array_key_exists('speech_hash', $directTerminal[0]) && !array_key_exists('text', $directTerminal[0]), 'The terminal event must not expose source hashes or utterance text.');
+
+resetAckLoggingInteraction();
+$rejectedCalls = 0;
+[$rejectedStatus, $rejectedDb, $rejectedEventId, $rejectedUtteranceId, $_rejectedSpeech, $rejectedRecords] = runIntimacyAck([], $invalidIntimacyResponse, $rejectedCalls);
+same('no-subjects', $rejectedStatus, 'Rejected direct evidence must not change the ordinary ACK result.');
+same(1, $rejectedCalls, 'The invalid direct evidence fixture must make one classifier call.');
+same(null, intimacyStoredRecord($rejectedDb, 11, 'npc:22'), 'Rejected direct evidence must not write an arrangement.');
+check(!intimacyHasReceipt($rejectedDb, 11, $rejectedEventId, $rejectedUtteranceId), 'Rejected direct evidence must not write an idempotency receipt.');
+$rejectedDirectTerminal = array_values(array_filter($rejectedRecords, static fn(array $entry): bool => ($entry['event'] ?? null) === 'intimacy_finished'));
+same(1, count($rejectedDirectTerminal), 'Rejected direct evidence must retain one terminal record.');
+same('model-invalid', $rejectedDirectTerminal[0]['outcome'] ?? null, 'The direct terminal must preserve its model-invalid outcome.');
+same('judgment_evidence_invalid', $rejectedDirectTerminal[0]['reason'] ?? null, 'The direct terminal must preserve the parent reason.');
+same('not_exact_excerpt', $rejectedDirectTerminal[0]['evidence_rejection'] ?? null, 'The direct terminal must carry the fixed evidence detail.');
+$rejectedDirectModel = array_values(array_filter($rejectedRecords, static fn(array $entry): bool => ($entry['event'] ?? null) === 'intimacy_model_finished'));
+same(1, count($rejectedDirectModel), 'Rejected direct evidence must retain one model-finished record.');
+same('judgment_evidence_invalid', $rejectedDirectModel[0]['reason'] ?? null, 'The direct model event must preserve the parent reason.');
+same('not_exact_excerpt', $rejectedDirectModel[0]['evidence_rejection'] ?? null, 'The direct model event must carry the fixed evidence detail.');
+check(!str_contains(json_encode($rejectedRecords, JSON_THROW_ON_ERROR), $invalidIntimacyEvidence), 'Intimacy logs must not disclose rejected evidence text.');
+
 $directPersistence = array_values(array_filter(
     $records,
     static fn(array $entry): bool => ($entry['event'] ?? null) === 'persistence_finished' && ($entry['source_kind'] ?? null) === 'intimacy'

@@ -422,6 +422,10 @@ function dashboardParseLogLine(string $line): ?array
             $clean[$field] = $value;
         }
     }
+    $evidenceRejection = dashboardEvidenceRejection($clean['reason'] ?? null, $record->evidence_rejection ?? null);
+    if ($evidenceRejection !== null) {
+        $clean['evidence_rejection'] = $evidenceRejection;
+    }
     $commitState = $record->commit_state ?? null;
     if (in_array($commitState, ['confirmed', 'unconfirmed', 'not_attempted'], true)) {
         $clean['commit_state'] = $commitState;
@@ -1181,6 +1185,11 @@ function dashboardWrittenTerminalOutcome(mixed $outcome): bool
     return in_array($outcome, ['processed', 'pending', 'paused', 'abstained', 'invalid', 'failed'], true);
 }
 
+function dashboardEvidenceRejection(mixed $reason, mixed $value): ?string
+{
+    return $reason === 'judgment_evidence_invalid' ? RequestLog::evidenceRejectionToken($value) : null;
+}
+
 function dashboardIndexRecords(array $records): array
 {
     $index = [];
@@ -1739,6 +1748,10 @@ function dashboardLogInteraction(array $record, ?string $playthroughId, string $
     if ($ownerScoped) {
         $interaction['source_kind'] = $record['source_kind'];
         $interaction['opinion_owner'] = $opinionOwner;
+    }
+    $evidenceRejection = dashboardEvidenceRejection($record['reason'] ?? null, $record['evidence_rejection'] ?? null);
+    if ($evidenceRejection !== null) {
+        $interaction['evidence_rejection'] = $evidenceRejection;
     }
     return $interaction;
 }

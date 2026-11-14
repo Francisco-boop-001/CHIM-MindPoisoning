@@ -528,6 +528,42 @@ $badBatch = overhearingExecute(
 );
 overhearingCheck($badBatch['status'] === 'model-invalid' && $badBatch['calls'] === 1 && !overhearingLedgerHas($badBatch['db'], 22) && !overhearingLedgerHas($badBatch['db'], 44), 'A malformed recipient tuple must reject before any listener write.');
 
+$sharedEvidenceExcerpt = 'not in the shared utterance';
+$badEvidenceBatch = overhearingExecute(
+    '|Aela|Lydia|Inigo|',
+    true,
+    static function (array $messages) use ($sharedEvidenceExcerpt): string {
+        $response = json_decode(overhearingBatchResponse($messages), true, 64, JSON_THROW_ON_ERROR);
+        $response['judgments'][0]['evidence'] = $sharedEvidenceExcerpt;
+        return json_encode($response, JSON_THROW_ON_ERROR);
+    }
+);
+overhearingCheck(
+    $badEvidenceBatch['status'] === 'model-invalid'
+        && !overhearingLedgerHas($badEvidenceBatch['db'], 22)
+        && !overhearingLedgerHas($badEvidenceBatch['db'], 44)
+        && $badEvidenceBatch['db']->history === [],
+    'Invalid evidence in the shared response must reject before any listener write.'
+);
+$sharedModelFinished = array_values(array_filter($badEvidenceBatch['records'], static fn(array $record): bool => ($record['event'] ?? null) === 'model_finished'));
+overhearingCheck(count($sharedModelFinished) === 1, 'The shared model response should have one model-finished record.');
+overhearingCheck(
+    ($sharedModelFinished[0]['reason'] ?? null) === 'judgment_evidence_invalid'
+        && ($sharedModelFinished[0]['evidence_rejection'] ?? null) === 'not_exact_excerpt',
+    'The shared model record must preserve the parent reason and fixed detail.'
+);
+$sharedPrimaryTerminal = overhearingFinishedFor($badEvidenceBatch['records'], 22);
+$sharedOtherTerminal = overhearingFinishedFor($badEvidenceBatch['records'], 44);
+overhearingCheck(
+    count($sharedPrimaryTerminal) === 1 && ($sharedPrimaryTerminal[0]['evidence_rejection'] ?? null) === 'not_exact_excerpt'
+        && count($sharedOtherTerminal) === 1 && ($sharedOtherTerminal[0]['evidence_rejection'] ?? null) === 'not_exact_excerpt',
+    'Every rejected batch terminal must carry the shared response detail, with no claim about individual evidence.'
+);
+overhearingCheck(
+    !str_contains(json_encode($badEvidenceBatch['records'], JSON_THROW_ON_ERROR), $sharedEvidenceExcerpt),
+    'Overhearing logs must not disclose rejected evidence text.'
+);
+
 // One listener can fail independently; confirmed commits and uncertain commits stay visible per listener.
 $partial = overhearingExecute(
     '|Aela|Lydia|Inigo|',

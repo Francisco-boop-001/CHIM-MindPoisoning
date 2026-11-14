@@ -278,6 +278,70 @@ writtenDashboardAssert(
     'A written record must reject a recipient that differs from its opinion owner.'
 );
 
+$rejectionWire = [];
+$rejectionLog = new RequestLog(static function (string $json) use (&$rejectionWire): void {
+    $rejectionWire[] = $json;
+}, false);
+$rejectionLog->context([
+    'source_kind' => 'written_evidence',
+    'event_id' => 447,
+    'playthrough_id' => '7',
+    'opinion_owner_id' => 22,
+    'recipient_id' => 22,
+]);
+$rejectionLog->event('request_finished', 'warning', [
+    'outcome' => 'invalid',
+    'reason' => 'judgment_evidence_invalid',
+    'evidence_rejection' => 'wrong_type',
+    'source_data' => 'PRIVATE DOCUMENT BODY',
+    'source_digest' => str_repeat('a', 64),
+    'model_reason' => 'PRIVATE MODEL PROSE',
+]);
+$rejectionRecord = dashboardParseLogLine('[warning] ' . ($rejectionWire[0] ?? ''));
+writtenDashboardAssert(
+    is_array($rejectionRecord)
+        && ($rejectionRecord['reason'] ?? null) === 'judgment_evidence_invalid'
+        && ($rejectionRecord['evidence_rejection'] ?? null) === 'wrong_type'
+        && !array_key_exists('source_data', $rejectionRecord)
+        && !array_key_exists('source_digest', $rejectionRecord)
+        && !array_key_exists('model_reason', $rejectionRecord),
+    'The logger-to-reader path must retain a fixed rejection token and discard private written evidence.'
+);
+$forgedRejection = json_decode($rejectionWire[0], true, 32, JSON_THROW_ON_ERROR);
+$forgedRejection['reason'] = 'judgment_delta_invalid';
+$wrongParentRecord = dashboardParseLogLine('[warning] ' . json_encode($forgedRejection, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+$forgedRejection['reason'] = 'judgment_evidence_invalid';
+$forgedRejection['evidence_rejection'] = 'PRIVATE DOCUMENT BODY';
+$unknownTokenRecord = dashboardParseLogLine('[warning] ' . json_encode($forgedRejection, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+writtenDashboardAssert(
+    is_array($wrongParentRecord) && !isset($wrongParentRecord['evidence_rejection'])
+        && is_array($unknownTokenRecord) && !isset($unknownTokenRecord['evidence_rejection']),
+    'The reader must strip an unknown token or one attached to a different reason.'
+);
+$playerRejection = $forgedRejection;
+unset($playerRejection['source_kind'], $playerRejection['opinion_owner_id'], $playerRejection['recipient_id']);
+$playerRejection['speaker_kind'] = 'player';
+$playerRejection['speaker_id'] = '99';
+$playerRejection['utterance_id'] = 'input_42';
+$playerRejection['evidence_rejection'] = 'wrong_type';
+$playerRecord = dashboardParseLogLine('[warning] ' . json_encode($playerRejection, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+writtenDashboardAssert(
+    is_array($playerRecord) && ($playerRecord['evidence_rejection'] ?? null) === 'wrong_type'
+        && ($playerRecord['speaker_kind'] ?? null) === 'player'
+        && !array_key_exists('source_kind', $playerRecord)
+        && !array_key_exists('speaker_id', $playerRecord),
+    'The reader must retain fixed rejection detail on Player input without inventing a written source or exposing a speaker ID.'
+);
+$filteredRejection = dashboardRecordMatches($rejectionRecord, ['tab' => 'diagnostics', 'q' => 'wrong_type', 'outcome' => '', 'level' => '']);
+$rejectionJsonl = $filteredRejection
+    ? json_encode($rejectionRecord, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+    : '';
+writtenDashboardAssert(
+    $filteredRejection && str_contains($rejectionJsonl, '"evidence_rejection":"wrong_type"')
+        && !str_contains($rejectionJsonl, 'PRIVATE DOCUMENT BODY'),
+    'Filtered diagnostic records must remain searchable and retain only the fixed token for JSONL export.'
+);
+
 $limited = false;
 $interactions = dashboardLogInteractions($records, null, false, $limited);
 writtenDashboardAssert(
@@ -383,6 +447,39 @@ writtenDashboardAssert(
         && !str_contains($html, 'utt_forged_written_source')
         && !str_contains($html, 'NPC #99'),
     'The interactions card must show recipient-side logged results without document text or a claimed sender/utterance.'
+);
+
+$rejectionInteractionLimited = false;
+$rejectionInteractions = dashboardLogInteractions([$rejectionRecord], null, false, $rejectionInteractionLimited);
+writtenDashboardAssert(
+    count($rejectionInteractions) === 1
+        && ($rejectionInteractions[0]['reason'] ?? null) === 'judgment_evidence_invalid'
+        && ($rejectionInteractions[0]['evidence_rejection'] ?? null) === 'wrong_type'
+        && \ChimMindPoisoning\dashboardInteractionMatches($rejectionInteractions[0], ['q' => 'wrong_type', 'outcome' => '']),
+    'A sanitized evidence rejection must reach the Interactions projection.'
+);
+$htmlModel['interactions'] = $rejectionInteractions;
+ob_start();
+renderDashboard($htmlModel, ['tab' => 'interactions', 'theme' => 'day', 'q' => '', 'outcome' => '', 'level' => '']);
+$rejectionHtml = ob_get_clean();
+writtenDashboardAssert(
+    is_string($rejectionHtml)
+        && str_contains($rejectionHtml, 'Evidence rejection')
+        && str_contains($rejectionHtml, 'The evidence value was not text.')
+        && !str_contains($rejectionHtml, 'PRIVATE DOCUMENT BODY'),
+    'Interactions must explain a closed rejection code without exposing written evidence.'
+);
+$htmlModel['records'] = [$rejectionRecord];
+ob_start();
+renderDashboard($htmlModel, ['tab' => 'diagnostics', 'theme' => 'day', 'q' => '', 'outcome' => '', 'level' => '']);
+$rejectionDiagnosticsHtml = ob_get_clean();
+writtenDashboardAssert(
+    is_string($rejectionDiagnosticsHtml)
+        && str_contains($rejectionDiagnosticsHtml, 'Evidence rejection')
+        && str_contains($rejectionDiagnosticsHtml, 'The evidence value was not text.')
+        && str_contains($rejectionDiagnosticsHtml, '&quot;evidence_rejection&quot;: &quot;wrong_type&quot;')
+        && !str_contains($rejectionDiagnosticsHtml, 'PRIVATE DOCUMENT BODY'),
+    'Logs must explain the closed rejection code and retain it in the sanitized JSON record.'
 );
 
 $htmlModel['interactions'] = $terminalOnlyInteractions;

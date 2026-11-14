@@ -649,7 +649,12 @@ function evaluateReflection(
     } catch (JudgmentValidationFailure $error) {
         $logFields['model_outcome'] = 'invalid';
         $logFields['reason'] = $error->reasonCode;
-        $requestLog?->event('reflection_model_finished', 'warning', ['stage' => 'model', 'model_outcome' => 'invalid', 'reason' => $error->reasonCode, 'model_ms' => $logFields['model_ms']]);
+        $logFields['evidence_rejection'] = $error->evidenceRejection;
+        $requestLog?->event('reflection_model_finished', 'warning', [
+            'stage' => 'model', 'model_outcome' => 'invalid', 'reason' => $error->reasonCode,
+            'model_ms' => $logFields['model_ms'],
+            'evidence_rejection' => $error->evidenceRejection,
+        ]);
         return $fail('model-invalid', $error->reasonCode);
     }
     $logFields['model_outcome'] = 'valid';

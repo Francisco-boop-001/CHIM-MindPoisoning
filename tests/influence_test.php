@@ -25,6 +25,18 @@ function rejected(callable $call, string $message): void
     throw new RuntimeException($message);
 }
 
+function classifiedEvidenceRejection(callable $call, string $expected): void
+{
+    try {
+        $call();
+    } catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+        check($error->reasonCode === 'judgment_evidence_invalid', 'Evidence details must preserve the judgment_evidence_invalid reason.');
+        check($error->evidenceRejection === $expected, 'Evidence rejection detail should be ' . $expected . '.');
+        return;
+    }
+    throw new RuntimeException('Invalid evidence should be rejected as ' . $expected . '.');
+}
+
 function judgment(string $subject, mixed $delta = 1, string $evidence = 'Farkas saved Dovah'): array
 {
     return [
@@ -476,6 +488,35 @@ $longEvidence = $valid;
 $longEvidence[0]['evidence'] = str_repeat('F', 601);
 rejected(fn() => parseJudgments(encoded($longEvidence), $parseSubjects, $parseUtterance), 'Oversized evidence should be rejected.');
 
+$wrongTypeEvidence = $valid;
+$wrongTypeEvidence[0]['evidence'] = 42;
+classifiedEvidenceRejection(fn() => parseJudgments(encoded($wrongTypeEvidence), $parseSubjects, $parseUtterance), 'wrong_type');
+classifiedEvidenceRejection(fn() => parseJudgments(encoded($emptyEvidence), $parseSubjects, $parseUtterance), 'blank');
+classifiedEvidenceRejection(fn() => parseJudgments(encoded($longEvidence), $parseSubjects, $parseUtterance), 'too_long');
+classifiedEvidenceRejection(
+    fn() => parseJudgments(encoded([judgment('npc:3', 1, 'a fabricated quote'), $valid[1], $valid[2]]), $parseSubjects, $parseUtterance),
+    'not_exact_excerpt'
+);
+check(
+    \ChimMindPoisoning\judgmentEvidenceRejection("\xFF", $parseUtterance, 600) === 'invalid_utf8',
+    'Invalid UTF-8 evidence should have a fixed classification.'
+);
+$missingEvidenceField = $valid;
+unset($missingEvidenceField[0]['evidence']);
+$missingEvidenceReason = null;
+try {
+    parseJudgments(encoded($missingEvidenceField), $parseSubjects, $parseUtterance);
+} catch (\ChimMindPoisoning\JudgmentValidationFailure $error) {
+    $missingEvidenceReason = [$error->reasonCode, $error->evidenceRejection];
+}
+check($missingEvidenceReason === ['judgment_schema_invalid', null], 'A missing evidence field must remain a schema error without a detail.');
+$legacyValidationPrevious = new RuntimeException('previous validation cause');
+$legacyValidationFailure = new \ChimMindPoisoning\JudgmentValidationFailure('response_json_invalid', $legacyValidationPrevious);
+check(
+    $legacyValidationFailure->getPrevious() === $legacyValidationPrevious && $legacyValidationFailure->evidenceRejection === null,
+    'The existing previous-exception constructor argument must remain compatible.'
+);
+
 $unknown = $valid;
 $unknown[0]['subject'] = 'npc:999';
 rejected(fn() => parseJudgments(encoded($unknown), $parseSubjects, $parseUtterance), 'Unknown subject tokens should be rejected.');
@@ -534,6 +575,46 @@ $falseZeroResponse = json_encode(['judgments' => [[
 $falseZeroParsed = parseJudgments($falseZeroResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
 check($falseZeroParsed['npc:8']['delta'] === 0 && !array_key_exists('subject_mentioned', $falseZeroParsed['npc:8']), 'A non-mention zero must normalize to the existing persistence shape.');
 
+$blankFalseZeroResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => '', 'type_change' => null,
+]]], JSON_THROW_ON_ERROR);
+$blankFalseZeroParsed = parseJudgments($blankFalseZeroResponse, $maySubjects, 'You may trust Jarl Balgruuf.');
+check(
+    $blankFalseZeroParsed['npc:8']['evidence'] === '' && $blankFalseZeroParsed['npc:8']['subject_mentioned'] === false,
+    'An exact empty excerpt is accepted only for a false zero without changes and carries its transient marker.'
+);
+classifiedEvidenceRejection(
+    fn() => parseJudgments($blankFalseZeroResponse, $maySubjects, 'You may trust Jarl Balgruuf.', allowBlankNoOpEvidence: false),
+    'blank'
+);
+$mentionedBlankResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => true, 'delta' => 0, 'reason' => 'The subject was mentioned.', 'evidence' => '',
+]]], JSON_THROW_ON_ERROR);
+classifiedEvidenceRejection(fn() => parseJudgments($mentionedBlankResponse, $maySubjects, 'You may trust Jarl Balgruuf.'), 'blank');
+$effectBlankResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => '',
+    'type_change' => ['from' => 'neutral', 'to' => 'friendly'],
+]]], JSON_THROW_ON_ERROR);
+classifiedEvidenceRejection(fn() => parseJudgments($effectBlankResponse, $maySubjects, 'You may trust Jarl Balgruuf.'), 'blank');
+$unsupportedArrangementBlankResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => '',
+    'arrangement_change' => ['status' => 'romantic', 'evidence' => 'may'],
+]]], JSON_THROW_ON_ERROR);
+classifiedEvidenceRejection(
+    fn() => parseJudgments(
+        $unsupportedArrangementBlankResponse,
+        $maySubjects,
+        'You may trust Jarl Balgruuf.',
+        allowArrangementChange: true,
+        arrangementAllowedSubjects: []
+    ),
+    'blank'
+);
+$whitespaceBlankResponse = json_encode(['judgments' => [[
+    'subject' => 'npc:8', 'subject_mentioned' => false, 'delta' => 0, 'reason' => 'May is only an ordinary word.', 'evidence' => " \t",
+]]], JSON_THROW_ON_ERROR);
+classifiedEvidenceRejection(fn() => parseJudgments($whitespaceBlankResponse, $maySubjects, 'You may trust Jarl Balgruuf.'), 'blank');
+
 $lowercaseNameResponse = json_encode(['judgments' => [[
     'subject' => 'npc:8', 'subject_mentioned' => true, 'delta' => 1, 'reason' => 'The utterance refers to May.', 'evidence' => 'found may at the gate',
 ]]], JSON_THROW_ON_ERROR);
@@ -545,6 +626,7 @@ $mayPromptEvent = $event;
 $mayPromptEvent['text'] = 'You may trust Jarl Balgruuf.';
 $mayMessages = buildMessages($mayPromptEvent, $speaker, $listener, $maySubjects);
 check(str_contains($mayMessages[0]['content'], 'subject_mentioned'), 'The prompt must provide the mention field required by the parser.');
+check(str_contains($mayMessages[0]['content'], 'For a non-mention with delta zero and no type or arrangement change, use the exact empty string as evidence;'), 'The ordinary prompt must request exact empty evidence only for a no-op non-mention.');
 check(
     str_contains($mayMessages[0]['content'], 'type_change')
         && !str_contains($mayMessages[0]['content'], 'Do not edit relationship types')

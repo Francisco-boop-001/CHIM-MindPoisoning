@@ -1003,14 +1003,22 @@ function validSubjectsAndJudgments(array $subjects, array $judgments, array $eve
         }
 
         $judgment = $judgments[$token] ?? null;
+        $blankNoOp = is_array($judgment)
+            && ($event['source_kind'] ?? null) !== 'written_evidence'
+            && ($judgment['evidence'] ?? null) === ''
+            && ($judgment['subject_mentioned'] ?? null) === false
+            && ($judgment['delta'] ?? null) === 0
+            && (!array_key_exists('type_change', $judgment) || $judgment['type_change'] === null)
+            && (!array_key_exists('arrangement_change', $judgment) || $judgment['arrangement_change'] === null);
         if (
             !is_array($judgment)
             || !is_int($judgment['delta'] ?? null)
             || $judgment['delta'] < -5 || $judgment['delta'] > 5
             || !is_string($judgment['reason'] ?? null) || trim($judgment['reason']) === '' || strlen($judgment['reason']) > 600
-            || !is_string($judgment['evidence'] ?? null) || trim($judgment['evidence']) === '' || strlen($judgment['evidence']) > 600
+            || !is_string($judgment['evidence'] ?? null)
+            || (!$blankNoOp && (trim($judgment['evidence']) === '' || strlen($judgment['evidence']) > 600))
             || !is_string($event['text'] ?? null)
-            || !str_contains($event['text'], $judgment['evidence'])
+            || (!$blankNoOp && !str_contains($event['text'], $judgment['evidence']))
         ) {
             return false;
         }

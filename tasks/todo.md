@@ -1131,3 +1131,10 @@ MP0.1.30 completed:12validMPfixes committed/tagged3ce96b5640796db948dae33444dd40
 
 - The only runtime logic diff is the reviewed writer at SHA256 41437b987356f7be2c286f17fdd8c0aa528859c142d0058b1bfd6f322895f4d5. Paired offline PostgreSQL fixture passed on that writer with zero provider calls.
 - Standalone Windows PHP: written evidence (239 checks), written store and store logging passed. Both changed PHP files linted. Eight package tests and four candidate builds passed. Evidence detail and parser work excluded. No WSL, installed or gameplay access.
+
+## 0.1.32 evidence fix release
+
+- [x] Verify the isolated evidence changes against 0.1.31 and build all four installer formats.
+- [ ] Tag, rebuild, verify downloads, and hand exact source pins to Department.
+
+Review: exact reviewed PHP bytes retained. Ten focused Windows PHP fixtures and eight package tests passed. Eighteen PHP files linted. The runtime fixture confirmed Bruce 40 to 39 and Letter Carrier unchanged. Windows symlink cases skipped. Four archives built. No WSL, live, provider, or game access.

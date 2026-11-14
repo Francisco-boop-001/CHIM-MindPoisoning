@@ -99,6 +99,16 @@ The relationship type normally stays as-is. A type change is optional and needs 
 
 In **Logs**, search by request, utterance, or reason, then use the **Outcome** and **Level** filters. Levels are Debug, Info, Warning, and Error. **Download filtered plugin log** saves the filtered records as JSONL. The records are bounded, so save the download soon after reproducing the issue. Default records omit speech; opt-in debug rationale can include a short excerpt or name, so leave debug off and remove private details before sharing. Provider responses are not needed for a useful report.
 
+For `judgment_evidence_invalid`, the dashboard may show an **Evidence rejection** category, which the filtered JSONL also retains:
+
+- `wrong_type`: the evidence value was not text.
+- `blank`: the value was empty or whitespace-only.
+- `too_long`: the value exceeded the byte limit.
+- `invalid_utf8`: the value was not valid UTF-8.
+- `not_exact_excerpt`: the value was not copied exactly from the text being scored.
+
+The `evidence_rejection` field contains only its fixed category; it carries no evidence text, source text, digests, or model rationale. Opt-in debug rationale keeps its existing behavior. A missing evidence field fails the response shape check before this detail is assigned.
+
 For a report, include the Mind Poisoning, CHIM, and (if used) Private Conversation versions; approximate time; speaker, listener, and subject; route (normal speech, Director/injected text, or reflection); expected and actual result; and the before/after relationship-editor values. Attach a screenshot and the filtered log download. “It felt off” is a fair first impression; the row and log are what let someone reproduce it.
 
 The dashboard is read-only. **Pause updates** pauses only the page’s automatic refresh; it does not pause Mind Poisoning. Day/Night changes appearance. Neither control changes plugin settings or relationships. Opening **Plugin Page** may hand a WSL browser off to localhost, but that navigation does not grant access; the dashboard’s existing authentication gate still applies. See the [dashboard guide](dashboard.md).
